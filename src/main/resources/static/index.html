@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SuperMarket POS - Cashier Workstation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Barlow:wght@300;400;500;600;700&family=Barlow+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+
+<div id="auth-screen">
+  <div class="auth-glow auth-glow-1"></div>
+  <div class="auth-glow auth-glow-2"></div>
+
+  <div class="auth-card">
+    <div class="auth-brand">
+      <div class="auth-icon">POS</div>
+      <div class="auth-brand-text">
+        <span class="name">SuperMarket POS</span>
+        <span class="sub">Cashier Workstation</span>
+      </div>
+    </div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab on" id="tab-login"    onclick="switchTab('login')">Sign In</button>
+      <button class="auth-tab"   id="tab-register"  onclick="switchTab('register')">Register</button>
+    </div>
+
+    
+    <div id="form-login" class="auth-form">
+      <div class="input-group">
+        <label class="input-label">Username</label>
+        <input class="input" id="l-user" type="text" placeholder="cashier" autocomplete="username" />
+      </div>
+      <div class="input-group">
+        <label class="input-label">Password</label>
+        <input class="input" id="l-pass" type="password" placeholder="" autocomplete="current-password" />
+      </div>
+      <button class="btn btn-primary btn-lg auth-submit" onclick="doLogin()">Sign In</button>
+    </div>
+
+    
+    <div id="form-register" class="auth-form hidden">
+      <div class="input-group">
+        <label class="input-label">Full Name</label>
+        <input class="input" id="r-name" type="text" placeholder="Cashier One" />
+      </div>
+      <div class="input-group">
+        <label class="input-label">Username</label>
+        <input class="input" id="r-user" type="text" placeholder="cashier1" />
+      </div>
+      <div class="input-group">
+        <label class="input-label">Password</label>
+        <input class="input" id="r-pass" type="password" placeholder="" />
+      </div>
+      <button class="btn btn-primary btn-lg auth-submit" onclick="doRegister()">Create Account</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="app-screen" class="hidden">
+
+  
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <div class="sb-icon"></div>
+      <div class="sb-brand-text">
+        <span class="n">SuperMarket</span>
+        <span class="s">POS System</span>
+      </div>
+    </div>
+
+    <nav class="nav-section">
+      <div class="nav-divider">Cashier</div>
+      <button class="nav-btn on" data-v="home" onclick="gotoView('home')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/>
+        </svg>
+        Home
+      </button>
+      <button class="nav-btn" data-v="pos" onclick="gotoView('pos')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+        Point of Sale
+      </button>
+      <div class="nav-divider">Management</div>
+      <button class="nav-btn" data-v="products" onclick="gotoView('products')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+        </svg>
+        Products
+      </button>
+      <button class="nav-btn" data-v="purchases" onclick="gotoView('purchases')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/>
+        </svg>
+        Purchases
+      </button>
+      <button class="nav-btn" data-v="sales" onclick="gotoView('sales')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        Sales Log
+      </button>
+      <button class="nav-btn" data-v="reports" onclick="gotoView('reports')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="5" width="3" height="12"/>
+        </svg>
+        Reports
+      </button>
+    </nav>
+
+    <div class="nav-spacer"></div>
+
+    <div class="sb-user">
+      <div class="sb-user-row">
+        <div class="avatar" id="user-avatar">C</div>
+        <div class="sb-user-meta">
+          <div class="name" id="user-name">Cashier</div>
+          <div class="role">Cashier</div>
+        </div>
+      </div>
+      <button class="btn btn-logout" onclick="doLogout()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+        Sign Out
+      </button>
+    </div>
+  </aside>
+
+  
+  <div class="main">
+
+    <div id="view-home" class="view on">
+      <div class="home-page">
+        <section class="home-hero">
+          <div>
+            <div class="home-kicker">Cashier Dashboard</div>
+            <h1>Welcome, <span id="home-account-name">Cashier</span></h1>
+            <p>Start a sale, manage products, and review daily activity from one clean workspace.</p>
+          </div>
+          <div class="home-clock">
+            <span id="home-date">Today</span>
+            <strong id="home-time">--:--</strong>
+          </div>
+        </section>
+
+        <section class="home-stats">
+          <div class="home-stat">
+            <span>Products</span>
+            <strong id="home-products-count">0</strong>
+          </div>
+          <div class="home-stat">
+            <span>Sales</span>
+            <strong id="home-sales-count">0</strong>
+          </div>
+          <div class="home-stat">
+            <span>Revenue</span>
+            <strong id="home-revenue">0.00 LEK</strong>
+          </div>
+          <div class="home-stat">
+            <span>Cart Items</span>
+            <strong id="home-cart-count">0</strong>
+          </div>
+        </section>
+
+        <section class="home-actions">
+          <button class="home-action" onclick="gotoView('pos')">
+            <span>New Sale</span>
+            <strong>Open Point of Sale</strong>
+          </button>
+          <button class="home-action" onclick="gotoView('products')">
+            <span>Inventory</span>
+            <strong>Manage Products</strong>
+          </button>
+          <button class="home-action" onclick="gotoView('purchases')">
+            <span>Receiving</span>
+            <strong>Product Purchase Invoice</strong>
+          </button>
+          <button class="home-action" onclick="gotoView('sales')">
+            <span>Reports</span>
+            <strong>View Sales Log</strong>
+          </button>
+          <button class="home-action" onclick="gotoView('reports')">
+            <span>Analytics</span>
+            <strong>Open Reports</strong>
+          </button>
+        </section>
+
+        <section class="home-panel">
+          <div class="home-panel-head">
+            <div>
+              <h2>Quick Status</h2>
+              <p>Overview based on the current backend data.</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="loadHomeData()">Refresh</button>
+          </div>
+          <div id="home-status-list" class="home-status-list"></div>
+        </section>
+      </div>
+    </div>
+
+    
+    <div id="view-pos" class="view">
+
+      <div class="invoice-workspace">
+        <div class="invoice-top">
+          <div class="invoice-panel">
+            <div class="invoice-panel-title">Retail Card F12 (Press Enter to Activate)</div>
+            <div class="mini-row"><label>Card</label><input class="input" value="CASH REGISTER 1" /></div>
+            <div class="mini-row">
+              <label>Currency</label>
+              <select class="input" id="currency-select" onchange="refreshCurrencyDisplay()">
+                <option>EURO</option>
+                <option selected>LEK</option>
+                <option>USD</option>
+              </select>
+            </div>
+            <div class="two-col">
+              <div class="input-group">
+                <label class="input-label">EUR sale</label>
+                <input class="input" id="eur-sale-rate" type="number" step="0.01" value="95.1" onchange="refreshCurrencyDisplay()" />
+              </div>
+              <div class="input-group">
+                <label class="input-label">EUR buy</label>
+                <input class="input" id="eur-buy-rate" type="number" step="0.01" value="95.7" onchange="refreshCurrencyDisplay()" />
+              </div>
+            </div>
+            <div class="two-col">
+              <div class="input-group">
+                <label class="input-label">USD sale</label>
+                <input class="input" id="usd-sale-rate" type="number" step="0.01" value="81.7" onchange="refreshCurrencyDisplay()" />
+              </div>
+              <div class="input-group">
+                <label class="input-label">USD buy</label>
+                <input class="input" id="usd-buy-rate" type="number" step="0.01" value="82.7" onchange="refreshCurrencyDisplay()" />
+              </div>
+            </div>
+          </div>
+          <div class="invoice-panel">
+            <div class="invoice-panel-title">Invoice No.</div>
+            <div class="mini-row"><label>Number</label><input class="input mono" id="invoice-no" value="0001" /></div>
+            <div class="invoice-panel-title" style="margin-top:12px;">Account Balance Debit - Credit</div>
+            <div class="balance-line"><span>Lek</span><strong>0.00</strong></div>
+            <div class="balance-line"><span>Euro</span><strong>0.00</strong></div>
+            <div class="balance-line"><span>Dollar</span><strong>0.00</strong></div>
+          </div>
+          <div class="invoice-panel">
+            <div class="invoice-panel-title">Account Mask</div>
+            <div class="mask-list">
+              <label><input type="checkbox"> Show items that are not in stock</label>
+              <label><input type="checkbox" checked> Do not sell unavailable items</label>
+              <label><input type="checkbox"> Allow sale of zero-price items</label>
+              <label><input type="checkbox"> Recalculate price on each sale</label>
+              <label><input type="checkbox"> Show sale confirmation message</label>
+              <label><input type="checkbox"> Show detailed receipt lines</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="pos-toolbar">
+          <div class="search-wrap">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input class="input" id="pos-search" placeholder="Scan barcode or type product name..." oninput="onSearch(this.value)" />
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="refreshCart()">Refresh Invoice</button>
+        </div>
+
+        <div class="invoice-table-wrap">
+          <table class="invoice-table">
+            <thead>
+              <tr>
+                <th>ID</th><th>Item Code</th><th>Item Name</th><th>Net Price</th>
+                <th>Tax %</th><th>Tax Amount</th><th>Final Price</th><th>Quantity</th><th>Total</th><th>Unit</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="invoice-rows">
+              <tr class="invoice-empty"><td colspan="11">Scan a barcode or use the keypad to add products to the invoice.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="keypad-panel">
+        <div class="keypad-card">
+          <div class="keypad-title"><span>Numeric Keypad</span><span class="cart-badge" id="cart-count">0</span></div>
+          <div class="keypad-display" id="keypad-display">0</div>
+          <div class="key-grid">
+            <button class="key" onclick="keyTap('7')">7</button><button class="key" onclick="keyTap('8')">8</button><button class="key" onclick="keyTap('9')">9</button>
+            <button class="key" onclick="keyTap('4')">4</button><button class="key" onclick="keyTap('5')">5</button><button class="key" onclick="keyTap('6')">6</button>
+            <button class="key" onclick="keyTap('1')">1</button><button class="key" onclick="keyTap('2')">2</button><button class="key" onclick="keyTap('3')">3</button>
+            <button class="key action" onclick="keyBack()">Back</button><button class="key" onclick="keyTap('0')">0</button><button class="key action" onclick="keyClear()">Clear</button>
+            <button class="key enter" onclick="keyEnter()">Enter / Scan</button><button class="key action" onclick="promptQuantity()">Qty</button>
+          </div>
+        </div>
+        <div class="compact-summary">
+          <div class="subtotal-row"><span class="sub-label">Subtotal</span><span class="sub-amount" id="cart-subtotal">0.00 LEK</span></div>
+          <button class="btn btn-primary btn-checkout" id="btn-checkout" disabled onclick="doCheckout()">Checkout</button>
+          <button class="btn btn-secondary btn-clear btn-sm" id="btn-clear" disabled onclick="clearCart()">Clear Invoice</button>
+        </div>
+      </div>
+
+      
+      <div class="pos-left">
+        <div class="pos-toolbar">
+          <div class="search-wrap">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input class="input" id="pos-search" placeholder="Search products or scan barcode" oninput="onSearch(this.value)" />
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="loadPosProducts()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            Refresh
+          </button>
+        </div>
+        <div class="pos-products">
+          <div class="prod-grid" id="prod-grid">
+            <div class="prod-empty">
+              <span class="em-icon"></span>
+              <strong>Loading products</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      
+      <div class="pos-right">
+        <div class="cart-head">
+          <div class="cart-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+            </svg>
+            CART
+            <span class="cart-badge" id="cart-count">0</span>
+          </div>
+          <button class="btn btn-ghost btn-sm btn-icon" title="Refresh cart" onclick="refreshCart()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="cart-list" id="cart-list">
+          <div class="cart-empty-msg">
+            <div class="cart-empty-icon"></div>
+            <strong>Cart is empty</strong>
+            <span class="t-sm">Click a product or scan a barcode to add items</span>
+          </div>
+        </div>
+
+        <div class="cart-foot">
+          <div class="subtotal-row">
+            <span class="sub-label">Subtotal</span>
+            <span class="sub-amount" id="cart-subtotal">0.00 LEK</span>
+          </div>
+          <button class="btn btn-primary btn-checkout" id="btn-checkout" disabled onclick="doCheckout()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            Checkout
+          </button>
+          <button class="btn btn-secondary btn-clear btn-sm" id="btn-clear" disabled onclick="clearCart()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+            </svg>
+            Clear Cart
+          </button>
+        </div>
+      </div>
+    </div>
+
+    
+    <div id="view-products" class="view">
+      <div class="page-head" style="flex-shrink:0;">
+        <div>
+          <div class="page-title">Products</div>
+          <div class="page-sub">Manage inventory and pricing</div>
+        </div>
+        <button class="btn btn-primary" onclick="openProdModal()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Add Product
+        </button>
+      </div>
+      <div class="prod-page">
+        <div class="toolbar">
+          <input class="input" type="text" placeholder="Filter products" oninput="filterTable(this.value)" />
+          <div class="tb-spacer"></div>
+          <span class="tb-count" id="tb-count"></span>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th><th>Name</th><th>Barcode</th>
+                <th>Category</th><th>Unit</th><th>Purchase</th><th>Tax</th><th>Final Price</th><th>Stock</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="prod-tbody">
+              <tr><td colspan="10" class="no-data">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="view-purchases" class="view">
+      <div class="page-head" style="flex-shrink:0;">
+        <div></div>
+        <div class="actions">
+          <button class="btn btn-primary" onclick="savePurchaseInvoice()">Save Purchase</button>
+        </div>
+      </div>
+      <div class="purchase-page">
+        <div class="invoice-top purchase-header">
+          <div class="invoice-panel">
+            <div class="invoice-panel-title">Purchase Invoice</div>
+            <div class="mini-row"><label>Invoice No.</label><input class="input mono" id="purchase-invoice-no" placeholder="e.g. F-1001" /></div>
+            <div class="mini-row"><label>Company</label><input class="input" id="purchase-company" placeholder="Supplier company" /></div>
+          </div>
+          <div class="invoice-panel">
+            <div class="invoice-panel-title">Invoice Date</div>
+            <div class="mini-row"><label>Date</label><input class="input" id="purchase-date" type="date" /></div>
+            <div class="balance-line"><span>Lines</span><strong id="purchase-lines-count">0</strong></div>
+            <div class="balance-line"><span>Items</span><strong id="purchase-items-count">0</strong></div>
+            <div class="balance-line"><span>Total</span><strong id="purchase-total">0.00 LEK</strong></div>
+          </div>
+          <div class="invoice-panel">
+            <div class="invoice-panel-title">Scan Product</div>
+            <div class="search-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input class="input" id="purchase-scan" placeholder="Scan barcode, then press Enter..." onkeydown="handlePurchaseScanKey(event)" />
+            </div>
+            <div class="purchase-scan-actions">
+              <button class="btn btn-primary btn-sm" onclick="scanPurchaseField()">Add Barcode</button>
+              <button class="btn btn-secondary btn-sm" onclick="openProdModal(null, $('purchase-scan')?.value.trim())">Register Product</button>
+              <button class="btn btn-secondary btn-sm" onclick="clearPurchaseInvoice()">Clear Form</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="invoice-table-wrap purchase-table-wrap">
+          <table class="invoice-table purchase-table">
+            <thead>
+              <tr>
+                <th>ID</th><th>Barcode</th><th>Product</th><th>Category</th><th>Unit</th>
+                <th>Qty</th><th>Purchase Price</th><th>Tax %</th><th>Selling Price</th><th>Total</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="purchase-rows">
+              <tr class="invoice-empty"><td colspan="11">Scan products to build the supplier invoice.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    
+    <div id="view-sales" class="view">
+      <div class="page-head" style="flex-shrink:0;">
+        <div>
+          <div class="page-title">Sales Log</div>
+          <div class="page-sub">Transaction history</div>
+        </div>
+        <div class="actions">
+          <select class="input" id="sales-period" onchange="applySalesFilters()" style="width:150px;">
+            <option value="all">All time</option>
+            <option value="day">Today</option>
+            <option value="month">This month</option>
+          </select>
+          <input class="input" id="sales-cashier-filter" placeholder="Cashier name" oninput="applySalesFilters()" style="width:190px;" />
+        <button class="btn btn-secondary" onclick="loadSales()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          Refresh
+        </button>
+        </div>
+      </div>
+      <div class="sales-page">
+        <div class="stats-grid hidden" id="stats-grid"></div>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Sale ID</th><th>Date &amp; Time</th><th>Cashier</th><th>Items</th><th>Total</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="sales-tbody">
+              <tr><td colspan="6" class="no-data">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="view-reports" class="view">
+      <div class="page-head" style="flex-shrink:0;">
+        <div>
+          <div class="page-title">Reports</div>
+          <div class="page-sub">Income, revenue, tax, cashier, and product performance</div>
+        </div>
+        <div class="actions reports-actions">
+          <select class="input" id="report-period" onchange="applyReportFilters()">
+            <option value="today">Today</option>
+            <option value="month" selected>This month</option>
+            <option value="year">This year</option>
+            <option value="all">All time</option>
+            <option value="custom">Custom dates</option>
+          </select>
+          <input class="input" id="report-from" type="date" onchange="applyReportFilters()" />
+          <input class="input" id="report-to" type="date" onchange="applyReportFilters()" />
+          <button class="btn btn-secondary" onclick="loadReports()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            Refresh
+          </button>
+        </div>
+      </div>
+      <div class="reports-page">
+        <div class="report-kpis" id="report-kpis"></div>
+
+        <div class="report-grid">
+          <section class="report-card report-wide">
+            <div class="report-card-head">
+              <div>
+                <h2>Revenue Trend</h2>
+                <p>Income grouped by selected period</p>
+              </div>
+              <span id="report-range-label" class="badge b-blue">This month</span>
+            </div>
+            <canvas id="chart-revenue" height="240"></canvas>
+          </section>
+
+          <section class="report-card">
+            <div class="report-card-head">
+              <div>
+                <h2>Tax Split</h2>
+                <p>Net sales and tax amount</p>
+              </div>
+            </div>
+            <canvas id="chart-tax" height="240"></canvas>
+          </section>
+
+          <section class="report-card">
+            <div class="report-card-head">
+              <div>
+                <h2>Cashier Sales</h2>
+                <p>Revenue by account</p>
+              </div>
+            </div>
+            <canvas id="chart-cashiers" height="260"></canvas>
+          </section>
+
+          <section class="report-card">
+            <div class="report-card-head">
+              <div>
+                <h2>Top Products</h2>
+                <p>Best sellers by quantity</p>
+              </div>
+            </div>
+            <canvas id="chart-products" height="260"></canvas>
+          </section>
+
+          <section class="report-card report-wide">
+            <div class="report-card-head">
+              <div>
+                <h2>Monthly Report</h2>
+                <p>Revenue comparison by month</p>
+              </div>
+            </div>
+            <canvas id="chart-monthly" height="240"></canvas>
+          </section>
+        </div>
+
+        <section class="report-card">
+          <div class="report-card-head">
+            <div>
+              <h2>Report Details</h2>
+              <p>Filtered transactions with cashier and totals</p>
+            </div>
+          </div>
+          <div class="tbl-wrap report-table-wrap">
+            <table>
+              <thead>
+                <tr><th>Sale</th><th>Date</th><th>Cashier</th><th>Items</th><th>Net</th><th>Tax</th><th>Total</th></tr>
+              </thead>
+              <tbody id="report-tbody">
+                <tr><td colspan="7" class="no-data">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+
+
+<div id="modal-prod" class="overlay hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="pm-title">Add Product</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-prod')"></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="pm-id" />
+      <div class="input-group">
+        <label class="input-label">Product Name</label>
+        <input class="input" id="pm-name" type="text" placeholder="e.g. Fresh Bread" />
+      </div>
+      <div class="input-group">
+        <label class="input-label">Barcode</label>
+        <input class="input" id="pm-barcode" type="text" placeholder="e.g. 200000000001" />
+      </div>
+      <div class="two-col">
+        <div class="input-group">
+          <label class="input-label">Purchase Price (LEK)</label>
+          <input class="input" id="pm-purchase" type="number" placeholder="0.00" step="0.01" min="0" />
+        </div>
+        <div class="input-group">
+          <label class="input-label">Stock Qty</label>
+          <input class="input" id="pm-stock" type="number" placeholder="0" min="0" />
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="input-group">
+          <label class="input-label">Tax %</label>
+          <select class="input" id="pm-tax" onchange="updateFinalPricePreview()">
+            <option value="20">20%</option>
+            <option value="0">0%</option>
+          </select>
+        </div>
+        <div class="input-group">
+          <label class="input-label">Unit</label>
+          <select class="input" id="pm-unit">
+            <option value="pcs">pcs</option>
+            <option value="kg">kg</option>
+          </select>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="input-group">
+          <label class="input-label">Final Selling Price (LEK)</label>
+          <input class="input" id="pm-price" type="number" placeholder="0.00" step="0.01" min="0" />
+        </div>
+        <div class="input-group">
+          <label class="input-label">Category</label>
+          <select class="input" id="pm-cat">
+            <option>Loading categories...</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal('modal-prod')">Cancel</button>
+      <button class="btn btn-primary" id="pm-submit" onclick="submitProd()">Save Product</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="modal-receipt" class="overlay hidden">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-head">
+      <div class="modal-title"> Receipt</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-receipt')"></button>
+    </div>
+    <div class="receipt-box" id="receipt-txt"></div>
+    <div class="keypad-card" style="margin-top:14px;">
+      <div class="keypad-title"><span>Payment</span><span id="payment-total-lek">0.00 LEK</span></div>
+      <div class="two-col">
+        <div class="input-group">
+          <label class="input-label">Customer gave</label>
+          <input class="input" id="payment-amount" type="number" step="0.01" min="0" oninput="calculateChange()" />
+        </div>
+        <div class="input-group">
+          <label class="input-label">Currency</label>
+          <select class="input" id="payment-currency" onchange="calculateChange()">
+            <option>EURO</option>
+            <option selected>LEK</option>
+            <option>USD</option>
+          </select>
+        </div>
+      </div>
+      <div class="balance-line"><span>Converted payment</span><strong id="payment-converted">0.00 LEK</strong></div>
+      <div class="balance-line"><span>Change / Resto</span><strong id="payment-change">0.00 LEK</strong></div>
+    </div>
+    <div class="receipt-acts">
+      <button class="btn btn-secondary" onclick="closeModal('modal-receipt')">Close</button>
+      <button class="btn btn-primary" onclick="printReceipt()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 6 2 18 2 18 9"/>
+          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+          <rect x="6" y="14" width="12" height="8"/>
+        </svg>
+        Print
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<div id="modal-sale" class="overlay hidden">
+  <div class="modal sale-detail-modal">
+    <div class="modal-head">
+      <div class="modal-title" id="sale-modal-title">Sale Detail</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-sale')"></button>
+    </div>
+    <div id="sale-modal-body"></div>
+  </div>
+</div>
+
+
+<div id="modal-confirm" class="overlay hidden">
+  <div class="modal" style="max-width:370px;">
+    <div class="modal-head">
+      <div class="modal-title">Confirm Delete</div>
+    </div>
+    <p style="color:var(--muted);font-size:.88rem;margin-bottom:22px;" id="confirm-msg">Are you sure?</p>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancel</button>
+      <button class="btn btn-danger" id="confirm-ok">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+        </svg>
+        Delete
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-wrap"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS sale_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    sale_id BIGINT NOT NULL,
+    message VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP NOT NULL
+);

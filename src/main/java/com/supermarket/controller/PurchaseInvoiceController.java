@@ -1,0 +1,34 @@
+package com.supermarket.controller;
+
+import com.supermarket.dto.ApiResponse;
+import com.supermarket.dto.PurchaseInvoiceRequest;
+import com.supermarket.model.PurchaseInvoice;
+import com.supermarket.service.PurchaseInvoiceService;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/purchases")
+public class PurchaseInvoiceController {
+
+    private final PurchaseInvoiceService purchaseInvoiceService;
+
+    public PurchaseInvoiceController(PurchaseInvoiceService purchaseInvoiceService) {
+        this.purchaseInvoiceService = purchaseInvoiceService;
+    }
+
+    @GetMapping
+    public ApiResponse<List<PurchaseInvoice>> findAll() {
+        return ApiResponse.ok("Purchase invoices loaded", purchaseInvoiceService.findAll());
+    }
+
+    @PostMapping
+    public ApiResponse<PurchaseInvoice> create(@RequestBody PurchaseInvoiceRequest request) {
+        return ApiResponse.ok("Purchase invoice saved", purchaseInvoiceService.create(request));
+    }
+}

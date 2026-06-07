@@ -1,0 +1,298 @@
+R1 Collections Framework
+
+Used in cart, product lookup, sorted products, sale items, and purchase invoice items.
+
+File: CartService.java
+
+private final List<CartItem> cart = new ArrayList<>();
+
+public synchronized List<CartItem> getCart() {
+    return List.copyOf(cart);
+}
+File: ProductService.java
+
+public Map<Long, Product> findLookupMap() {
+    Map<Long, Product> productsById = new HashMap<>();
+    productRepository.findAll().forEach(product -> productsById.put(product.getId(), product));
+    return productsById;
+}
+
+public TreeMap<String, Product> findSortedByNameMap() {
+    TreeMap<String, Product> productsByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    productRepository.findAll().stream()
+            .sorted(Comparator.comparing(Product::getName))
+            .forEach(product -> productsByName.put(product.getName(), product));
+    return productsByName;
+}
+Explanation: ArrayList stores cart items, HashMap gives fast lookup by product id, and TreeMap keeps products sorted by name.
+
+R2 Generics
+
+Used in generic API response and generic filter utility.
+
+File: ApiResponse.java
+
+public class ApiResponse<T> {
+    private boolean success;
+    private String message;
+    private T data;
+
+    public static <T> ApiResponse<T> ok(String message, T data) {
+        return new ApiResponse<>(true, message, data);
+    }
+}
+File: FilterUtil.java
+
+public class FilterUtil<T> {
+
+    public List<T> filter(List<T> items, Predicate<T> predicate) {
+        return items.stream()
+                .filter(predicate)
+                .toList();
+    }
+}
+R3 Lambda & Functional Programming
+
+Used in filtering, sorting, row mapping, and foreach logic.
+
+File: ProductService.java
+
+public List<Product> findInStock() {
+    return productFilter.filter(productRepository.findAll(), product -> product.getStock() > 0);
+}
+products.sort((first, second) -> first.getPrice().compareTo(second.getPrice()));
+File: JdbcLogRepository.java
+
+private final RowMapper<Map<String, Object>> saleLogMapper = (resultSet, rowNumber) -> {
+    Map<String, Object> log = new LinkedHashMap<>();
+    log.put("id", resultSet.getLong("id"));
+    log.put("saleId", resultSet.getLong("sale_id"));
+    log.put("message", resultSet.getString("message"));
+    log.put("createdAt", resultSet.getTimestamp("created_at").toLocalDateTime());
+    return log;
+};
+R4 Stream API
+
+Used for subtotal calculation, product mapping, receipt building, and filtering.
+
+File: CartService.java
+
+public synchronized BigDecimal calculateSubtotal() {
+    return cart.stream()
+            .map(CartItem::getLineTotal)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+}
+File: SaleService.java
+
+Map<Long, Product> productsById = cartItems.stream()
+        .map(item -> productService.findById(item.getProductId()))
+        .collect(Collectors.toMap(Product::getId, Function.identity()));
+List<ReceiptItemResponse> receiptItems = cartItems.stream()
+        .map(item -> new ReceiptItemResponse(...))
+        .toList();
+R5 Concurrency / Multithreading
+
+Used for async JDBC logging after checkout. Cart methods are also synchronized for thread safety.
+
+File: AsyncConfig.java
+
+@Configuration
+@EnableAsync
+public class AsyncConfig {
+}
+File: JdbcLogRepository.java
+
+@Async
+public CompletableFuture<Void> logSaleAsync(Long saleId, String message) {
+    createSaleLog(saleId, message);
+    return CompletableFuture.completedFuture(null);
+}
+File: CartService.java
+
+public synchronized List<CartItem> addToCart(CartItemRequest request) {
+    ...
+}
+R6 JDBC / Database
+
+Used in JdbcLogRepository with raw SQL CRUD operations through JdbcTemplate.
+
+File: JdbcLogRepository.java
+
+public Map<String, Object> createSaleLog(Long saleId, String message) {
+    jdbcTemplate.update(
+            "INSERT INTO sale_logs (sale_id, message, created_at) VALUES (?, ?, ?)",
+            saleId,
+            message,
+            LocalDateTime.now()
+    );
+    Long id = jdbcTemplate.queryForObject("SELECT MAX(id) FROM sale_logs", Long.class);
+    return findSaleLogById(id).orElseThrow();
+}
+public List<Map<String, Object>> findSaleLogs() {
+    return jdbcTemplate.query("SELECT * FROM sale_logs ORDER BY created_at DESC", saleLogMapper);
+}
+
+public Map<String, Object> updateSaleLog(Long id, String message) {
+    jdbcTemplate.update("UPDATE sale_logs SET message = ? WHERE id = ?", message, id);
+    return findSaleLogById(id).orElseThrow();
+}
+
+public void deleteSaleLog(Long id) {
+    jdbcTemplate.update("DELETE FROM sale_logs WHERE id = ?", id);
+}
+R7 JPA / ORM
+
+Used with multiple JPA entities: Product, Sale, SaleItem, Category, Cashier, PurchaseInvoice, PurchaseItem.
+
+File: Product.java
+
+@Entity
+@Table(name = "products")
+public class Product {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, unique = true)
+    private String barcode;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "category_id")
+    private Category category;
+}
+File: Sale.java
+
+@Entity
+@Table(name = "sales")
+public class Sale {
+
+    @OneToMany(mappedBy = "sale", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<SaleItem> items = new ArrayList<>();
+}
+File: ProductRepository.java
+
+public interface ProductRepository extends JpaRepository<Product, Long> {
+    Optional<Product> findByBarcode(String barcode);
+}
+R8 RESTful Web Services
+
+Used through Spring Boot REST controllers.
+
+File: ProductController.java
+
+@RestController
+@RequestMapping("/products")
+public class ProductController {
+
+    @GetMapping
+    public ApiResponse<List<Product>> findAll() { ... }
+
+    @PostMapping
+    public ApiResponse<Product> create(@RequestBody ProductRequest request) { ... }
+
+    @PutMapping("/{id}")
+    public ApiResponse<Product> update(@PathVariable Long id, @RequestBody ProductRequest request) { ... }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id) { ... }
+}
+File: SaleController.java
+
+@PostMapping("/checkout")
+public ApiResponse<ReceiptResponse> checkout(@RequestBody(required = false) CheckoutRequest request) {
+    return ApiResponse.ok("Checkout completed", saleService.checkout(request));
+}
+File: PurchaseInvoiceController.java
+
+@RestController
+@RequestMapping("/purchases")
+public class PurchaseInvoiceController {
+
+    @GetMapping
+    public ApiResponse<List<PurchaseInvoice>> findAll() { ... }
+
+    @PostMapping
+    public ApiResponse<PurchaseInvoice> create(@RequestBody PurchaseInvoiceRequest request) { ... }
+}
+R9 Design Pattern
+
+Used Strategy Pattern for checkout discount logic.
+
+File: PricingStrategy.java
+
+public interface PricingStrategy {
+    BigDecimal apply(List<CartItem> cartItems, BigDecimal currentTotal);
+}
+File: DiscountStrategy.java
+
+@Component
+public class DiscountStrategy implements PricingStrategy {
+
+    private static final BigDecimal DISCOUNT_THRESHOLD = new BigDecimal("20000.00");
+    private static final BigDecimal DISCOUNT_RATE = new BigDecimal("0.10");
+
+    @Override
+    public BigDecimal apply(List<CartItem> cartItems, BigDecimal currentTotal) {
+        if (currentTotal.compareTo(DISCOUNT_THRESHOLD) <= 0) {
+            return currentTotal.setScale(2, RoundingMode.HALF_UP);
+        }
+        return currentTotal.subtract(currentTotal.multiply(DISCOUNT_RATE))
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+}
+File: SaleService.java
+
+private BigDecimal applyPricingStrategies(List<CartItem> cartItems, BigDecimal subtotal) {
+    BigDecimal total = subtotal;
+    for (PricingStrategy pricingStrategy : pricingStrategies) {
+        total = pricingStrategy.apply(cartItems, total);
+    }
+    return total;
+}
+Explanation: if checkout total is greater than 20000 LEK, the discount strategy applies a 10% discount.
+
+R10 Exception Handling
+
+Used with custom exceptions and global exception handling.
+
+File: ProductNotFoundException.java
+
+public class ProductNotFoundException extends RuntimeException {
+    public ProductNotFoundException(Long id) {
+        super("Product not found with id: " + id);
+    }
+}
+File: InsufficientStockException.java
+
+public class InsufficientStockException extends RuntimeException {
+    public InsufficientStockException(String message) {
+        super(message);
+    }
+}
+File: GlobalExceptionHandler.java
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(ProductNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleProductNotFound(ProductNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(exception.getMessage()));
+    }
+
+    @ExceptionHandler(InsufficientStockException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInsufficientStock(InsufficientStockException exception) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(exception.getMessage()));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiResponse<Void>> handleIllegalArgument(IllegalArgumentException exception) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(exception.getMessage()));
+    }
+}
+Short conclusion:
+
+All R1-R10 requirements are fulfilled in the backend. The strongest demo points are product CRUD, cart checkout, JPA sales persistence, JDBC sale logs, async logging, discount strategy, custom exceptions, and purchase invoices updating inventory.

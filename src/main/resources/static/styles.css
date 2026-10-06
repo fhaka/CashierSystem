@@ -589,8 +589,9 @@
     }
     .reports-actions .input { width: 150px; }
     .report-kpis {
-      display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px;
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;
     }
+    .report-kpi small { display: block; color: var(--muted); font-size: .72rem; margin-top: 5px; }
     .report-kpi {
       background: var(--s1); border: 1px solid var(--border); border-radius: var(--rl);
       padding: 15px;
@@ -625,6 +626,14 @@
     }
     .report-table-wrap { overflow-x: auto; }
     .report-table-wrap table { min-width: 820px; }
+    .report-table-wrap { max-height: 420px; overflow-y: auto; }
+    .report-table-wrap td { white-space: nowrap; }
+    .seg { display: flex; gap: 6px; }
+    .seg .btn.on { background: var(--amber); border-color: var(--amber); color: #fff; }
+    .pager {
+      display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px 0 4px;
+      color: var(--muted); font-size: .85rem; font-weight: 700;
+    }
 
     /*  Receipt  */
     .receipt-box {
@@ -653,7 +662,7 @@
     .detail-total-row .amt { font-family: var(--mono); font-size: 1.2rem; font-weight: 700; color: var(--amber); }
 
     @media (max-width: 1200px) {
-      .report-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .home-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 

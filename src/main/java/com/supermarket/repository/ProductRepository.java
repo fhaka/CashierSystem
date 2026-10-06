@@ -26,4 +26,9 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Product p where p.id in :ids order by p.id")
     List<Product> findAllForUpdate(@Param("ids") Collection<Long> ids);
+
+    long countByActiveTrue();
+
+    @Query("select count(p) from Product p where p.active = true and p.minStock is not null and p.stock <= p.minStock")
+    long countLowStock();
 }

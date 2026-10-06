@@ -105,8 +105,8 @@ class CheckoutFlowTest extends IntegrationTest {
         postJson("/sales/cart", admin, Map.of("productId", productId, "quantity", 1)).andExpect(status().isOk());
         postJson("/sales/checkout", admin, null).andExpect(status().isOk());
 
-        getJson("/sales", cashier).andExpect(jsonPath("$.data").isEmpty());
-        getJson("/sales", admin).andExpect(jsonPath("$.data.length()").value(1));
+        getJson("/sales", cashier).andExpect(jsonPath("$.data.rows").isEmpty()).andExpect(jsonPath("$.data.totalCount").value(0));
+        getJson("/sales", admin).andExpect(jsonPath("$.data.rows.length()").value(1)).andExpect(jsonPath("$.data.totalCount").value(1));
     }
 
     @Test

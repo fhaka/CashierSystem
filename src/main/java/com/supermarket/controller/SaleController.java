@@ -7,6 +7,8 @@ import com.supermarket.dto.CheckoutRequest;
 import com.supermarket.dto.ParkCartRequest;
 import com.supermarket.dto.ParkedCartResponse;
 import com.supermarket.dto.ReceiptResponse;
+import com.supermarket.dto.SalesPage;
+import com.supermarket.exception.PermissionDeniedException;
 import com.supermarket.dto.SaleLogRequest;
 import com.supermarket.model.CartItem;
 import com.supermarket.model.Sale;
@@ -22,10 +24,12 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RequestHeader;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -44,12 +48,30 @@ public class SaleController {
     }
 
     @GetMapping
-    public ApiResponse<List<Sale>> findAllSales(@RequestHeader(value = "X-Auth-Token", required = false) String token) {
+    public ApiResponse<SalesPage> findSales(
+            @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestParam(required = false) LocalDate from,
+            @RequestParam(required = false) LocalDate to,
+            @RequestParam(required = false) String cashierName,
+            @RequestParam(required = false) String invoice,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size
+    ) {
         Cashier cashier = sessionService.requireUser(token);
-        List<Sale> sales = cashier.getRole().isOperationalManager()
-                ? saleService.findAll()
-                : saleService.findForCashier(cashier.getId());
-        return ApiResponse.ok("Sales history loaded", sales);
+        boolean manager = cashier.getRole().isOperationalManager();
+        return ApiResponse.ok("Sales history loaded", saleService.search(from, to, manager ? null : cashier.getId(),
+                manager ? cashierName : null, invoice, page, size));
+    }
+
+    /** One sale with its lines and payments. Cashiers can only open their own sales. */
+    @GetMapping("/{id}")
+    public ApiResponse<Sale> findSale(@RequestHeader(value = "X-Auth-Token", required = false) String token, @PathVariable Long id) {
+        Cashier cashier = sessionService.requireUser(token);
+        Sale sale = saleService.findById(id);
+        if (!cashier.getRole().isOperationalManager() && (sale.getCashier() == null || !sale.getCashier().getId().equals(cashier.getId()))) {
+            throw new PermissionDeniedException("sale.onlyOwn");
+        }
+        return ApiResponse.ok("Sale loaded", sale);
     }
 
     @GetMapping("/cart")

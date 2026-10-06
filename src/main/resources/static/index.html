@@ -209,11 +209,11 @@
             <strong id="home-products-count">0</strong>
           </div>
           <div class="home-stat">
-            <span data-i18n>Sales</span>
+            <span data-i18n>Sales today</span>
             <strong id="home-sales-count">0</strong>
           </div>
           <div class="home-stat">
-            <span data-i18n>Revenue</span>
+            <span data-i18n>Revenue today</span>
             <strong id="home-revenue">0.00 LEK</strong>
           </div>
           <div class="home-stat">
@@ -673,21 +673,30 @@
           <div class="page-title" data-i18n>Sales Log</div>
           <div class="page-sub" data-i18n>Transaction history</div>
         </div>
-        <div class="actions">
-          <select class="input" id="sales-period" onchange="applySalesFilters()" style="width:150px;">
-            <option value="all" data-i18n>All time</option>
-            <option value="day" data-i18n>Today</option>
+        <div class="actions reports-actions">
+          <select class="input" id="sales-period" onchange="onSalesPeriodChange()">
+            <option value="today" data-i18n>Today</option>
+            <option value="yesterday" data-i18n>Yesterday</option>
+            <option value="week" data-i18n>This week</option>
+            <option value="last30" selected data-i18n>Last 30 days</option>
             <option value="month" data-i18n>This month</option>
+            <option value="lastMonth" data-i18n>Last month</option>
+            <option value="year" data-i18n>This year</option>
+            <option value="custom" data-i18n>Custom dates</option>
           </select>
-          <button class="btn btn-primary" onclick="openRefund()" data-i18n>Refund</button>
-          <input class="input manager-only" id="sales-cashier-filter" data-i18n-placeholder placeholder="Cashier name" oninput="applySalesFilters()" style="width:190px;" />
-        <button class="btn btn-secondary" onclick="loadSales()">
+          <input class="input hidden" id="sales-from" type="date" onchange="loadSales()" />
+          <input class="input hidden" id="sales-to" type="date" onchange="loadSales()" />
+          <input class="input" id="sales-invoice-filter" data-i18n-placeholder placeholder="Invoice no." oninput="applySalesFilters()" style="width:120px;" />
+          <input class="input manager-only" id="sales-cashier-filter" data-i18n-placeholder placeholder="Cashier name" oninput="applySalesFilters()" />
+          <button class="btn btn-secondary" onclick="loadSales()">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
           </svg>
           <span data-i18n>Refresh</span>
-        </button>
+          </button>
+          <button class="btn btn-secondary manager-only" onclick="exportSalesExcel()" data-i18n>Excel</button>
+          <button class="btn btn-primary" onclick="openRefund()" data-i18n>Refund</button>
         </div>
       </div>
       <div class="sales-page">
@@ -696,14 +705,15 @@
           <table>
             <thead>
               <tr>
-                <th data-i18n>Sale ID</th><th data-i18n>Date &amp; Time</th><th data-i18n>Cashier</th><th data-i18n>Items</th><th data-i18n>Total</th><th></th>
+                <th data-i18n>Sale ID</th><th data-i18n>Date &amp; Time</th><th data-i18n>Cashier</th><th data-i18n>Customer</th><th data-i18n>Items</th><th data-i18n>Payment</th><th data-i18n>Total</th><th></th>
               </tr>
             </thead>
             <tbody id="sales-tbody">
-              <tr><td colspan="6" class="no-data" data-i18n>Loading...</td></tr>
+              <tr><td colspan="8" class="no-data" data-i18n>Loading...</td></tr>
             </tbody>
           </table>
         </div>
+        <div class="pager" id="sales-pager"></div>
       </div>
     </div>
 
@@ -711,25 +721,30 @@
       <div class="page-head" style="flex-shrink:0;">
         <div>
           <div class="page-title" data-i18n>Reports</div>
-          <div class="page-sub" data-i18n>Income, revenue, tax, cashier, and product performance</div>
+          <div class="page-sub" data-i18n>Income, profit, tax, cashier, and product performance</div>
         </div>
         <div class="actions reports-actions">
-          <select class="input" id="report-period" onchange="applyReportFilters()">
+          <select class="input" id="report-period" onchange="onReportPeriodChange()">
             <option value="today" data-i18n>Today</option>
+            <option value="yesterday" data-i18n>Yesterday</option>
+            <option value="week" data-i18n>This week</option>
+            <option value="last30" data-i18n>Last 30 days</option>
             <option value="month" selected data-i18n>This month</option>
+            <option value="lastMonth" data-i18n>Last month</option>
             <option value="year" data-i18n>This year</option>
-            <option value="all" data-i18n>All time</option>
             <option value="custom" data-i18n>Custom dates</option>
           </select>
-          <input class="input" id="report-from" type="date" onchange="applyReportFilters()" />
-          <input class="input" id="report-to" type="date" onchange="applyReportFilters()" />
+          <input class="input hidden" id="report-from" type="date" onchange="loadReports()" />
+          <input class="input hidden" id="report-to" type="date" onchange="loadReports()" />
           <button class="btn btn-secondary" onclick="loadReports()">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
-            <span data-i18n>Refresh</span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          <span data-i18n>Refresh</span>
           </button>
+          <button class="btn btn-secondary" onclick="exportReport('xlsx')" data-i18n>Excel</button>
+          <button class="btn btn-secondary" onclick="exportReport('pdf')" data-i18n>PDF</button>
         </div>
       </div>
       <div class="reports-page">
@@ -744,6 +759,8 @@
             <div class="actions">
               <input class="input" id="z-date" type="date" />
               <button class="btn btn-secondary btn-sm" onclick="loadZReport()" data-i18n>Show</button>
+              <button class="btn btn-secondary btn-sm" onclick="downloadZReportPdf()" data-i18n>PDF</button>
+              <button class="btn btn-secondary btn-sm hidden" id="z-email-btn" onclick="emailZReport()" data-i18n>Send by email</button>
               <button class="btn btn-primary btn-sm" onclick="printZReport()" data-i18n>Print</button>
             </div>
           </div>
@@ -755,9 +772,9 @@
             <div class="report-card-head">
               <div>
                 <h2 data-i18n>Revenue Trend</h2>
-                <p data-i18n>Income grouped by selected period</p>
+                <p data-i18n>Income by day, or by month for long periods</p>
               </div>
-              <span id="report-range-label" class="badge b-blue">This month</span>
+              <span id="report-range-label" class="badge b-blue"></span>
             </div>
             <canvas id="chart-revenue" height="240"></canvas>
           </section>
@@ -775,6 +792,26 @@
           <section class="report-card">
             <div class="report-card-head">
               <div>
+                <h2 data-i18n>Payments</h2>
+                <p data-i18n>Money received by payment method</p>
+              </div>
+            </div>
+            <canvas id="chart-payments" height="240"></canvas>
+          </section>
+
+          <section class="report-card report-wide">
+            <div class="report-card-head">
+              <div>
+                <h2 data-i18n>Busy hours</h2>
+                <p data-i18n>Number of sales by hour of the day</p>
+              </div>
+            </div>
+            <canvas id="chart-hours" height="220"></canvas>
+          </section>
+
+          <section class="report-card">
+            <div class="report-card-head">
+              <div>
                 <h2 data-i18n>Cashier Sales</h2>
                 <p data-i18n>Revenue by account</p>
               </div>
@@ -785,38 +822,62 @@
           <section class="report-card">
             <div class="report-card-head">
               <div>
-                <h2 data-i18n>Top Products</h2>
-                <p data-i18n>Best sellers by quantity</p>
+                <h2 data-i18n>Categories</h2>
+                <p data-i18n>Revenue by category</p>
               </div>
             </div>
-            <canvas id="chart-products" height="260"></canvas>
+            <canvas id="chart-categories" height="260"></canvas>
           </section>
 
           <section class="report-card report-wide">
             <div class="report-card-head">
               <div>
-                <h2 data-i18n>Monthly Report</h2>
-                <p data-i18n>Revenue comparison by month</p>
+                <h2 data-i18n>Top Products</h2>
+                <p data-i18n>Best sellers by revenue</p>
               </div>
             </div>
-            <canvas id="chart-monthly" height="240"></canvas>
+            <canvas id="chart-products" height="260"></canvas>
           </section>
         </div>
 
         <section class="report-card">
           <div class="report-card-head">
             <div>
-              <h2 data-i18n>Report Details</h2>
-              <p data-i18n>Filtered transactions with cashier and totals</p>
+              <h2 data-i18n>Products</h2>
+              <p data-i18n>Quantity, revenue and profit of each product, refunds subtracted</p>
+            </div>
+            <div class="seg">
+              <button class="btn btn-secondary btn-sm on" data-product-mode="top" onclick="setReportProductMode('top')" data-i18n>Best sellers</button>
+              <button class="btn btn-secondary btn-sm" data-product-mode="slow" onclick="setReportProductMode('slow')" data-i18n>Slow movers</button>
             </div>
           </div>
           <div class="tbl-wrap report-table-wrap">
             <table>
               <thead>
-                <tr><th data-i18n>Sale</th><th data-i18n>Date</th><th data-i18n>Cashier</th><th data-i18n>Items</th><th data-i18n>Net</th><th data-i18n>Tax</th><th data-i18n>Total</th></tr>
+                <tr><th data-i18n>Product</th><th data-i18n>Barcode</th><th data-i18n>Category</th><th data-i18n>Qty</th><th data-i18n>Revenue</th><th data-i18n>Profit</th><th data-i18n>Margin</th></tr>
               </thead>
-              <tbody id="report-tbody">
+              <tbody id="report-products-tbody">
                 <tr><td colspan="7" class="no-data" data-i18n>Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="report-card">
+          <div class="report-card-head">
+            <div>
+              <h2 data-i18n>Dead stock</h2>
+              <p data-i18n>Products in stock that did not sell in this period, most money tied up first</p>
+            </div>
+            <span id="dead-stock-total" class="badge b-blue"></span>
+          </div>
+          <div class="tbl-wrap report-table-wrap">
+            <table>
+              <thead>
+                <tr><th data-i18n>Product</th><th data-i18n>Barcode</th><th data-i18n>Category</th><th data-i18n>Stock</th><th data-i18n>Value</th></tr>
+              </thead>
+              <tbody id="report-dead-tbody">
+                <tr><td colspan="5" class="no-data" data-i18n>Loading...</td></tr>
               </tbody>
             </table>
           </div>

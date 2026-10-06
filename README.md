@@ -82,6 +82,17 @@ Hibernate does not change tables (`ddl-auto=none`). The tests run with `ddl-auto
 - **Closing a shift** is blind: the cashier enters the counted cash before seeing what was expected. Expected cash = opening cash + cash received − change given + cash in − cash out. Card payments are not expected in the drawer.
 - **X report** (one shift) and **Z report** (one day, all tills): sales, discounts, VAT per rate, payments per method and currency, change, cash in/out and totals per cashier. Both can be printed on the receipt printer. Managers can print an X report while the shift is open; cashiers see their own after closing it.
 
+## Reports and analysis
+
+- **Reports** (*Raportet*, managers) are calculated on the server for any period (today, this week, this month, last month, this year or custom dates): revenue after refunds, VAT, cost of goods, gross profit and margin, number of sales, average sale, discounts and refunds.
+- **Charts:** revenue by day (by month for long periods), net sales vs VAT, payment methods, busy hours, sales per cashier and per category, best sellers.
+- **Products table:** quantity, revenue, profit and margin of every product sold in the period, as best sellers or slow movers. **Dead stock:** products in stock that did not sell at all in the period, sorted by the money tied up in them.
+- **Profit** = revenue without VAT − cost without VAT. The cost is the purchase price saved on each sale line; set `pos.reports.cost-includes-vat=false` if your purchase prices are entered without VAT.
+- **Exports:** the analysis as Excel (one sheet per table) or PDF, all sales of a period as Excel, and the Z report as PDF.
+- **Z report by email:** set `pos.report.email.to` (comma-separated addresses) and the `spring.mail.*` settings of your mail server (see `application.properties`); the Z report is then sent every evening at 23:30 (`pos.report.email.cron`) with the PDF attached, and the *Send by email* button appears on the Reports screen.
+- **Sales log** (*Regjistri i shitjeve*) is searched and paged on the server (50 per page) by period, invoice number and cashier, with the total of everything that matches. Cashiers only see their own sales.
+- **Home screen** shows today's sales and revenue (a cashier's own), active products and low stock.
+
 ## Promotions and customers
 
 - **Promotions** (*Promocionet*, managers): a percentage off, or *buy X get Y free* (pieces only), for one product or a whole category, optionally limited to dates, days of the week and hours (happy hour). The till applies them by itself; when several match a line, the best one wins. They show on screen and on the receipt.
@@ -158,10 +169,10 @@ All endpoints except `/auth/*` need the header `X-Auth-Token` with the token ret
 | Auth | `GET /auth/setup`, `POST /auth/register` (first account only), `POST /auth/login`, `POST /auth/logout` |
 | Products | `GET /products`, `/products/in-stock`, `/products/search?query=`, `/products/barcode/{barcode}`, `/products/{id}`; `POST /products`, `PUT /products/{id}`, `DELETE /products/{id}` |
 | Categories | `GET /categories` |
-| Cart & sales | `GET/POST/DELETE /sales/cart`, `PUT /sales/cart/{productId}`, `GET /sales/cart/subtotal`, `POST /sales/checkout`, `GET /sales` |
+| Cart & sales | `GET/POST/DELETE /sales/cart`, `PUT /sales/cart/{productId}`, `GET /sales/cart/subtotal`, `POST /sales/checkout`, `GET /sales?from&to&invoice&cashierName&page&size`, `GET /sales/{id}` |
 | Shifts | `GET /shifts`, `GET /shifts/open`, `POST /shifts/open`, `POST /shifts/{id}/close` |
 | Purchases | `GET /purchases`, `POST /purchases` |
-| Reports | `GET /reports/sales` |
+| Reports | `GET /reports/dashboard`, `/reports/analytics?from&to` (+ `.xlsx`, `.pdf`), `/reports/sales.xlsx?from&to`, `/reports/daily?date` (+ `.pdf`), `POST /reports/daily/email?date`, `GET /reports/email-settings` |
 | Users | `GET /users`, `POST /users`, `PUT /users/{id}` |
 | Printer | `GET /printer/printers`, `POST /printer/receipt`, `POST /printer/test-cut` |
 | Backups | `GET /backups`, `POST /backups/run` |

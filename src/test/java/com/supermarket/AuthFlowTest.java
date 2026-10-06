@@ -50,7 +50,7 @@ class AuthFlowTest extends IntegrationTest {
         postJson("/products", cashier, Map.of("name", "X", "barcode", "1", "price", "1", "purchasePrice", "1",
                 "taxRate", "20", "stock", 1)).andExpect(status().isForbidden());
         getJson("/users", cashier).andExpect(status().isForbidden());
-        getJson("/reports/sales", cashier).andExpect(status().isForbidden());
+        getJson("/reports/analytics", cashier).andExpect(status().isForbidden());
     }
 
     @Test

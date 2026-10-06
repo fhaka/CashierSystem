@@ -5,7 +5,6 @@ let currentUser  = null;
 let posProducts  = [];
 let cartItems    = [];
 let allProdTable = [];
-let allSales     = [];
 let allCategories = [];
 let purchaseItems = [];
 let lastReceipt  = '';
@@ -272,25 +271,20 @@ function gotoView(view) {
 async function loadHomeData() {
   updateHomeClock();
   try {
-    const [productsRes, salesRes, cartRes] = await Promise.all([
-      req('GET', '/products'),
-      req('GET', '/sales'),
+    const [dashboardRes, cartRes] = await Promise.all([
+      req('GET', '/reports/dashboard'),
       req('GET', '/sales/cart')
     ]);
-    const products = Array.isArray(productsRes.data) ? productsRes.data : [];
-    const sales = Array.isArray(salesRes.data) ? salesRes.data : [];
+    const d = dashboardRes.data;
     const cart = Array.isArray(cartRes.data) ? cartRes.data : [];
-    const revenue = sales.reduce((sum, sale) => sum + parseFloat(sale.totalAmount || 0), 0);
-    const lowStock = products.filter(product => product.active !== false && product.lowStock).length;
-    const cartCount = cart.length;
 
-    $('home-products-count').textContent = products.length;
-    $('home-sales-count').textContent = sales.length;
-    $('home-revenue').textContent = fmtLek(revenue);
-    $('home-cart-count').textContent = cartCount;
+    $('home-products-count').textContent = d.activeProducts;
+    $('home-sales-count').textContent = d.salesToday;
+    $('home-revenue').textContent = fmtLek(d.revenueToday);
+    $('home-cart-count').textContent = cart.length;
     $('home-status-list').innerHTML = `
-      <div class="home-status-item"><span>${t('Low Stock')}</span><strong>${t('{count} products need attention', { count: lowStock })}</strong></div>
-      <div class="home-status-item"><span>${t('Last Sale')}</span><strong>${sales[0] ? fmtDate(sales[0].date) : t('No sales yet')}</strong></div>
+      <div class="home-status-item"><span>${t('Low Stock')}</span><strong>${t('{count} products need attention', { count: d.lowStockProducts })}</strong></div>
+      <div class="home-status-item"><span>${t('Last Sale')}</span><strong>${d.lastSaleAt ? fmtDate(d.lastSaleAt) : t('No sales yet')}</strong></div>
       <div class="home-status-item"><span>${t('Cashier')}</span><strong>${esc(currentUser?.fullName || t('Cashier'))}</strong></div>
     `;
   } catch (e) {
@@ -529,8 +523,7 @@ function refreshCurrencyDisplay() {
   renderCart();
   renderGrid(posProducts);
   renderProdsTable(allProdTable);
-  renderSalesTable(allSales);
-  renderStats(allSales);
+  if (salesPage) { renderSalesTable(); renderStats(); }
   if ($('view-reports')?.classList.contains('on')) applyReportFilters();
 }
 
@@ -1285,91 +1278,129 @@ async function deleteProd(id) {
   } catch (e) { toast(e.message || t('Delete failed'), 'error'); }
 }
 
-/*  Sales Log  */
-async function loadSales() {
-  $('sales-tbody').innerHTML = `<tr><td colspan="6" class="no-data">${t('Loading...')}</td></tr>`;
-  try {
-    const res = await req('GET', '/sales');
-    allSales = Array.isArray(res.data) ? res.data : [];
-    applySalesFilters();
-  } catch (e) {
-    $('sales-tbody').innerHTML = `<tr><td colspan="6" class="no-data" style="color:var(--red)">${t('Error')}: ${esc(e.message)}</td></tr>`;
+/*  Sales Log: searched and paged on the server  */
+const SALES_PAGE_SIZE = 50;
+let salesPage = null;
+let salesPageNumber = 0;
+
+/* yyyy-MM-dd of a date in local time (toISOString would give the UTC day). */
+function isoDay(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/* From/to days of a period choice; custom uses the two date inputs. */
+function periodRange(period, fromInput, toInput) {
+  const now = new Date();
+  const today = isoDay(now);
+  const daysAgo = n => isoDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - n));
+  switch (period) {
+    case 'today': return { from: today, to: today };
+    case 'yesterday': return { from: daysAgo(1), to: daysAgo(1) };
+    case 'week': return { from: daysAgo((now.getDay() + 6) % 7), to: today };
+    case 'last30': return { from: daysAgo(29), to: today };
+    case 'month': return { from: isoDay(new Date(now.getFullYear(), now.getMonth(), 1)), to: today };
+    case 'lastMonth': return {
+      from: isoDay(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+      to: isoDay(new Date(now.getFullYear(), now.getMonth(), 0))
+    };
+    case 'year': return { from: `${now.getFullYear()}-01-01`, to: today };
+    default: return { from: fromInput || today, to: toInput || today };
   }
 }
 
-function applySalesFilters() {
-  const period = $('sales-period')?.value || 'all';
-  const cashierQuery = ($('sales-cashier-filter')?.value || '').toLowerCase().trim();
-  const now = new Date();
-  const filtered = allSales.filter(sale => {
-    const saleDate = new Date(sale.date);
-    const cashierName = (sale.cashier?.fullName || t('Unknown cashier')).toLowerCase();
-    const matchesCashier = !cashierQuery || cashierName.includes(cashierQuery);
-    const matchesPeriod =
-      period === 'all' ||
-      (period === 'day' && saleDate.toDateString() === now.toDateString()) ||
-      (period === 'month' && saleDate.getFullYear() === now.getFullYear() && saleDate.getMonth() === now.getMonth());
-    return matchesCashier && matchesPeriod;
-  });
-  renderSalesTable(filtered);
-  renderStats(filtered);
+function salesQuery(page) {
+  const range = periodRange($('sales-period')?.value || 'last30', $('sales-from')?.value, $('sales-to')?.value);
+  const params = new URLSearchParams({ from: range.from, to: range.to, page, size: SALES_PAGE_SIZE });
+  const invoice = ($('sales-invoice-filter')?.value || '').trim();
+  const cashier = ($('sales-cashier-filter')?.value || '').trim();
+  if (invoice) params.set('invoice', invoice);
+  if (cashier && isOperationalManager()) params.set('cashierName', cashier);
+  return { params, range };
 }
 
-function renderStats(sales) {
+function onSalesPeriodChange() {
+  const custom = $('sales-period').value === 'custom';
+  $('sales-from').classList.toggle('hidden', !custom);
+  $('sales-to').classList.toggle('hidden', !custom);
+  loadSales();
+}
+
+let _salesFilterTmr;
+function applySalesFilters() {
+  clearTimeout(_salesFilterTmr);
+  _salesFilterTmr = setTimeout(() => loadSales(), 300);
+}
+
+async function loadSales(page = 0) {
+  $('sales-tbody').innerHTML = `<tr><td colspan="8" class="no-data">${t('Loading...')}</td></tr>`;
+  try {
+    const res = await req('GET', '/sales?' + salesQuery(page).params);
+    salesPage = res.data;
+    salesPageNumber = page;
+    renderSalesTable();
+    renderStats();
+  } catch (e) {
+    salesPage = null;
+    $('sales-tbody').innerHTML = `<tr><td colspan="8" class="no-data" style="color:var(--red)">${t('Error')}: ${esc(e.message)}</td></tr>`;
+    $('sales-pager').innerHTML = '';
+  }
+}
+
+function renderStats() {
   const grid = $('stats-grid');
-  if (!sales.length) { grid.classList.add('hidden'); return; }
-  const total = sales.reduce((s, sale) => s + parseFloat(sale.totalAmount || 0), 0);
-  const avgTx = total / sales.length;
-  const totalItems = sales.reduce((s, sale) => s + itemCount(sale.items), 0);
-  const profit = sales.reduce((sum, sale) => sum + getSaleProfit(sale), 0);
-  const profitCard = isOperationalManager()
-    ? `<div class="stat-card sc-green"><div class="sc-label">${t('Profit')}</div><div class="sc-value">${fmt(profit)}</div></div>`
-    : '';
+  if (!salesPage || !salesPage.totalCount) { grid.classList.add('hidden'); return; }
+  const total = parseFloat(salesPage.totalAmount || 0);
   grid.classList.remove('hidden');
   grid.innerHTML = `
     <div class="stat-card sc-amber"><div class="sc-label">${t('Total Revenue')}</div><div class="sc-value">${fmt(total)}</div></div>
-    ${profitCard}
-    <div class="stat-card sc-green"><div class="sc-label">${t('Transactions')}</div><div class="sc-value">${sales.length}</div></div>
-    <div class="stat-card sc-blue"><div class="sc-label">${t('Avg Sale')}</div><div class="sc-value">${fmt(avgTx)}</div></div>
-    <div class="stat-card"><div class="sc-label">${t('Total Items Sold')}</div><div class="sc-value" style="color:var(--text)">${totalItems}</div></div>
+    <div class="stat-card sc-green"><div class="sc-label">${t('Transactions')}</div><div class="sc-value">${salesPage.totalCount}</div></div>
+    <div class="stat-card sc-blue"><div class="sc-label">${t('Avg Sale')}</div><div class="sc-value">${fmt(total / salesPage.totalCount)}</div></div>
   `;
 }
 
-function renderSalesTable(sales) {
+function renderSalesTable() {
   const tbody = $('sales-tbody');
-  if (!sales.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="no-data">${t('No sales found for the selected filters.')}</td></tr>`; return;
+  const rows = salesPage?.rows || [];
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="8" class="no-data">${t('No sales found for the selected filters.')}</td></tr>`;
+    $('sales-pager').innerHTML = '';
+    return;
   }
-  tbody.innerHTML = sales.map(sale => `
+  tbody.innerHTML = rows.map(sale => `
     <tr class="sale-row" onclick="viewSale(${sale.id})">
       <td class="td-m"><strong>${esc(sale.invoiceNumber || sale.id)}</strong></td>
       <td>${fmtDate(sale.date)}</td>
-      <td>${esc(sale.cashier?.fullName || t('Unknown cashier'))}</td>
-      <td><span class="badge b-muted">${t('{count} items', { count: itemCount(sale.items) })}</span></td>
+      <td>${esc(sale.cashierName || t('Unknown cashier'))}</td>
+      <td>${esc(sale.customerName || '')}</td>
+      <td><span class="badge b-muted">${t('{count} lines', { count: sale.lines })}</span></td>
+      <td>${(sale.paymentMethods || []).map(m => esc(paymentLabel(m))).join(', ')}</td>
       <td class="td-p">${fmt(sale.totalAmount)}</td>
       <td>
-        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();viewSale(${sale.id})">
-          ${t('View Details')}
-        </button>
+        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();viewSale(${sale.id})">${t('View Details')}</button>
       </td>
     </tr>
   `).join('');
+  const pages = Math.max(1, Math.ceil(salesPage.totalCount / salesPage.size));
+  $('sales-pager').innerHTML = `
+    <button class="btn btn-secondary btn-sm" ${salesPageNumber === 0 ? 'disabled' : ''} onclick="loadSales(${salesPageNumber - 1})">${t('Previous')}</button>
+    <span>${t('Page {page} of {pages}', { page: salesPageNumber + 1, pages })}</span>
+    <button class="btn btn-secondary btn-sm" ${salesPageNumber + 1 >= pages ? 'disabled' : ''} onclick="loadSales(${salesPageNumber + 1})">${t('Next')}</button>
+  `;
 }
 
-function viewSale(saleId) {
-  const sale = allSales.find(s => s.id === saleId);
-  if (!sale) { toast(t('Sale not found'), 'error'); return; }
-
-  // If sale has printableReceipt (from checkout response stored in log), show it
-  if (sale.printableReceipt) {
-    lastReceipt = sale.printableReceipt;
-    $('receipt-txt').textContent = lastReceipt;
-    openModal('modal-receipt');
-    loadReceiptPrinters();
-    return;
+async function fetchSale(saleId) {
+  try {
+    return (await req('GET', `/sales/${saleId}`)).data;
+  } catch (e) {
+    toast(e.message || t('Sale not found'), 'error');
+    return null;
   }
+}
 
-  // Otherwise show detail modal
+async function viewSale(saleId) {
+  const sale = await fetchSale(saleId);
+  if (!sale) return;
+
   $('sale-modal-title').textContent = t('Invoice {number}', { number: sale.invoiceNumber || sale.id });
   const items = (sale.items || []);
   const itemRows = items.map(i => `
@@ -1416,198 +1447,209 @@ function viewSale(saleId) {
   openModal('modal-sale');
 }
 
-function printSale(saleId) {
-  const sale = allSales.find(s => s.id === saleId);
+async function printSale(saleId) {
+  const sale = await fetchSale(saleId);
   if (!sale) return;
   lastReceipt = buildFallbackReceipt(sale);
   printReceipt();
 }
 
-function getSaleProfit(sale) {
-  const total = parseFloat(sale.totalAmount || 0);
-  const cost = (sale.items || []).reduce((sum, item) => {
-    const qty = parseFloat(item.quantity || 0);
-    const purchase = parseFloat(item.purchasePrice ?? item.product?.purchasePrice ?? 0);
-    return sum + purchase * qty;
-  }, 0);
-  return Math.max(0, total - cost);
+/* Downloads a file the server makes (Excel, PDF); errors come back as JSON and are shown as a message. */
+async function downloadFile(path) {
+  try {
+    const res = await fetch(API + path, { headers: { 'Accept-Language': currentLang } });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      throw new Error(json.message || t('Request failed with status {status}', { status: res.status }));
+    }
+    const name = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'raport';
+    const url = URL.createObjectURL(await res.blob());
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) { toast(e.message || t('Download failed'), 'error'); }
 }
 
-/*  Reports  */
+function exportSalesExcel() {
+  const range = salesQuery(0).range;
+  downloadFile(`/reports/sales.xlsx?from=${range.from}&to=${range.to}`);
+}
+
+/*  Reports: calculated on the server for the chosen period  */
+let analytics = null;
+let reportProductMode = 'top';
+
+function reportRange() {
+  return periodRange($('report-period')?.value || 'month', $('report-from')?.value, $('report-to')?.value);
+}
+
+function onReportPeriodChange() {
+  const custom = $('report-period').value === 'custom';
+  $('report-from').classList.toggle('hidden', !custom);
+  $('report-to').classList.toggle('hidden', !custom);
+  loadReports();
+}
+
 async function loadReports() {
-  if ($('z-date') && !$('z-date').value) $('z-date').value = new Date().toISOString().slice(0, 10);
-  const tbody = $('report-tbody');
-  if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="no-data">${t('Loading reports...')}</td></tr>`;
+  if ($('z-date') && !$('z-date').value) $('z-date').value = isoDay(new Date());
+  const range = reportRange();
+  $('report-kpis').innerHTML = `<div class="report-kpi"><span>${t('Loading reports...')}</span></div>`;
   try {
-    const res = await req('GET', '/reports/sales');
-    allSales = Array.isArray(res.data) ? res.data : [];
+    const res = await req('GET', `/reports/analytics?from=${range.from}&to=${range.to}`);
+    analytics = res.data;
     applyReportFilters();
   } catch (e) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="no-data" style="color:var(--red)">${t('Error')}: ${esc(e.message)}</td></tr>`;
+    $('report-kpis').innerHTML = '';
     toast(t('Could not load reports: ') + e.message, 'error');
   }
+  loadEmailSettings();
 }
 
+async function loadEmailSettings() {
+  try {
+    const res = await req('GET', '/reports/email-settings');
+    $('z-email-btn').classList.toggle('hidden', !res.data.configured);
+  } catch {}
+}
+
+/* Draws everything from the loaded analysis (also after a currency or language change). */
 function applyReportFilters() {
-  const sales = getReportFilteredSales();
-  const summary = buildReportSummary(sales);
-  renderReportKpis(summary);
-  renderReportTable(sales);
-  renderReportCharts(summary);
+  if (!analytics) return;
+  renderReportKpis();
+  renderReportCharts();
+  renderReportProducts();
+  renderDeadStock();
 }
 
-function getReportFilteredSales() {
-  const period = $('report-period')?.value || 'month';
-  const now = new Date();
-  const fromInput = $('report-from')?.value;
-  const toInput = $('report-to')?.value;
-  return allSales.filter(sale => {
-    const d = new Date(sale.date);
-    if (period === 'today') return d.toDateString() === now.toDateString();
-    if (period === 'month') return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-    if (period === 'year') return d.getFullYear() === now.getFullYear();
-    if (period === 'custom') {
-      const from = fromInput ? new Date(fromInput + 'T00:00:00') : null;
-      const to = toInput ? new Date(toInput + 'T23:59:59') : null;
-      return (!from || d >= from) && (!to || d <= to);
-    }
-    return true;
-  });
-}
-
-function buildReportSummary(sales) {
-  const byDay = new Map();
-  const byMonth = new Map();
-  const byCashier = new Map();
-  const byProduct = new Map();
-  let total = 0;
-  let tax = 0;
-  let itemsSold = 0;
-  let cost = 0;
-
-  sales.forEach(sale => {
-    const saleTotal = parseFloat(sale.totalAmount || 0);
-    total += saleTotal;
-    const date = new Date(sale.date);
-    const dayKey = date.toISOString().slice(0, 10);
-    const monthKey = formatMonthYear(date);
-    byDay.set(dayKey, (byDay.get(dayKey) || 0) + saleTotal);
-    byMonth.set(monthKey, (byMonth.get(monthKey) || 0) + saleTotal);
-
-    const cashier = sale.cashier?.fullName || t('Unknown cashier');
-    byCashier.set(cashier, (byCashier.get(cashier) || 0) + saleTotal);
-
-    (sale.items || []).forEach(item => {
-      const qty = parseFloat(item.quantity || 0);
-      const finalPrice = parseFloat(item.unitPrice || item.price || 0);
-      const netPrice = parseFloat(item.priceWithoutTax || item.unitPriceWithoutTax || finalPrice);
-      const lineTotal = parseFloat(item.lineTotal || qty * finalPrice);
-      const lineTax = item.taxAmount !== undefined && item.taxAmount !== null
-        ? parseFloat(item.taxAmount || 0)
-        : Math.max(0, (finalPrice - netPrice) * qty);
-      const productName = item.productName || item.product?.name || t('Unknown product');
-      const purchasePrice = parseFloat(item.purchasePrice ?? item.product?.purchasePrice ?? 0);
-      const existing = byProduct.get(productName) || { label: productName, qty: 0, revenue: 0 };
-
-      existing.qty += qty;
-      existing.revenue += lineTotal;
-      byProduct.set(productName, existing);
-      tax += lineTax;
-      itemsSold += qty;
-      cost += purchasePrice * qty;
-    });
-  });
-
-  return {
-    sales,
-    total,
-    tax,
-    net: Math.max(0, total - tax),
-    cost,
-    profit: Math.max(0, total - cost),
-    itemsSold,
-    transactions: sales.length,
-    avgSale: sales.length ? total / sales.length : 0,
-    byDay: sortedEntries(byDay),
-    byMonth: sortedEntries(byMonth),
-    byCashier: sortedEntries(byCashier).sort((a, b) => b.value - a.value),
-    byProduct: Array.from(byProduct.values()).sort((a, b) => b.qty - a.qty).slice(0, 8),
-  };
-}
-
-function sortedEntries(map) {
-  return Array.from(map.entries()).map(([label, value]) => ({ label, value }));
-}
-
-function renderReportKpis(summary) {
-  const kpis = $('report-kpis');
-  if (!kpis) return;
-  kpis.innerHTML = `
-    <div class="report-kpi"><span>${t('Total Income')}</span><strong>${fmtLek(summary.total)}</strong></div>
-    <div class="report-kpi"><span>${t('Gross Profit')}</span><strong>${fmtLek(summary.profit)}</strong></div>
-    <div class="report-kpi"><span>${t('Tax Amount')}</span><strong>${fmtLek(summary.tax)}</strong></div>
-    <div class="report-kpi"><span>${t('Transactions')}</span><strong>${summary.transactions}</strong></div>
-    <div class="report-kpi"><span>${t('Items Sold')}</span><strong>${summary.itemsSold}</strong></div>
-    <div class="report-kpi"><span>${t('Average Sale')}</span><strong>${fmtLek(summary.avgSale)}</strong></div>
+function renderReportKpis() {
+  const k = analytics.kpis;
+  $('report-kpis').innerHTML = `
+    <div class="report-kpi"><span>${t('Revenue')}</span><strong>${fmtLek(k.revenue)}</strong></div>
+    <div class="report-kpi"><span>${t('Gross Profit')}</span><strong>${fmtLek(k.profit)}</strong><small>${t('Margin')} ${parseFloat(k.marginPercent || 0).toFixed(1)}%</small></div>
+    <div class="report-kpi"><span>${t('Tax Amount')}</span><strong>${fmtLek(k.vat)}</strong></div>
+    <div class="report-kpi"><span>${t('Cost of goods')}</span><strong>${fmtLek(k.cost)}</strong></div>
+    <div class="report-kpi"><span>${t('Transactions')}</span><strong>${k.salesCount}</strong></div>
+    <div class="report-kpi"><span>${t('Average Sale')}</span><strong>${fmtLek(k.averageSale)}</strong></div>
+    <div class="report-kpi"><span>${t('Discounts')}</span><strong>${fmtLek(k.discounts)}</strong></div>
+    <div class="report-kpi"><span>${t('Refunds')}</span><strong>${fmtLek(k.refunds)}</strong><small>${t('{count} refunds', { count: k.refundsCount })}</small></div>
   `;
-  const label = $('report-period')?.selectedOptions?.[0]?.textContent || t('Report');
-  if ($('report-range-label')) $('report-range-label').textContent = label;
+  $('report-range-label').textContent = analytics.from === analytics.to
+    ? formatDay(analytics.from)
+    : `${formatDay(analytics.from)} - ${formatDay(analytics.to)}`;
 }
 
-function renderReportTable(sales) {
-  const tbody = $('report-tbody');
-  if (!tbody) return;
-  if (!sales.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="no-data">${t('No transactions for this report filter.')}</td></tr>`;
+function formatDay(iso) {
+  const [y, m, d] = iso.split('-');
+  return `${d}.${m}.${y}`;
+}
+
+/* Long periods are drawn by month, short ones by day. */
+function revenueSeries() {
+  const days = analytics.byDay;
+  if (days.length <= 62) return days.map(d => ({ label: formatDay(d.day).slice(0, 5), value: parseFloat(d.revenue) }));
+  const months = new Map();
+  days.forEach(d => {
+    const key = d.day.slice(0, 7);
+    months.set(key, (months.get(key) || 0) + parseFloat(d.revenue));
+  });
+  return Array.from(months.entries()).map(([key, value]) => ({ label: formatMonthYear(new Date(key + '-01T00:00:00')), value }));
+}
+
+function renderReportCharts() {
+  const k = analytics.kpis;
+  drawLineChart('chart-revenue', revenueSeries(), t('Income'));
+  drawDonutChart('chart-tax', [
+    { label: t('Net sales'), value: parseFloat(k.revenueWithoutVat) },
+    { label: t('Tax'), value: parseFloat(k.vat) }
+  ]);
+  drawDonutChart('chart-payments', analytics.byPayment
+    .filter(p => parseFloat(p.revenue) > 0)
+    .map(p => ({ label: paymentLabel(p.name), value: parseFloat(p.revenue) })));
+  drawBarChart('chart-cashiers', analytics.byCashier.slice(0, 6).map(c => ({ label: c.name, value: parseFloat(c.revenue) })), t('Revenue'));
+  drawBarChart('chart-categories', analytics.byCategory.slice(0, 8).map(c => ({ label: c.name, value: parseFloat(c.revenue) })), t('Revenue'));
+  // At least the usual opening hours, wider if there were sales earlier or later.
+  const open = analytics.byHour.filter(h => h.salesCount > 0).map(h => h.hour);
+  const hours = open.length ? analytics.byHour.slice(Math.min(8, ...open), Math.max(21, ...open) + 1) : [];
+  drawBarChart('chart-hours', hours.map(h => ({ label: String(h.hour).padStart(2, '0'), value: h.salesCount })), t('Sales by hour'));
+  drawHorizontalBarChart('chart-products', analytics.products.slice(0, 8)
+    .map(p => ({ label: p.name, value: Math.round(parseFloat(p.revenue)) })), t('Revenue'));
+}
+
+function setReportProductMode(mode) {
+  reportProductMode = mode;
+  document.querySelectorAll('[data-product-mode]').forEach(b => b.classList.toggle('on', b.dataset.productMode === mode));
+  renderReportProducts();
+}
+
+function renderReportProducts() {
+  const tbody = $('report-products-tbody');
+  let products = analytics.products.filter(p => parseFloat(p.quantity) > 0);
+  if (reportProductMode === 'slow') {
+    products = products.slice().sort((a, b) => parseFloat(a.revenue) - parseFloat(b.revenue));
+  }
+  products = products.slice(0, 50);
+  if (!products.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="no-data">${t('No products sold yet')}</td></tr>`;
     return;
   }
-  tbody.innerHTML = sales.map(sale => {
-    const tax = getSaleTax(sale);
-    const total = parseFloat(sale.totalAmount || 0);
-    const items = itemCount(sale.items);
-    return `
-      <tr class="sale-row" onclick="viewSale(${sale.id})">
-        <td class="td-m"><strong>${esc(sale.invoiceNumber || sale.id)}</strong></td>
-        <td>${fmtDate(sale.date)}</td>
-        <td>${esc(sale.cashier?.fullName || t('Unknown cashier'))}</td>
-        <td><span class="badge b-muted">${t('{count} items', { count: items })}</span></td>
-        <td class="td-p">${fmtLek(total - tax)}</td>
-        <td class="td-p">${fmtLek(tax)}</td>
-        <td class="td-p">${fmtLek(total)}</td>
-      </tr>
-    `;
-  }).join('');
+  tbody.innerHTML = products.map(p => `
+    <tr>
+      <td>${esc(p.name)}</td>
+      <td class="td-m">${esc(p.barcode || '')}</td>
+      <td>${esc(p.category || '')}</td>
+      <td class="td-m">${fmtQty(p.quantity, p.unit)} ${esc(unitLabel(p.unit))}</td>
+      <td class="td-p">${fmtLek(p.revenue)}</td>
+      <td class="td-p">${fmtLek(p.profit)}</td>
+      <td class="td-m">${parseFloat(p.marginPercent || 0).toFixed(1)}%</td>
+    </tr>
+  `).join('');
 }
 
-function getSaleTax(sale) {
-  return (sale.items || []).reduce((sum, item) => {
-    const qty = parseFloat(item.quantity || 0);
-    const finalPrice = parseFloat(item.unitPrice || item.price || 0);
-    const netPrice = parseFloat(item.priceWithoutTax || item.unitPriceWithoutTax || finalPrice);
-    const tax = item.taxAmount !== undefined && item.taxAmount !== null
-      ? parseFloat(item.taxAmount || 0)
-      : Math.max(0, (finalPrice - netPrice) * qty);
-    return sum + tax;
-  }, 0);
+function renderDeadStock() {
+  const tbody = $('report-dead-tbody');
+  const rows = analytics.deadStock;
+  $('dead-stock-total').textContent = fmtLek(rows.reduce((s, r) => s + parseFloat(r.value || 0), 0));
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="no-data">${t('Every product in stock sold in this period')}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td>${esc(r.name)}</td>
+      <td class="td-m">${esc(r.barcode || '')}</td>
+      <td>${esc(r.category || '')}</td>
+      <td class="td-m">${fmtQty(r.stock, r.unit)} ${esc(unitLabel(r.unit))}</td>
+      <td class="td-p">${fmtLek(r.value)}</td>
+    </tr>
+  `).join('');
 }
 
-function renderReportCharts(summary) {
-  drawLineChart('chart-revenue', summary.byDay.length ? summary.byDay : summary.byMonth, t('Income'));
-  drawDonutChart('chart-tax', [
-    { label: t('Net sales'), value: summary.net },
-    { label: t('Tax'), value: summary.tax }
-  ]);
-  drawBarChart('chart-cashiers', summary.byCashier.slice(0, 6), t('Revenue'));
-  drawHorizontalBarChart('chart-products', summary.byProduct.map(p => ({ label: p.label, value: p.qty })), t('Qty'));
-  drawBarChart('chart-monthly', summary.byMonth, t('Monthly income'));
+function exportReport(type) {
+  const range = reportRange();
+  downloadFile(`/reports/analytics.${type}?from=${range.from}&to=${range.to}`);
+}
+
+function downloadZReportPdf() {
+  downloadFile(`/reports/daily.pdf?date=${$('z-date').value || isoDay(new Date())}`);
+}
+
+async function emailZReport() {
+  try {
+    const res = await req('POST', `/reports/daily/email?date=${$('z-date').value || isoDay(new Date())}`);
+    toast(t('Report sent to {to}', { to: res.data.sentTo.join(', ') }), 'success');
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 const REPORT_CHART_HEIGHTS = {
   'chart-revenue': 240,
   'chart-tax': 240,
+  'chart-payments': 240,
   'chart-cashiers': 260,
+  'chart-categories': 260,
   'chart-products': 260,
-  'chart-monthly': 240
+  'chart-hours': 220
 };
 
 function setupCanvas(id) {
@@ -1712,9 +1754,10 @@ function drawBarChart(id, data, label) {
   const pad = 34;
   const max = Math.max(...data.map(d => d.value), 1);
   const gap = 10;
-  const barW = Math.max(18, (width - pad * 2 - gap * (data.length - 1)) / data.length);
+  const barW = Math.min(64, Math.max(18, (width - pad * 2 - gap * (data.length - 1)) / data.length));
+  const left = (width - data.length * barW - gap * (data.length - 1)) / 2;
   data.forEach((d, i) => {
-    const x = pad + i * (barW + gap);
+    const x = left + i * (barW + gap);
     const h = (d.value / max) * (height - pad * 2);
     const y = height - pad - h;
     ctx.fillStyle = i % 2 ? c.green : c.blue;
@@ -1723,7 +1766,7 @@ function drawBarChart(id, data, label) {
     ctx.fillStyle = c.muted;
     ctx.font = '600 11px Barlow, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(shortLabel(d.label), x + barW / 2, height - 9);
+    ctx.fillText(shortLabel(d.label, Math.max(3, Math.floor((barW + gap) / 7))), x + barW / 2, height - 9);
   });
   ctx.fillStyle = c.text;
   ctx.font = '700 12px Barlow, sans-serif';
@@ -1762,18 +1805,19 @@ function drawHorizontalBarChart(id, data, label) {
   ctx.fillText(label, 12, 16);
 }
 
-function drawDonutChart(id, data) {
+function drawDonutChart(id, data, emptyMessage) {
   const setup = setupCanvas(id);
   if (!setup) return;
   const { ctx, width, height } = setup;
   const c = chartColors();
   ctx.clearRect(0, 0, width, height);
   const total = data.reduce((s, d) => s + d.value, 0);
-  if (!total) { drawEmptyChart(ctx, width, height, t('No tax data yet')); return; }
+  if (!total) { drawEmptyChart(ctx, width, height, emptyMessage || t('No data for this chart')); return; }
   const colors = [c.green, c.blue, c.purple, c.red];
   const cx = width / 2;
-  const cy = height / 2 - 8;
-  const radius = Math.min(width, height) / 3;
+  const legendTop = height - 14 - data.length * 20;
+  const cy = legendTop / 2 + 4;
+  const radius = Math.min(width / 3, legendTop / 2 - 16);
   let start = -Math.PI / 2;
   data.forEach((d, i) => {
     const angle = (d.value / total) * Math.PI * 2;
@@ -1791,10 +1835,10 @@ function drawDonutChart(id, data) {
   ctx.font = '600 12px Barlow, sans-serif';
   data.forEach((d, i) => {
     ctx.fillStyle = colors[i % colors.length];
-    ctx.fillRect(26, height - 42 + i * 20, 10, 10);
+    ctx.fillRect(26, legendTop + i * 20, 10, 10);
     ctx.fillStyle = c.muted;
     ctx.textAlign = 'left';
-    ctx.fillText(`${d.label}: ${fmtLek(d.value)}`, 44, height - 33 + i * 20);
+    ctx.fillText(`${d.label}: ${fmtLek(d.value)}`, 44, legendTop + 9 + i * 20);
   });
 }
 
@@ -2595,7 +2639,7 @@ async function addCashMovement() {
 let zReportText = '';
 
 async function loadZReport() {
-  const date = $('z-date').value || new Date().toISOString().slice(0, 10);
+  const date = $('z-date').value || isoDay(new Date());
   try {
     const res = await req('GET', `/reports/daily?date=${encodeURIComponent(date)}`);
     zReportText = res.data.printableText;

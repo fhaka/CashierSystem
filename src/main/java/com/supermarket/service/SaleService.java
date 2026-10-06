@@ -4,6 +4,7 @@ import com.supermarket.dto.CartSummary;
 import com.supermarket.dto.CheckoutRequest;
 import com.supermarket.dto.ReceiptItemResponse;
 import com.supermarket.dto.ReceiptResponse;
+import com.supermarket.dto.SalesPage;
 import com.supermarket.dto.SaleLogRequest;
 import com.supermarket.exception.InsufficientStockException;
 import com.supermarket.exception.ValidationException;
@@ -24,13 +25,17 @@ import com.supermarket.repository.ProductRepository;
 import com.supermarket.repository.SaleRepository;
 import com.supermarket.util.Quantities;
 import org.springframework.context.MessageSource;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -83,12 +88,36 @@ public class SaleService {
         this.exchangeRateService = exchangeRateService;
     }
 
-    public List<Sale> findAll() {
-        return saleRepository.findAllByOrderByDateDesc();
+    /**
+     * One page of the sales log. Cashiers only ever see their own sales (cashierId is forced by the caller).
+     * Dates are whole days; by default the last 30 days.
+     */
+    @Transactional(readOnly = true)
+    public SalesPage search(LocalDate fromDay, LocalDate toDay, Long cashierId, String cashierName, String invoice, int page, int size) {
+        LocalDate to = toDay == null ? LocalDate.now() : toDay;
+        LocalDate from = fromDay == null ? to.minusDays(29) : fromDay;
+        String name = cashierName == null || cashierName.isBlank() ? null : cashierName.trim();
+        String number = invoice == null || invoice.isBlank() ? null : invoice.trim();
+        int pageSize = Math.min(Math.max(size, 1), 200);
+        Page<Sale> result = saleRepository.search(from.atStartOfDay(), to.atTime(LocalTime.MAX), cashierId, name, number,
+                PageRequest.of(Math.max(page, 0), pageSize));
+        BigDecimal total = saleRepository.sumForSearch(from.atStartOfDay(), to.atTime(LocalTime.MAX), cashierId, name, number);
+        return new SalesPage(result.getContent().stream().map(SalesPage.Row::of).toList(), result.getNumber(), pageSize,
+                result.getTotalElements(), total);
     }
 
-    public List<Sale> findForCashier(Long cashierId) {
-        return saleRepository.findByCashierIdOrderByDateDesc(cashierId);
+    @Transactional(readOnly = true)
+    public Sale findById(Long id) {
+        Sale sale = saleRepository.findById(id).orElseThrow(() -> new ValidationException("refund.saleNotFound", id));
+        sale.getItems().forEach(item -> item.getProduct().getName());
+        return sale;
+    }
+
+    /** Today's numbers for the home screen (cashiers: their own sales). */
+    @Transactional(readOnly = true)
+    public SalesPage.Dashboard dashboard(Long cashierId, long activeProducts, long lowStock) {
+        Object[] today = saleRepository.todaySummary(LocalDate.now().atStartOfDay(), cashierId).get(0);
+        return new SalesPage.Dashboard((Long) today[0], (BigDecimal) today[1], activeProducts, lowStock, (LocalDateTime) today[2]);
     }
 
     /** Total of the cart on screen, with the same discounts as checkout, for the screen and the payment window. */

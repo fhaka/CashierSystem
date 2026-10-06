@@ -4,6 +4,7 @@ import com.supermarket.dto.ReceiptItemResponse;
 import com.supermarket.dto.ReceiptResponse;
 import com.supermarket.dto.SaleLogRequest;
 import com.supermarket.exception.InsufficientStockException;
+import com.supermarket.exception.ValidationException;
 import com.supermarket.model.CartItem;
 import com.supermarket.model.Cashier;
 import com.supermarket.model.Product;
@@ -13,18 +14,24 @@ import com.supermarket.repository.JdbcLogRepository;
 import com.supermarket.repository.ProductRepository;
 import com.supermarket.repository.SaleRepository;
 import com.supermarket.strategy.PricingStrategy;
+import org.springframework.context.MessageSource;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
 public class SaleService {
+
+    private static final DateTimeFormatter RECEIPT_DATE = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
 
     private final CartService cartService;
     private final ProductService productService;
@@ -33,6 +40,7 @@ public class SaleService {
     private final JdbcLogRepository jdbcLogRepository;
     private final ShiftService shiftService;
     private final List<PricingStrategy> pricingStrategies;
+    private final MessageSource messageSource;
 
     public SaleService(
             CartService cartService,
@@ -41,7 +49,8 @@ public class SaleService {
             SaleRepository saleRepository,
             JdbcLogRepository jdbcLogRepository,
             ShiftService shiftService,
-            List<PricingStrategy> pricingStrategies
+            List<PricingStrategy> pricingStrategies,
+            MessageSource messageSource
     ) {
         this.cartService = cartService;
         this.productService = productService;
@@ -50,6 +59,7 @@ public class SaleService {
         this.jdbcLogRepository = jdbcLogRepository;
         this.shiftService = shiftService;
         this.pricingStrategies = pricingStrategies;
+        this.messageSource = messageSource;
     }
 
     public List<Sale> findAll() {
@@ -66,7 +76,7 @@ public class SaleService {
 
     public Map<String, Object> findSaleLogById(Long id) {
         return jdbcLogRepository.findSaleLogById(id)
-                .orElseThrow(() -> new IllegalArgumentException("JDBC sale log not found with id: " + id));
+                .orElseThrow(() -> new ValidationException("saleLog.notFound", id));
     }
 
     public Map<String, Object> createSaleLog(SaleLogRequest request) {
@@ -76,7 +86,7 @@ public class SaleService {
 
     public Map<String, Object> updateSaleLog(Long id, SaleLogRequest request) {
         if (request.getMessage() == null || request.getMessage().isBlank()) {
-            throw new IllegalArgumentException("Sale log message is required");
+            throw new ValidationException("saleLog.messageRequired");
         }
         return jdbcLogRepository.updateSaleLog(id, request.getMessage().trim());
     }
@@ -89,7 +99,7 @@ public class SaleService {
     public ReceiptResponse checkout(Cashier cashier) {
         List<CartItem> cartItems = cartService.getCart(cashier.getId());
         if (cartItems.isEmpty()) {
-            throw new IllegalArgumentException("Cart is empty");
+            throw new ValidationException("cart.empty");
         }
 
         Map<Long, Product> productsById = cartItems.stream()
@@ -103,7 +113,7 @@ public class SaleService {
 
         Sale sale = new Sale(LocalDateTime.now(), finalTotal);
         shiftService.findOpenShift(cashier.getId())
-                .orElseThrow(() -> new IllegalArgumentException("Open a shift before checkout"));
+                .orElseThrow(() -> new ValidationException("sale.shiftRequired"));
         sale.setCashier(cashier);
         cartItems.forEach(item -> {
             Product product = productsById.get(item.getProductId());
@@ -130,16 +140,16 @@ public class SaleService {
 
     private void validateStock(Product product, CartItem item) {
         if (product.getStock() < item.getQuantity()) {
-            throw new InsufficientStockException("Not enough stock for product: " + product.getName());
+            throw new InsufficientStockException(product.getName());
         }
     }
 
     private void validateSaleLogRequest(SaleLogRequest request) {
         if (request.getSaleId() == null) {
-            throw new IllegalArgumentException("Sale id is required");
+            throw new ValidationException("saleLog.saleIdRequired");
         }
         if (request.getMessage() == null || request.getMessage().isBlank()) {
-            throw new IllegalArgumentException("Sale log message is required");
+            throw new ValidationException("saleLog.messageRequired");
         }
     }
 
@@ -158,21 +168,24 @@ public class SaleService {
                 ))
                 .toList();
 
+        Locale locale = LocaleContextHolder.getLocale();
         StringBuilder printable = new StringBuilder();
-        printable.append("SUPERMARKET RECEIPT\n");
-        printable.append("Sale ID: ").append(sale.getId()).append("\n");
-        printable.append("Date: ").append(sale.getDate()).append("\n");
+        printable.append(text("receipt.title", locale)).append("\n");
+        printable.append(text("receipt.saleNumber", locale)).append(": ").append(sale.getId()).append("\n");
+        printable.append(text("receipt.date", locale)).append(": ").append(sale.getDate().format(RECEIPT_DATE)).append("\n");
         printable.append("------------------------------\n");
         receiptItems.forEach(item -> printable
                 .append(item.getProductName())
                 .append(" x")
                 .append(item.getQuantity())
                 .append(" ")
-                .append(item.getUnit())
+                .append(text("unit." + item.getUnit(), locale))
                 .append(" @ ")
                 .append(item.getUnitPrice())
-                .append(" (tax ")
-                .append(item.getTaxRate())
+                .append(" (")
+                .append(text("receipt.tax", locale))
+                .append(" ")
+                .append(item.getTaxRate().stripTrailingZeros().toPlainString())
                 .append("%: ")
                 .append(item.getTaxAmount())
                 .append(")")
@@ -181,12 +194,12 @@ public class SaleService {
                 .append("\n"));
         BigDecimal discountAmount = subtotal.subtract(sale.getTotalAmount());
         printable.append("------------------------------\n");
-        printable.append("Subtotal: ").append(subtotal).append("\n");
+        printable.append(text("receipt.subtotal", locale)).append(": ").append(subtotal).append("\n");
         if (discountAmount.signum() > 0) {
-            printable.append("Discount: -").append(discountAmount).append("\n");
+            printable.append(text("receipt.discount", locale)).append(": -").append(discountAmount).append("\n");
         }
-        printable.append("Total: ").append(sale.getTotalAmount()).append("\n");
-        printable.append("Thank you!\n");
+        printable.append(text("receipt.total", locale)).append(": ").append(sale.getTotalAmount()).append("\n");
+        printable.append(text("receipt.thanks", locale)).append("\n");
 
         return new ReceiptResponse(
                 sale.getId(),
@@ -196,5 +209,9 @@ public class SaleService {
                 receiptItems,
                 printable.toString()
         );
+    }
+
+    private String text(String code, Locale locale) {
+        return messageSource.getMessage(code, null, code, locale);
     }
 }

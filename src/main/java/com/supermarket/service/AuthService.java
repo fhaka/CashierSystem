@@ -1,5 +1,6 @@
 package com.supermarket.service;
 
+import com.supermarket.exception.ValidationException;
 import com.supermarket.dto.AuthRequest;
 import com.supermarket.dto.AuthResponse;
 import com.supermarket.dto.RegisterRequest;
@@ -25,11 +26,11 @@ public class AuthService {
     public AuthResponse register(RegisterRequest request) {
         validateRegisterRequest(request);
         if (cashierRepository.count() > 0) {
-            throw new IllegalArgumentException("Initial registration is complete. Ask an administrator to create the account");
+            throw new ValidationException("auth.registrationClosed");
         }
         String username = request.getUsername().trim();
         if (cashierRepository.existsByUsernameIgnoreCase(username)) {
-            throw new IllegalArgumentException("Username is already registered");
+            throw new ValidationException("user.usernameTaken");
         }
 
         Cashier cashier = new Cashier(
@@ -45,18 +46,18 @@ public class AuthService {
     @Transactional
     public AuthResponse login(AuthRequest request) {
         if (request.getUsername() == null || request.getPassword() == null) {
-            throw new IllegalArgumentException("Username and password are required");
+            throw new ValidationException("auth.credentialsRequired");
         }
 
         Cashier cashier = cashierRepository.findByUsernameIgnoreCase(request.getUsername().trim())
-                .orElseThrow(() -> new IllegalArgumentException("Invalid username or password"));
+                .orElseThrow(() -> new ValidationException("auth.invalidCredentials"));
 
         if (!cashier.getPasswordHash().equals(PasswordUtil.hash(request.getPassword()))) {
-            throw new IllegalArgumentException("Invalid username or password");
+            throw new ValidationException("auth.invalidCredentials");
         }
 
         if (!cashier.isActive()) {
-            throw new IllegalArgumentException("This account is disabled");
+            throw new ValidationException("auth.accountDisabled");
         }
 
         return toResponse(cashier, sessionService.createSession(cashier));
@@ -72,13 +73,13 @@ public class AuthService {
 
     private void validateRegisterRequest(RegisterRequest request) {
         if (request.getFullName() == null || request.getFullName().isBlank()) {
-            throw new IllegalArgumentException("Full name is required");
+            throw new ValidationException("user.fullNameRequired");
         }
         if (request.getUsername() == null || request.getUsername().isBlank()) {
-            throw new IllegalArgumentException("Username is required");
+            throw new ValidationException("user.usernameRequired");
         }
         if (request.getPassword() == null || request.getPassword().length() < 4) {
-            throw new IllegalArgumentException("Password must be at least 4 characters");
+            throw new ValidationException("user.passwordTooShort");
         }
     }
 

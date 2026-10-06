@@ -1,5 +1,7 @@
 package com.supermarket.service;
 
+import com.supermarket.exception.ReceiptPrinterException;
+import com.supermarket.exception.ValidationException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -26,6 +28,9 @@ import java.util.List;
 @Service
 public class ThermalPrinterService {
 
+    /** Default code page of ESC/POS thermal printers. It has ë, ç and Ç, but not Ë. */
+    private static final Charset PRINTER_CHARSET = Charset.forName("CP437");
+
     private final String configuredPrinterName;
 
     public ThermalPrinterService(@Value("${receipt.printer.name:}") String configuredPrinterName) {
@@ -38,7 +43,7 @@ public class ThermalPrinterService {
 
     public void printReceipt(String receiptText, String printerName) {
         if (receiptText == null || receiptText.isBlank()) {
-            throw new IllegalArgumentException("Receipt text is required");
+            throw new ValidationException("printer.receiptRequired");
         }
 
         PrintService printService = resolvePrintService(printerName);
@@ -50,10 +55,10 @@ public class ThermalPrinterService {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         try {
             output.write(new byte[] { 0x1B, 0x40 });
-            output.write("CUT TEST\n\n\n\n\n\n".getBytes(Charset.forName("CP437")));
+            output.write("CUT TEST\n\n\n\n\n\n".getBytes(PRINTER_CHARSET));
             writeCutCommands(output);
         } catch (Exception exception) {
-            throw new IllegalStateException("Could not build cut test: " + exception.getMessage(), exception);
+            throw new ReceiptPrinterException("printer.buildFailed", exception, exception.getMessage());
         }
         printRawBytes(printService, output.toByteArray());
     }
@@ -71,7 +76,7 @@ public class ThermalPrinterService {
     private PrintService resolvePrintService(String requestedPrinterName) {
         PrintService[] printServices = PrintServiceLookup.lookupPrintServices(null, null);
         if (printServices.length == 0) {
-            throw new IllegalStateException("No printers found on this computer");
+            throw new ReceiptPrinterException("printer.noneFound");
         }
 
         String printerName = requestedPrinterName;
@@ -85,7 +90,7 @@ public class ThermalPrinterService {
                     .filter(service -> service.getName().equalsIgnoreCase(selectedPrinterName)
                             || service.getName().toLowerCase().contains(selectedPrinterName.toLowerCase()))
                     .findFirst()
-                    .orElseThrow(() -> new IllegalStateException("Printer not found: " + selectedPrinterName));
+                    .orElseThrow(() -> new ReceiptPrinterException("printer.notFound", selectedPrinterName));
         }
 
         PrintService defaultPrintService = PrintServiceLookup.lookupDefaultPrintService();
@@ -102,7 +107,7 @@ public class ThermalPrinterService {
             PrintRequestAttributeSet attributes = new HashPrintRequestAttributeSet();
             printJob.print(doc, attributes);
         } catch (Exception exception) {
-            throw new IllegalStateException("Could not print to " + printService.getName() + ": " + exception.getMessage(), exception);
+            throw new ReceiptPrinterException("printer.failed", exception, printService.getName(), exception.getMessage());
         }
     }
 
@@ -141,7 +146,7 @@ public class ThermalPrinterService {
             }, pageFormat);
             printerJob.print();
         } catch (PrinterException exception) {
-            throw new IllegalStateException("Could not print to " + printService.getName() + ": " + exception.getMessage(), exception);
+            throw new ReceiptPrinterException("printer.failed", exception, printService.getName(), exception.getMessage());
         }
     }
 
@@ -153,13 +158,17 @@ public class ThermalPrinterService {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         try {
             output.write(new byte[] { 0x1B, 0x40 }); // Initialize printer.
-            output.write(receiptText.replace("\r\n", "\n").replace("\r", "\n").getBytes(Charset.forName("CP437")));
+            output.write(toPrinterText(receiptText).getBytes(PRINTER_CHARSET));
             output.write(new byte[] { 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A });
             writeCutCommands(output);
             return output.toByteArray();
         } catch (Exception exception) {
-            throw new IllegalStateException("Could not build receipt bytes: " + exception.getMessage(), exception);
+            throw new ReceiptPrinterException("printer.buildFailed", exception, exception.getMessage());
         }
+    }
+
+    private String toPrinterText(String receiptText) {
+        return receiptText.replace("\r\n", "\n").replace("\r", "\n").replace('Ë', 'E');
     }
 
     private void writeCutCommands(ByteArrayOutputStream output) throws Exception {

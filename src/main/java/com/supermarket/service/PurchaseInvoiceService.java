@@ -1,5 +1,6 @@
 package com.supermarket.service;
 
+import com.supermarket.exception.ValidationException;
 import com.supermarket.dto.PurchaseInvoiceRequest;
 import com.supermarket.dto.PurchaseItemRequest;
 import com.supermarket.model.Product;
@@ -72,44 +73,44 @@ public class PurchaseInvoiceService {
 
     private void validateRequest(PurchaseInvoiceRequest request) {
         if (request.getInvoiceNumber() == null || request.getInvoiceNumber().isBlank()) {
-            throw new IllegalArgumentException("Purchase invoice number is required");
+            throw new ValidationException("purchase.invoiceNumberRequired");
         }
         if (purchaseInvoiceRepository.existsByInvoiceNumberIgnoreCase(request.getInvoiceNumber().trim())) {
-            throw new IllegalArgumentException("Purchase invoice number already exists");
+            throw new ValidationException("purchase.invoiceNumberExists");
         }
         if (request.getCompany() == null || request.getCompany().isBlank()) {
-            throw new IllegalArgumentException("Company is required");
+            throw new ValidationException("purchase.companyRequired");
         }
         if (request.getInvoiceDate() == null) {
-            throw new IllegalArgumentException("Invoice date is required");
+            throw new ValidationException("purchase.dateRequired");
         }
         if (request.getItems() == null || request.getItems().isEmpty()) {
-            throw new IllegalArgumentException("Purchase invoice needs at least one product");
+            throw new ValidationException("purchase.itemsRequired");
         }
     }
 
     private void validateItem(PurchaseItemRequest item) {
         if (item.getProductId() == null) {
-            throw new IllegalArgumentException("Product is required");
+            throw new ValidationException("purchase.productRequired");
         }
         if (item.getQuantity() == null || item.getQuantity() <= 0) {
-            throw new IllegalArgumentException("Quantity must be greater than zero");
+            throw new ValidationException("cart.quantityPositive");
         }
         if (item.getPurchasePrice() == null || item.getPurchasePrice().signum() < 0) {
-            throw new IllegalArgumentException("Purchase price cannot be negative");
+            throw new ValidationException("product.purchasePriceNegative");
         }
         if (item.getSellingPrice() == null || item.getSellingPrice().signum() <= 0) {
-            throw new IllegalArgumentException("Selling price must be greater than zero");
+            throw new ValidationException("purchase.sellingPricePositive");
         }
         if (item.getTaxRate() == null || !(item.getTaxRate().compareTo(BigDecimal.ZERO) == 0 || item.getTaxRate().compareTo(BigDecimal.valueOf(20)) == 0)) {
-            throw new IllegalArgumentException("Tax must be either 0% or 20%");
+            throw new ValidationException("product.invalidTax");
         }
     }
 
     private String normalizeUnit(String unit) {
         String normalized = unit == null || unit.isBlank() ? "pcs" : unit.trim().toLowerCase();
         if (!normalized.equals("pcs") && !normalized.equals("kg")) {
-            throw new IllegalArgumentException("Product unit must be either pcs or kg");
+            throw new ValidationException("product.invalidUnit");
         }
         return normalized;
     }

@@ -1,5 +1,6 @@
 package com.supermarket.service;
 
+import com.supermarket.exception.ValidationException;
 import com.supermarket.dto.CartItemRequest;
 import com.supermarket.exception.InsufficientStockException;
 import com.supermarket.exception.PermissionDeniedException;
@@ -32,7 +33,7 @@ public class CartService {
 
     public List<CartItem> addToCart(Long cashierId, CartItemRequest request) {
         if (request.getQuantity() == null || request.getQuantity() <= 0) {
-            throw new IllegalArgumentException("Quantity must be greater than zero");
+            throw new ValidationException("cart.quantityPositive");
         }
 
         Product product = resolveProduct(request);
@@ -44,7 +45,7 @@ public class CartService {
                     .sum();
 
             if (product.getStock() < quantityAlreadyInCart + request.getQuantity()) {
-                throw new InsufficientStockException("Not enough stock for product: " + product.getName());
+                throw new InsufficientStockException(product.getName());
             }
 
             cart.stream()
@@ -64,7 +65,7 @@ public class CartService {
             CartItem cartItem = cart.stream()
                     .filter(item -> item.getProductId().equals(productId))
                     .findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException("Cart item not found with product id: " + productId));
+                    .orElseThrow(() -> new ValidationException("cart.itemNotFound", productId));
 
             Product product = productService.findById(productId);
             if (request.getQuantity() != null) {
@@ -73,16 +74,16 @@ public class CartService {
                     return List.copyOf(cart);
                 }
                 if (product.getStock() < request.getQuantity()) {
-                    throw new InsufficientStockException("Not enough stock for product: " + product.getName());
+                    throw new InsufficientStockException(product.getName());
                 }
                 cartItem.setQuantity(request.getQuantity());
             }
             if (request.getPrice() != null && request.getPrice().compareTo(cartItem.getPrice()) != 0) {
                 if (!allowPriceEdit) {
-                    throw new PermissionDeniedException("Cashiers cannot change product prices");
+                    throw new PermissionDeniedException("cart.cannotChangePrice");
                 }
                 if (request.getPrice().signum() <= 0) {
-                    throw new IllegalArgumentException("Price must be greater than zero");
+                    throw new ValidationException("cart.pricePositive");
                 }
                 cartItem.setPrice(request.getPrice());
             }
@@ -110,7 +111,7 @@ public class CartService {
 
     private List<CartItem> cartFor(Long cashierId) {
         if (cashierId == null) {
-            throw new IllegalArgumentException("Cashier id is required for the cart");
+            throw new ValidationException("cart.cashierRequired");
         }
         return cartsByCashier.computeIfAbsent(cashierId, ignored -> new ArrayList<>());
     }
@@ -122,6 +123,6 @@ public class CartService {
         if (request.getBarcode() != null && !request.getBarcode().isBlank()) {
             return productService.findByBarcode(request.getBarcode().trim());
         }
-        throw new IllegalArgumentException("Product id or barcode is required");
+        throw new ValidationException("cart.productRequired");
     }
 }

@@ -63,6 +63,15 @@ Hibernate does not change tables (`ddl-auto=none`). The tests run with `ddl-auto
 | Super Cashier | Everything a cashier can, plus products, purchase invoices, reports, change prices at the till |
 | Super Admin | Everything, plus users and backups |
 
+## Language
+
+The app is in **Albanian by default**. Each till can switch to English from the login screen or the sidebar; the choice is remembered on that computer. The server answers in the same language (the browser sends it in `Accept-Language`), including error messages and the printed receipt.
+
+- Screen texts: `src/main/resources/static/i18n.js`. The English text is the key; add the Albanian translation next to it. Missing translations are reported in the browser console.
+- Server messages and receipt labels: `messages.properties` (Albanian) and `messages_en.properties` (English).
+- Dates are formatted in Albanian by the app itself, because many browsers ship without Albanian locale data.
+- Receipt printers use code page CP437, which has `ë` and `ç` but not `Ë`; a capital `Ë` is printed as `E`.
+
 ## Receipt printer
 
 Set the Windows printer name in `application.properties`:

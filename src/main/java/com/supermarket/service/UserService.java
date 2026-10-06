@@ -1,5 +1,6 @@
 package com.supermarket.service;
 
+import com.supermarket.exception.ValidationException;
 import com.supermarket.dto.UserRequest;
 import com.supermarket.dto.UserResponse;
 import com.supermarket.model.Cashier;
@@ -31,7 +32,7 @@ public class UserService {
         validate(request, true);
         String username = request.getUsername().trim();
         if (cashierRepository.existsByUsernameIgnoreCase(username)) {
-            throw new IllegalArgumentException("Username is already registered");
+            throw new ValidationException("user.usernameTaken");
         }
         Cashier cashier = new Cashier(
                 request.getFullName().trim(),
@@ -47,22 +48,22 @@ public class UserService {
     public UserResponse update(Long id, UserRequest request, Cashier currentSuperAdmin) {
         validate(request, false);
         Cashier cashier = cashierRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("User not found with id: " + id));
+                .orElseThrow(() -> new ValidationException("user.notFound", id));
         cashierRepository.findByUsernameIgnoreCase(request.getUsername().trim())
                 .filter(existing -> !existing.getId().equals(id))
                 .ifPresent(existing -> {
-                    throw new IllegalArgumentException("Username is already registered");
+                    throw new ValidationException("user.usernameTaken");
                 });
 
         CashierRole newRole = parseRole(request.getRole());
         boolean newActive = request.getActive() == null || request.getActive();
         if (cashier.getId().equals(currentSuperAdmin.getId()) && (!newRole.isSuperAdmin() || !newActive)) {
-            throw new IllegalArgumentException("You cannot remove your own Super Admin access");
+            throw new ValidationException("user.cannotRemoveOwnAdmin");
         }
         if (cashier.getRole().isSuperAdmin() && cashier.isActive()
                 && (!newRole.isSuperAdmin() || !newActive)
                 && cashierRepository.countByRoleAndActiveTrue(CashierRole.SUPER_ADMIN) <= 1) {
-            throw new IllegalArgumentException("At least one active Super Admin is required");
+            throw new ValidationException("user.lastSuperAdmin");
         }
 
         cashier.setFullName(request.getFullName().trim());
@@ -71,7 +72,7 @@ public class UserService {
         cashier.setActive(newActive);
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
             if (request.getPassword().length() < 4) {
-                throw new IllegalArgumentException("Password must be at least 4 characters");
+                throw new ValidationException("user.passwordTooShort");
             }
             cashier.setPasswordHash(PasswordUtil.hash(request.getPassword()));
         }
@@ -84,13 +85,13 @@ public class UserService {
 
     private void validate(UserRequest request, boolean passwordRequired) {
         if (request.getFullName() == null || request.getFullName().isBlank()) {
-            throw new IllegalArgumentException("Full name is required");
+            throw new ValidationException("user.fullNameRequired");
         }
         if (request.getUsername() == null || request.getUsername().isBlank()) {
-            throw new IllegalArgumentException("Username is required");
+            throw new ValidationException("user.usernameRequired");
         }
         if (passwordRequired && (request.getPassword() == null || request.getPassword().length() < 4)) {
-            throw new IllegalArgumentException("Password must be at least 4 characters");
+            throw new ValidationException("user.passwordTooShort");
         }
         parseRole(request.getRole());
     }
@@ -99,7 +100,7 @@ public class UserService {
         try {
             return CashierRole.valueOf(role == null ? "CASHIER" : role.trim().toUpperCase());
         } catch (IllegalArgumentException exception) {
-            throw new IllegalArgumentException("Role must be SUPER_ADMIN, SUPER_CASHIER, or CASHIER");
+            throw new ValidationException("user.invalidRole");
         }
     }
 

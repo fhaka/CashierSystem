@@ -1,8 +1,8 @@
 package com.supermarket.exception;
 
-public class AuthenticationRequiredException extends RuntimeException {
+public class AuthenticationRequiredException extends LocalizedException {
 
-    public AuthenticationRequiredException(String message) {
-        super(message);
+    public AuthenticationRequiredException(String code) {
+        super(code);
     }
 }

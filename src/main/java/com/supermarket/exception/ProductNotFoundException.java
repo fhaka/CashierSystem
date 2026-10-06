@@ -1,7 +1,8 @@
 package com.supermarket.exception;
 
-public class ProductNotFoundException extends RuntimeException {
+public class ProductNotFoundException extends LocalizedException {
+
     public ProductNotFoundException(Long id) {
-        super("Product not found with id: " + id);
+        super("product.notFound", id);
     }
 }

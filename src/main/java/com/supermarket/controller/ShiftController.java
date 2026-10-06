@@ -49,7 +49,7 @@ public class ShiftController {
         Cashier cashier = sessionService.requireUser(token);
         Long targetCashierId = cashierId == null ? cashier.getId() : cashierId;
         if (!cashier.getRole().isOperationalManager() && !targetCashierId.equals(cashier.getId())) {
-            throw new PermissionDeniedException("You can only view your own shift");
+            throw new PermissionDeniedException("shift.onlyOwnView");
         }
         return ApiResponse.ok("Open shift loaded", shiftService.findOpenShift(targetCashierId).orElse(null));
     }
@@ -61,7 +61,7 @@ public class ShiftController {
     ) {
         Cashier cashier = sessionService.requireUser(token);
         if (request.getCashierId() != null && !request.getCashierId().equals(cashier.getId())) {
-            throw new PermissionDeniedException("You can only open your own shift");
+            throw new PermissionDeniedException("shift.onlyOwnOpen");
         }
         return ApiResponse.ok("Shift opened", shiftService.openShift(request, cashier));
     }

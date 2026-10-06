@@ -53,7 +53,7 @@ const fmtLek = n => formatMoney(n, 'LEK');
 const fmtTax = n => parseFloat(n || 0).toFixed(0) + '%';
 const fmtDate = s => {
   if (!s) return '-';
-  return new Date(s).toLocaleString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'2-digit', minute:'2-digit' });
+  return formatDateTime(s);
 };
 
 function toast(msg, type = 'info') {
@@ -71,14 +71,14 @@ function toast(msg, type = 'info') {
 }
 
 async function req(method, path, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  const opts = { method, headers: { 'Content-Type': 'application/json', 'Accept-Language': currentLang } };
   if (currentUser?.token) opts.headers['X-Auth-Token'] = currentUser.token;
   if (body !== undefined) opts.body = JSON.stringify(body);
   const res  = await fetch(API + path, opts);
   const json = await res.json().catch(() => ({}));
   if (res.status === 401 && currentUser) clearLocalSession();
-  if (!res.ok) throw new Error(json.message || json.error || `Request failed with status ${res.status}`);
-  if (json.success === false) throw new Error(json.message || 'Request failed');
+  if (!res.ok) throw new Error(json.message || json.error || t('Request failed with status {status}', { status: res.status }));
+  if (json.success === false) throw new Error(json.message || t('Request failed'));
   return json;
 }
 
@@ -94,9 +94,9 @@ function isOperationalManager() {
 }
 
 function roleLabel(role) {
-  if (role === 'SUPER_ADMIN') return 'Super Admin';
-  if (role === 'SUPER_CASHIER') return 'Super Cashier';
-  return 'Cashier';
+  if (role === 'SUPER_ADMIN') return t('Super Admin');
+  if (role === 'SUPER_CASHIER') return t('Super Cashier');
+  return t('Cashier');
 }
 
 function clearLocalSession() {
@@ -119,24 +119,24 @@ function switchTab(tab) {
 async function doLogin() {
   const username = $('l-user').value.trim();
   const password = $('l-pass').value.trim();
-  if (!username || !password) { toast('Please fill in all fields', 'error'); return; }
+  if (!username || !password) { toast(t('Please fill in all fields'), 'error'); return; }
   try {
     const res = await req('POST', '/auth/login', { username, password });
     bootUser(res.data);
-    toast('Welcome back, ' + res.data.fullName + '!', 'success');
-  } catch (e) { toast(e.message || 'Login failed', 'error'); }
+    toast(t('Welcome back, {name}!', { name: res.data.fullName }), 'success');
+  } catch (e) { toast(e.message || t('Login failed'), 'error'); }
 }
 
 async function doRegister() {
   const fullName = $('r-name').value.trim();
   const username = $('r-user').value.trim();
   const password = $('r-pass').value.trim();
-  if (!fullName || !username || !password) { toast('Fill in all fields', 'error'); return; }
+  if (!fullName || !username || !password) { toast(t('Fill in all fields'), 'error'); return; }
   try {
     const res = await req('POST', '/auth/register', { fullName, username, password });
     bootUser(res.data);
-    toast('Account created! Welcome, ' + res.data.fullName + '!', 'success');
-  } catch (e) { toast(e.message || 'Registration failed', 'error'); }
+    toast(t('Account created! Welcome, {name}!', { name: res.data.fullName }), 'success');
+  } catch (e) { toast(e.message || t('Registration failed'), 'error'); }
 }
 
 async function checkInitialSetup() {
@@ -182,25 +182,25 @@ function applyRolePermissions() {
   document.querySelectorAll('.manager-only').forEach(element => element.classList.toggle('hidden', !manager));
   document.querySelectorAll('.super-admin-only').forEach(element => element.classList.toggle('hidden', !superAdmin));
   const salesSubtitle = document.querySelector('#view-sales .page-sub');
-  if (salesSubtitle) salesSubtitle.textContent = manager ? 'Transaction history for all cashiers' : 'Your transaction history';
+  if (salesSubtitle) salesSubtitle.textContent = manager ? t('Transaction history for all cashiers') : t('Your transaction history');
   if ($('home-description')) {
     $('home-description').textContent = manager
-      ? 'Start a sale, manage products, and review daily activity from one clean workspace.'
-      : 'Start sales, review your transactions, and control your daily shift.';
+      ? t('Start a sale, manage products, and review daily activity from one clean workspace.')
+      : t('Start sales, review your transactions, and control your daily shift.');
   }
   if ($('operations-title')) {
-    $('operations-title').textContent = superAdmin ? 'Shifts & Backups' : manager ? 'All Shifts' : 'My Shift';
+    $('operations-title').textContent = superAdmin ? t('Shifts & Backups') : manager ? t('All Shifts') : t('My Shift');
   }
 }
 
 /*  Navigation  */
 function gotoView(view) {
   if (['products', 'purchases', 'reports'].includes(view) && !isOperationalManager()) {
-    toast('Super Cashier or Super Admin access is required', 'error');
+    toast(t('Super Cashier or Super Admin access is required'), 'error');
     view = 'home';
   }
   if (view === 'users' && !isSuperAdmin()) {
-    toast('Super Admin access is required', 'error');
+    toast(t('Super Admin access is required'), 'error');
     view = 'home';
   }
   document.querySelectorAll('.view').forEach(v => v.classList.remove('on'));
@@ -236,19 +236,19 @@ async function loadHomeData() {
     $('home-revenue').textContent = fmtLek(revenue);
     $('home-cart-count').textContent = cartCount;
     $('home-status-list').innerHTML = `
-      <div class="home-status-item"><span>Low Stock</span><strong>${lowStock} products need attention</strong></div>
-      <div class="home-status-item"><span>Last Sale</span><strong>${sales[0] ? fmtDate(sales[0].date) : 'No sales yet'}</strong></div>
-      <div class="home-status-item"><span>Cashier</span><strong>${esc(currentUser?.fullName || 'Cashier')}</strong></div>
+      <div class="home-status-item"><span>${t('Low Stock')}</span><strong>${t('{count} products need attention', { count: lowStock })}</strong></div>
+      <div class="home-status-item"><span>${t('Last Sale')}</span><strong>${sales[0] ? fmtDate(sales[0].date) : t('No sales yet')}</strong></div>
+      <div class="home-status-item"><span>${t('Cashier')}</span><strong>${esc(currentUser?.fullName || t('Cashier'))}</strong></div>
     `;
   } catch (e) {
-    $('home-status-list').innerHTML = `<div class="home-status-item"><span>Status</span><strong>${esc(e.message || 'Could not load dashboard')}</strong></div>`;
+    $('home-status-list').innerHTML = `<div class="home-status-item"><span>${t('Status')}</span><strong>${esc(e.message || t('Could not load dashboard'))}</strong></div>`;
   }
 }
 
 function updateHomeClock() {
   const now = new Date();
-  if ($('home-date')) $('home-date').textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-  if ($('home-time')) $('home-time').textContent = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  if ($('home-date')) $('home-date').textContent = formatWeekdayDate(now);
+  if ($('home-time')) $('home-time').textContent = formatTime(now);
 }
 
 /*  POS Products  */
@@ -259,8 +259,8 @@ async function loadPosProducts(query) {
     posProducts = Array.isArray(res.data) ? res.data : [];
     renderGrid(posProducts);
   } catch (e) {
-    toast('Could not load products: ' + e.message, 'error');
-    $('prod-grid').innerHTML = `<div class="prod-empty"><span class="em-icon"></span><strong>Failed to load</strong><br><span class="t-sm t-muted">${e.message}</span></div>`;
+    toast(t('Could not load products: ') + e.message, 'error');
+    $('prod-grid').innerHTML = `<div class="prod-empty"><span class="em-icon"></span><strong>${t('Failed to load')}</strong><br><span class="t-sm t-muted">${e.message}</span></div>`;
   }
 }
 
@@ -280,12 +280,12 @@ function onSearch(val) {
 function renderGrid(products) {
   const g = $('prod-grid');
   if (!products.length) {
-    g.innerHTML = `<div class="prod-empty"><span class="em-icon"></span><strong>No products found</strong><br><span class="t-sm t-muted">Try a different search or barcode</span></div>`;
+    g.innerHTML = `<div class="prod-empty"><span class="em-icon"></span><strong>${t('No products found')}</strong><br><span class="t-sm t-muted">${t('Try a different search or barcode')}</span></div>`;
     return;
   }
   g.innerHTML = products.map(p => {
     const sc = p.stock === 0 ? 'sk-oos' : p.stock < 5 ? 'sk-low' : 'sk-ok';
-    const sl = p.stock === 0 ? 'Out of Stock' : `${p.stock} left`;
+    const sl = p.stock === 0 ? t('Out of Stock') : t('{count} left', { count: p.stock });
     return `<div class="prod-card${p.stock === 0 ? ' oos' : ''}" onclick="addById(${p.id})">
       <div class="pc-cat">${p.category?.name || 'General'}</div>
       <div class="pc-name">${esc(p.name)}</div>
@@ -324,8 +324,8 @@ function renderCart() {
   if (!hasItems) {
     list.innerHTML = `<div class="cart-empty-msg">
       <div class="cart-empty-icon"></div>
-      <strong>Cart is empty</strong>
-      <span class="t-sm">Click a product or scan a barcode</span>
+      <strong>${t('Cart is empty')}</strong>
+      <span class="t-sm">${t('Click a product or scan a barcode')}</span>
     </div>`;
     $('cart-subtotal').textContent = '0.00 LEK';
     return;
@@ -335,7 +335,7 @@ function renderCart() {
     <div class="cart-item">
       <div class="ci-info">
         <div class="ci-name">${esc(item.productName)}</div>
-        <div class="ci-unit">${fmt(item.price)} / ${esc(item.unit || 'pcs')}</div>
+        <div class="ci-unit">${fmt(item.price)} / ${esc(unitLabel(item.unit))}</div>
       </div>
       <div class="ci-qty">
         <button class="qty-btn" onclick="changeQty(${item.productId},${item.quantity - 1})"></button>
@@ -343,7 +343,7 @@ function renderCart() {
         <button class="qty-btn" onclick="changeQty(${item.productId},${item.quantity + 1})">+</button>
       </div>
       <div class="ci-total">${fmt(item.lineTotal)}</div>
-      <button class="ci-rm" onclick="removeItem(${item.productId})" title="Remove"></button>
+      <button class="ci-rm" onclick="removeItem(${item.productId})" title="${t('Remove')}"></button>
     </div>
   `).join('');
 }
@@ -370,18 +370,17 @@ async function addById(productId) {
   try {
     await req('POST', '/sales/cart', { productId, quantity: 1 });
     await refreshCart();
-    toast('Added to cart', 'success');
-  } catch (e) { toast(e.message || 'Could not add item', 'error'); }
+    toast(t('Added to cart'), 'success');
+  } catch (e) { toast(e.message || t('Could not add item'), 'error'); }
 }
 
 async function addByBarcode(barcode) {
   try {
     await req('POST', '/sales/cart', { barcode, quantity: 1 });
     await refreshCart();
-    toast('Item scanned & added', 'success');
+    toast(t('Item scanned & added'), 'success');
   } catch (e) {
-    const message = e.message || '';
-    toast(message.includes('stock') ? message : 'Product is not registered or does not exist', 'error');
+    toast(e.message || t('Product is not registered or does not exist'), 'error');
   }
 }
 
@@ -389,7 +388,7 @@ function renderInvoiceRows() {
   const tbody = $('invoice-rows');
   if (!tbody) return;
   if (!cartItems.length) {
-    tbody.innerHTML = '<tr class="invoice-empty"><td colspan="11">Scan a barcode or use the keypad to add products to the invoice.</td></tr>';
+    tbody.innerHTML = `<tr class="invoice-empty"><td colspan="11">${t('Scan a barcode or use the keypad to add products to the invoice.')}</td></tr>`;
     return;
   }
   tbody.innerHTML = cartItems.map((item, index) => {
@@ -407,11 +406,11 @@ function renderInvoiceRows() {
       <td>${priceCell}</td>
       <td><input class="input pos-edit-cell pos-qty-cell" type="number" min="1" step="1" value="${item.quantity}" onchange="updateCartInline(${item.productId}, 'quantity', this.value)" /></td>
       <td class="td-p">${fmt(item.lineTotal)}</td>
-      <td class="td-m">${esc(item.unit || 'pcs')}</td>
+      <td class="td-m">${esc(unitLabel(item.unit))}</td>
       <td class="td-a">
-        <button class="btn btn-secondary btn-sm btn-icon" title="Decrease" onclick="changeQty(${item.productId},${item.quantity - 1})">-</button>
-        <button class="btn btn-secondary btn-sm btn-icon" title="Increase" onclick="changeQty(${item.productId},${item.quantity + 1})">+</button>
-        <button class="btn btn-danger btn-sm btn-icon" title="Remove" onclick="removeItem(${item.productId})">x</button>
+        <button class="btn btn-secondary btn-sm btn-icon" title="${t('Decrease')}" onclick="changeQty(${item.productId},${item.quantity - 1})">-</button>
+        <button class="btn btn-secondary btn-sm btn-icon" title="${t('Increase')}" onclick="changeQty(${item.productId},${item.quantity + 1})">+</button>
+        <button class="btn btn-danger btn-sm btn-icon" title="${t('Remove')}" onclick="removeItem(${item.productId})">x</button>
       </td>
     </tr>
   `;
@@ -441,7 +440,7 @@ function keyClear() {
 function keyEnter() {
   const code = keypadBuffer.trim() || $('pos-search')?.value.trim();
   if (!code) {
-    toast('Enter or scan a barcode first', 'error');
+    toast(t('Enter or scan a barcode first'), 'error');
     return;
   }
   addByBarcode(code);
@@ -452,11 +451,11 @@ function keyEnter() {
 
 function promptQuantity() {
   if (!cartItems.length) {
-    toast('Add an item before changing quantity', 'error');
+    toast(t('Add an item before changing quantity'), 'error');
     return;
   }
   const last = cartItems[cartItems.length - 1];
-  const qty = parseInt(prompt('Quantity for ' + last.productName, last.quantity), 10);
+  const qty = parseInt(prompt(t('Quantity for ') + last.productName, last.quantity), 10);
   if (!Number.isNaN(qty)) changeQty(last.productId, qty);
 }
 
@@ -472,7 +471,7 @@ async function changeQty(productId, newQty) {
     } else {
       await rebuildCart(productId, newQty);
     }
-  } catch (e) { toast(e.message || 'Could not update qty', 'error'); }
+  } catch (e) { toast(e.message || t('Could not update qty'), 'error'); }
 }
 
 async function updateCartInline(productId, field, value) {
@@ -482,7 +481,7 @@ async function updateCartInline(productId, field, value) {
   if (field === 'quantity') {
     const quantity = parseInt(value || '0', 10);
     if (Number.isNaN(quantity) || quantity < 1) {
-      toast('Quantity must be at least 1', 'error');
+      toast(t('Quantity must be at least 1'), 'error');
       renderInvoiceRows();
       return;
     }
@@ -490,13 +489,13 @@ async function updateCartInline(productId, field, value) {
   }
   if (field === 'price') {
     if (!isOperationalManager()) {
-      toast('Cashiers cannot change product prices', 'error');
+      toast(t('Cashiers cannot change product prices'), 'error');
       renderInvoiceRows();
       return;
     }
     const price = parseFloat(value || '0');
     if (Number.isNaN(price) || price <= 0) {
-      toast('Price must be greater than zero', 'error');
+      toast(t('Price must be greater than zero'), 'error');
       renderInvoiceRows();
       return;
     }
@@ -507,9 +506,9 @@ async function updateCartInline(productId, field, value) {
     cartItems = Array.isArray(res.data) ? res.data : [];
     renderCart();
     fetchSubtotal();
-    toast('Invoice line updated', 'success');
+    toast(t('Invoice line updated'), 'success');
   } catch (e) {
-    toast(e.message || 'Could not update invoice line', 'error');
+    toast(e.message || t('Could not update invoice line'), 'error');
     refreshCart();
   }
 }
@@ -527,7 +526,7 @@ async function rebuildCart(targetId, targetQty) {
       if (qty > 0) await req('POST', '/sales/cart', { productId: item.productId, quantity: qty });
     }
     await refreshCart();
-  } catch (e) { toast(e.message || 'Cart update failed', 'error'); }
+  } catch (e) { toast(e.message || t('Cart update failed'), 'error'); }
 }
 
 async function clearCart() {
@@ -535,18 +534,18 @@ async function clearCart() {
     await req('DELETE', '/sales/cart');
     cartItems = [];
     renderCart();
-    toast('Cart cleared', 'info');
-  } catch (e) { toast(e.message || 'Could not clear cart', 'error'); }
+    toast(t('Cart cleared'), 'info');
+  } catch (e) { toast(e.message || t('Could not clear cart'), 'error'); }
 }
 
 /*  Checkout  */
 async function doCheckout() {
-  if (!cartItems.length) { toast('Cart is empty', 'error'); return; }
+  if (!cartItems.length) { toast(t('Cart is empty'), 'error'); return; }
   const btn = $('btn-checkout');
   btn.disabled = true;
-  btn.innerHTML = '<div class="spin"></div> Processing';
+  btn.innerHTML = `<div class="spin"></div> ${t('Processing')}`;
   try {
-    const res = await req('POST', '/sales/checkout', { cashierId: currentUser?.cashierId });
+    const res = await req('POST', '/sales/checkout');
     const data = res.data || {};
     lastCheckoutData = data;
     lastReceipt = data.printableReceipt || buildFallbackReceipt(data);
@@ -557,17 +556,12 @@ async function doCheckout() {
     cartItems = [];
     renderCart();
     $('invoice-no').value = String((data.saleId || 0) + 1).padStart(4, '0');
-    toast('Checkout complete!', 'success');
+    toast(t('Checkout complete!'), 'success');
   } catch (e) {
-    if ((e.message || '').includes('Cashier not found')) {
-      toast('Session expired. Please login again.', 'error');
-      doLogout();
-      return;
-    }
-    toast(e.message || 'Checkout failed', 'error');
+    toast(e.message || t('Checkout failed'), 'error');
   } finally {
     btn.disabled = false;
-    btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Checkout`;
+    btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> ${t('Checkout')}`;
   }
 }
 
@@ -641,7 +635,7 @@ function handlePurchaseScanKey(event) {
 function scanPurchaseField() {
   const query = $('purchase-scan')?.value.trim();
   if (!query) {
-    toast('Enter or scan a barcode first', 'error');
+    toast(t('Enter or scan a barcode first'), 'error');
     return;
   }
   addPurchaseByBarcode(query);
@@ -652,9 +646,9 @@ async function addPurchaseByBarcode(barcode) {
   try {
     const res = await req('GET', `/products/barcode/${encodeURIComponent(barcode)}`);
     addPurchaseProduct(res.data);
-    toast('Product added to purchase invoice', 'success');
+    toast(t('Product added to purchase invoice'), 'success');
   } catch (e) {
-    toast('Product not registered. Complete product registration first.', 'error');
+    toast(t('Product not registered. Complete product registration first.'), 'error');
     openProdModal(null, barcode);
   }
 }
@@ -683,7 +677,7 @@ function renderPurchaseRows() {
   const tbody = $('purchase-rows');
   if (!tbody) return;
   if (!purchaseItems.length) {
-    tbody.innerHTML = '<tr class="invoice-empty"><td colspan="11">Scan products to build the supplier invoice.</td></tr>';
+    tbody.innerHTML = `<tr class="invoice-empty"><td colspan="11">${t('Scan products to build the supplier invoice.')}</td></tr>`;
     updatePurchaseTotal();
     return;
   }
@@ -710,8 +704,8 @@ function renderPurchaseRows() {
       <td><input class="input purchase-cell" type="number" min="0" step="0.01" value="${item.sellingPrice}" onchange="updatePurchaseItem(${index}, 'sellingPrice', this.value)" /></td>
       <td class="td-p">${fmtLek(getPurchaseLineTotal(item))}</td>
       <td class="td-a">
-        <button class="btn btn-secondary btn-sm btn-icon" title="Edit product" onclick="openProdModalById(${item.productId})">E</button>
-        <button class="btn btn-danger btn-sm btn-icon" title="Remove" onclick="removePurchaseItem(${index})">x</button>
+        <button class="btn btn-secondary btn-sm btn-icon" title="${t('Edit product')}" onclick="openProdModalById(${item.productId})">E</button>
+        <button class="btn btn-danger btn-sm btn-icon" title="${t('Remove')}" onclick="removePurchaseItem(${index})">x</button>
       </td>
     </tr>
   `).join('');
@@ -770,37 +764,37 @@ async function savePurchaseInvoice() {
     }))
   };
   if (!body.invoiceNumber || !body.company || !body.invoiceDate || !body.items.length) {
-    toast('Fill invoice number, company, date, and at least one product', 'error');
+    toast(t('Fill invoice number, company, date, and at least one product'), 'error');
     return;
   }
   try {
     await req('POST', '/purchases', body);
-    toast('Purchase invoice saved and stock updated', 'success');
+    toast(t('Purchase invoice saved and stock updated'), 'success');
     clearPurchaseInvoice();
     loadPosProducts();
     loadProdsTable();
   } catch (e) {
-    toast(e.message || 'Could not save purchase invoice', 'error');
+    toast(e.message || t('Could not save purchase invoice'), 'error');
   }
 }
 
 function buildFallbackReceipt(data) {
   const lines = [
-    'SUPERMARKET RECEIPT',
+    t('SALES RECEIPT'),
     '='.repeat(32),
-    `Sale ID : #${data.saleId || ''}`,
-    `Date    : ${fmtDate(data.date)}`,
+    `${t('Sale no.')}: ${data.saleId || ''}`,
+    `${t('Date')}: ${fmtDate(data.date)}`,
     '-'.repeat(32),
   ];
   (data.items || []).forEach(i => {
-    lines.push(`${(i.productName || i.product?.name || '').padEnd(20)} x${i.quantity} ${i.unit || i.product?.unit || 'pcs'}`);
+    lines.push(`${(i.productName || i.product?.name || '').padEnd(20)} x${i.quantity} ${unitLabel(i.unit || i.product?.unit)}`);
     lines.push(`  @ ${fmt(i.unitPrice || i.price)} = ${fmt(i.lineTotal)}`);
   });
   lines.push('-'.repeat(32));
-  lines.push(`SUBTOTAL : ${fmt(data.subtotal)}`);
-  lines.push(`TOTAL    : ${fmt(data.totalAmount)}`);
+  lines.push(`${t('Subtotal')}: ${fmt(data.subtotal ?? data.totalAmount)}`);
+  lines.push(`${t('TOTAL')}: ${fmt(data.totalAmount)}`);
   lines.push('='.repeat(32));
-  lines.push('Thank you for shopping!');
+  lines.push(t('Thank you for shopping!'));
   return lines.join('\n');
 }
 
@@ -810,14 +804,14 @@ async function printReceipt() {
   const paidCurrency = $('payment-currency')?.value || 'LEK';
   const paidLek = convertPaymentToLek(paidAmount, paidCurrency);
   const totalLek = parseFloat(lastCheckoutData?.totalAmount || 0);
-  const paymentLines = lastCheckoutData ? `\n\nPAYMENT\nTotal: ${fmtLek(totalLek)}\nCustomer gave: ${paidAmount} ${paidCurrency}\nConverted: ${fmtLek(paidLek)}\nResto: ${fmtLek(paidLek - totalLek)}` : '';
+  const paymentLines = lastCheckoutData ? `\n\n${t('PAYMENT')}\n${t('Total')}: ${fmtLek(totalLek)}\n${t('Customer gave')}: ${paidAmount} ${paidCurrency}\n${t('Converted')}: ${fmtLek(paidLek)}\n${t('Change')}: ${fmtLek(paidLek - totalLek)}` : '';
   const receiptToPrint = lastReceipt + paymentLines;
   const printerName = $('receipt-printer')?.value || '';
   try {
     await req('POST', '/printer/receipt', { receiptText: receiptToPrint, printerName });
-    toast(printerName ? `Receipt sent to ${printerName}` : 'Receipt sent to default printer', 'success');
+    toast(printerName ? t('Receipt sent to {printer}', { printer: printerName }) : t('Receipt sent to default printer'), 'success');
   } catch (e) {
-    toast(e.message || 'Could not print receipt', 'error');
+    toast(e.message || t('Could not print receipt'), 'error');
   }
 }
 
@@ -825,7 +819,7 @@ async function loadReceiptPrinters() {
   const select = $('receipt-printer');
   if (!select) return;
   const current = select.value;
-  select.innerHTML = '<option value="">Default Windows printer</option>';
+  select.innerHTML = `<option value="">${t('Default Windows printer')}</option>`;
   try {
     const res = await req('GET', '/printer/printers');
     (res.data || []).forEach(name => {
@@ -838,7 +832,7 @@ async function loadReceiptPrinters() {
       select.value = current;
     }
   } catch (e) {
-    toast('Could not load printer list', 'error');
+    toast(t('Could not load printer list'), 'error');
   }
 }
 
@@ -853,14 +847,14 @@ function updateFinalPricePreview() {
 }
 
 async function loadProdsTable() {
-  $('prod-tbody').innerHTML = '<tr><td colspan="9" class="no-data">Loading...</td></tr>';
+  $('prod-tbody').innerHTML = `<tr><td colspan="9" class="no-data">${t('Loading...')}</td></tr>`;
   try {
     const res = await req('GET', '/products');
     allProdTable = Array.isArray(res.data) ? res.data : [];
     renderProdsTable(allProdTable);
-    $('tb-count').textContent = `${allProdTable.length} products`;
+    $('tb-count').textContent = t('{count} products', { count: allProdTable.length });
   } catch (e) {
-    $('prod-tbody').innerHTML = `<tr><td colspan="10" class="no-data" style="color:var(--red)">Error: ${e.message}</td></tr>`;
+    $('prod-tbody').innerHTML = `<tr><td colspan="10" class="no-data" style="color:var(--red)">${t('Error')}: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -872,13 +866,13 @@ function filterTable(q) {
     (p.category?.name || '').toLowerCase().includes(lq)
   );
   renderProdsTable(filtered);
-  $('tb-count').textContent = `${filtered.length} of ${allProdTable.length} products`;
+  $('tb-count').textContent = t('{shown} of {total} products', { shown: filtered.length, total: allProdTable.length });
 }
 
 function renderProdsTable(products) {
   const tbody = $('prod-tbody');
   if (!products.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="no-data">No products found</td></tr>'; return;
+    tbody.innerHTML = `<tr><td colspan="10" class="no-data">${t('No products found')}</td></tr>`; return;
   }
   tbody.innerHTML = products.map(p => {
     const sc = p.stock === 0 ? 'b-red' : p.stock < 5 ? 'b-amber' : 'b-green';
@@ -887,20 +881,20 @@ function renderProdsTable(products) {
       <td class="td-m t-muted">#${p.id}</td>
       <td><strong>${esc(p.name)}</strong></td>
       <td class="td-m">${p.barcode || ''}</td>
-      <td><span class="badge b-blue">${esc(p.category?.name || 'None')}</span></td>
-      <td><span class="badge b-muted">${esc(p.unit || 'pcs')}</span></td>
+      <td><span class="badge b-blue">${esc(p.category?.name || t('None'))}</span></td>
+      <td><span class="badge b-muted">${esc(unitLabel(p.unit))}</span></td>
       <td class="td-p">${fmt(p.purchasePrice)}</td>
       <td class="td-m">${fmtTax(p.taxRate)}</td>
       <td class="td-p">${fmt(p.price)}</td>
       <td><span class="badge ${sc}">${p.stock}</span></td>
       <td class="td-a">
-        <button class="btn btn-secondary btn-sm btn-icon" title="Edit" onclick="openProdModal(${pj})">
+        <button class="btn btn-secondary btn-sm btn-icon" title="${t('Edit')}" onclick="openProdModal(${pj})">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
           </svg>
         </button>
-        <button class="btn btn-danger btn-sm btn-icon" title="Delete" onclick="confirmDelete(${p.id},'${esc(p.name)}')">
+        <button class="btn btn-danger btn-sm btn-icon" title="${t('Delete')}" onclick="confirmDelete(${p.id},'${esc(p.name)}')">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
@@ -921,15 +915,15 @@ async function openProdModalById(productId) {
     const res = await req('GET', `/products/${productId}`);
     openProdModal(res.data);
   } catch (e) {
-    toast(e.message || 'Could not load product', 'error');
+    toast(e.message || t('Could not load product'), 'error');
   }
 }
 
 function openProdModal(prod, barcodePrefill) {
   const editing = !!prod;
   loadCategories(prod?.category?.name || 'General');
-  $('pm-title').textContent   = editing ? 'Edit Product' : 'Add Product';
-  $('pm-submit').textContent  = editing ? 'Update Product' : 'Save Product';
+  $('pm-title').textContent   = editing ? t('Edit Product') : t('Add Product');
+  $('pm-submit').textContent  = editing ? t('Update Product') : t('Save Product');
   $('pm-id').value     = prod?.id || '';
   $('pm-name').value   = prod?.name || '';
   $('pm-barcode').value= prod?.barcode || barcodePrefill || '';
@@ -954,27 +948,27 @@ async function submitProd() {
     categoryName: $('pm-cat').value,
   };
   if (!body.name || !body.barcode || isNaN(body.purchasePrice) || isNaN(body.taxRate) || isNaN(body.price) || isNaN(body.stock)) {
-    toast('Please fill in all required fields', 'error'); return;
+    toast(t('Please fill in all required fields'), 'error'); return;
   }
   try {
     if (id) {
       await req('PUT', `/products/${id}`, body);
-      toast('Product updated', 'success');
+      toast(t('Product updated'), 'success');
     } else {
       await req('POST', '/products', body);
-      toast('Product added', 'success');
+      toast(t('Product added'), 'success');
     }
     closeModal('modal-prod');
     loadProdsTable();
     loadPosProducts();
     if ($('view-purchases')?.classList.contains('on')) {
-      toast('Now scan the barcode again to add it to the purchase invoice', 'info');
+      toast(t('Now scan the barcode again to add it to the purchase invoice'), 'info');
     }
-  } catch (e) { toast(e.message || 'Save failed', 'error'); }
+  } catch (e) { toast(e.message || t('Save failed'), 'error'); }
 }
 
 function confirmDelete(id, name) {
-  $('confirm-msg').textContent = `Delete "${name}"? This cannot be undone.`;
+  $('confirm-msg').textContent = t('Delete "{name}"? This cannot be undone.', { name });
   $('confirm-ok').onclick = () => deleteProd(id);
   openModal('modal-confirm');
 }
@@ -982,22 +976,22 @@ function confirmDelete(id, name) {
 async function deleteProd(id) {
   try {
     await req('DELETE', `/products/${id}`);
-    toast('Product deleted', 'success');
+    toast(t('Product deleted'), 'success');
     closeModal('modal-confirm');
     loadProdsTable();
     loadPosProducts();
-  } catch (e) { toast(e.message || 'Delete failed', 'error'); }
+  } catch (e) { toast(e.message || t('Delete failed'), 'error'); }
 }
 
 /*  Sales Log  */
 async function loadSales() {
-  $('sales-tbody').innerHTML = '<tr><td colspan="5" class="no-data">Loading</td></tr>';
+  $('sales-tbody').innerHTML = `<tr><td colspan="6" class="no-data">${t('Loading...')}</td></tr>`;
   try {
     const res = await req('GET', '/sales');
     allSales = Array.isArray(res.data) ? res.data : [];
     applySalesFilters();
   } catch (e) {
-    $('sales-tbody').innerHTML = `<tr><td colspan="6" class="no-data" style="color:var(--red)">Error: ${e.message}</td></tr>`;
+    $('sales-tbody').innerHTML = `<tr><td colspan="6" class="no-data" style="color:var(--red)">${t('Error')}: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -1007,7 +1001,7 @@ function applySalesFilters() {
   const now = new Date();
   const filtered = allSales.filter(sale => {
     const saleDate = new Date(sale.date);
-    const cashierName = (sale.cashier?.fullName || 'Unknown cashier').toLowerCase();
+    const cashierName = (sale.cashier?.fullName || t('Unknown cashier')).toLowerCase();
     const matchesCashier = !cashierQuery || cashierName.includes(cashierQuery);
     const matchesPeriod =
       period === 'all' ||
@@ -1027,33 +1021,33 @@ function renderStats(sales) {
   const totalItems = sales.reduce((s, sale) => s + (sale.items || []).reduce((q, item) => q + (item.quantity || 0), 0), 0);
   const profit = sales.reduce((sum, sale) => sum + getSaleProfit(sale), 0);
   const profitCard = isOperationalManager()
-    ? `<div class="stat-card sc-green"><div class="sc-label">Profit</div><div class="sc-value">${fmt(profit)}</div></div>`
+    ? `<div class="stat-card sc-green"><div class="sc-label">${t('Profit')}</div><div class="sc-value">${fmt(profit)}</div></div>`
     : '';
   grid.classList.remove('hidden');
   grid.innerHTML = `
-    <div class="stat-card sc-amber"><div class="sc-label">Total Revenue</div><div class="sc-value">${fmt(total)}</div></div>
+    <div class="stat-card sc-amber"><div class="sc-label">${t('Total Revenue')}</div><div class="sc-value">${fmt(total)}</div></div>
     ${profitCard}
-    <div class="stat-card sc-green"><div class="sc-label">Transactions</div><div class="sc-value">${sales.length}</div></div>
-    <div class="stat-card sc-blue"><div class="sc-label">Avg Sale</div><div class="sc-value">${fmt(avgTx)}</div></div>
-    <div class="stat-card"><div class="sc-label">Total Items Sold</div><div class="sc-value" style="color:var(--text)">${totalItems}</div></div>
+    <div class="stat-card sc-green"><div class="sc-label">${t('Transactions')}</div><div class="sc-value">${sales.length}</div></div>
+    <div class="stat-card sc-blue"><div class="sc-label">${t('Avg Sale')}</div><div class="sc-value">${fmt(avgTx)}</div></div>
+    <div class="stat-card"><div class="sc-label">${t('Total Items Sold')}</div><div class="sc-value" style="color:var(--text)">${totalItems}</div></div>
   `;
 }
 
 function renderSalesTable(sales) {
   const tbody = $('sales-tbody');
   if (!sales.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="no-data">No sales found for the selected filters.</td></tr>'; return;
+    tbody.innerHTML = `<tr><td colspan="6" class="no-data">${t('No sales found for the selected filters.')}</td></tr>`; return;
   }
   tbody.innerHTML = sales.map(sale => `
     <tr class="sale-row" onclick="viewSale(${sale.id})">
       <td class="td-m"><strong>#${sale.id}</strong></td>
       <td>${fmtDate(sale.date)}</td>
-      <td>${esc(sale.cashier?.fullName || 'Unknown cashier')}</td>
-      <td><span class="badge b-muted">${(sale.items || []).reduce((q, item) => q + (item.quantity || 0), 0)} items</span></td>
+      <td>${esc(sale.cashier?.fullName || t('Unknown cashier'))}</td>
+      <td><span class="badge b-muted">${t('{count} items', { count: (sale.items || []).reduce((q, item) => q + (item.quantity || 0), 0) })}</span></td>
       <td class="td-p">${fmt(sale.totalAmount)}</td>
       <td>
         <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();viewSale(${sale.id})">
-          View Details
+          ${t('View Details')}
         </button>
       </td>
     </tr>
@@ -1062,7 +1056,7 @@ function renderSalesTable(sales) {
 
 function viewSale(saleId) {
   const sale = allSales.find(s => s.id === saleId);
-  if (!sale) { toast('Sale not found', 'error'); return; }
+  if (!sale) { toast(t('Sale not found'), 'error'); return; }
 
   // If sale has printableReceipt (from checkout response stored in log), show it
   if (sale.printableReceipt) {
@@ -1074,13 +1068,13 @@ function viewSale(saleId) {
   }
 
   // Otherwise show detail modal
-  $('sale-modal-title').textContent = `Sale #${sale.id}`;
+  $('sale-modal-title').textContent = t('Sale #{id}', { id: sale.id });
   const items = (sale.items || []);
   const itemRows = items.map(i => `
     <tr>
       <td>${esc(i.productName || i.product?.name || '')}</td>
       <td class="td-m">${esc(i.barcode || i.product?.barcode || '')}</td>
-      <td class="td-m">${esc(i.unit || i.product?.unit || 'pcs')}</td>
+      <td class="td-m">${esc(unitLabel(i.unit || i.product?.unit))}</td>
       <td class="td-m" style="text-align:center">${i.quantity}</td>
       <td class="td-p">${fmt(i.priceWithoutTax || i.unitPriceWithoutTax || i.price)}</td>
       <td class="td-m">${fmtTax(i.taxRate)}</td>
@@ -1091,26 +1085,26 @@ function viewSale(saleId) {
   `).join('');
 
   $('sale-modal-body').innerHTML = `
-    <div class="sale-detail-meta">Date: <strong>${fmtDate(sale.date)}</strong> | Cashier: <strong>${esc(sale.cashier?.fullName || 'Unknown cashier')}</strong></div>
+    <div class="sale-detail-meta">${t('Date')}: <strong>${fmtDate(sale.date)}</strong> | ${t('Cashier')}: <strong>${esc(sale.cashier?.fullName || t('Unknown cashier'))}</strong></div>
     <div class="tbl-wrap sale-detail-table" style="margin-bottom:14px;">
       <table>
-        <thead><tr><th>Product</th><th>Barcode</th><th>Unit</th><th style="text-align:center">Qty</th><th>Net Price</th><th>Tax %</th><th>Tax</th><th>Final Price</th><th style="text-align:right">Total</th></tr></thead>
-        <tbody>${itemRows || '<tr><td colspan="9" class="no-data">No items</td></tr>'}</tbody>
+        <thead><tr><th>${t('Product')}</th><th>${t('Barcode')}</th><th>${t('Unit')}</th><th style="text-align:center">${t('Qty')}</th><th>${t('Net Price')}</th><th>${t('Tax %')}</th><th>${t('Tax')}</th><th>${t('Final Price')}</th><th style="text-align:right">${t('Total')}</th></tr></thead>
+        <tbody>${itemRows || `<tr><td colspan="9" class="no-data">${t('No items')}</td></tr>`}</tbody>
       </table>
     </div>
     <div class="detail-total-row">
-      <span class="lbl">Total Amount</span>
+      <span class="lbl">${t('Total Amount')}</span>
       <span class="amt">${fmt(sale.totalAmount)}</span>
     </div>
     <div class="modal-foot" style="margin-top:18px;">
-      <button class="btn btn-secondary" onclick="closeModal('modal-sale')">Close</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-sale')">${t('Close')}</button>
       <button class="btn btn-primary" onclick="printSale(${sale.id})">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="6 9 6 2 18 2 18 9"/>
           <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
           <rect x="6" y="14" width="12" height="8"/>
         </svg>
-        Print Receipt
+        ${t('Print Receipt')}
       </button>
     </div>
   `;
@@ -1137,14 +1131,14 @@ function getSaleProfit(sale) {
 /*  Reports  */
 async function loadReports() {
   const tbody = $('report-tbody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="no-data">Loading reports...</td></tr>';
+  if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="no-data">${t('Loading reports...')}</td></tr>`;
   try {
     const res = await req('GET', '/reports/sales');
     allSales = Array.isArray(res.data) ? res.data : [];
     applyReportFilters();
   } catch (e) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="no-data" style="color:var(--red)">Error: ${esc(e.message)}</td></tr>`;
-    toast('Could not load reports: ' + e.message, 'error');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="no-data" style="color:var(--red)">${t('Error')}: ${esc(e.message)}</td></tr>`;
+    toast(t('Could not load reports: ') + e.message, 'error');
   }
 }
 
@@ -1190,11 +1184,11 @@ function buildReportSummary(sales) {
     total += saleTotal;
     const date = new Date(sale.date);
     const dayKey = date.toISOString().slice(0, 10);
-    const monthKey = date.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+    const monthKey = formatMonthYear(date);
     byDay.set(dayKey, (byDay.get(dayKey) || 0) + saleTotal);
     byMonth.set(monthKey, (byMonth.get(monthKey) || 0) + saleTotal);
 
-    const cashier = sale.cashier?.fullName || 'Unknown cashier';
+    const cashier = sale.cashier?.fullName || t('Unknown cashier');
     byCashier.set(cashier, (byCashier.get(cashier) || 0) + saleTotal);
 
     (sale.items || []).forEach(item => {
@@ -1205,7 +1199,7 @@ function buildReportSummary(sales) {
       const lineTax = item.taxAmount !== undefined && item.taxAmount !== null
         ? parseFloat(item.taxAmount || 0)
         : Math.max(0, (finalPrice - netPrice) * qty);
-      const productName = item.productName || item.product?.name || 'Unknown product';
+      const productName = item.productName || item.product?.name || t('Unknown product');
       const purchasePrice = parseFloat(item.product?.purchasePrice || 0);
       const existing = byProduct.get(productName) || { label: productName, qty: 0, revenue: 0 };
 
@@ -1243,14 +1237,14 @@ function renderReportKpis(summary) {
   const kpis = $('report-kpis');
   if (!kpis) return;
   kpis.innerHTML = `
-    <div class="report-kpi"><span>Total Income</span><strong>${fmtLek(summary.total)}</strong></div>
-    <div class="report-kpi"><span>Gross Profit</span><strong>${fmtLek(summary.profit)}</strong></div>
-    <div class="report-kpi"><span>Tax Amount</span><strong>${fmtLek(summary.tax)}</strong></div>
-    <div class="report-kpi"><span>Transactions</span><strong>${summary.transactions}</strong></div>
-    <div class="report-kpi"><span>Items Sold</span><strong>${summary.itemsSold}</strong></div>
-    <div class="report-kpi"><span>Average Sale</span><strong>${fmtLek(summary.avgSale)}</strong></div>
+    <div class="report-kpi"><span>${t('Total Income')}</span><strong>${fmtLek(summary.total)}</strong></div>
+    <div class="report-kpi"><span>${t('Gross Profit')}</span><strong>${fmtLek(summary.profit)}</strong></div>
+    <div class="report-kpi"><span>${t('Tax Amount')}</span><strong>${fmtLek(summary.tax)}</strong></div>
+    <div class="report-kpi"><span>${t('Transactions')}</span><strong>${summary.transactions}</strong></div>
+    <div class="report-kpi"><span>${t('Items Sold')}</span><strong>${summary.itemsSold}</strong></div>
+    <div class="report-kpi"><span>${t('Average Sale')}</span><strong>${fmtLek(summary.avgSale)}</strong></div>
   `;
-  const label = $('report-period')?.selectedOptions?.[0]?.textContent || 'Report';
+  const label = $('report-period')?.selectedOptions?.[0]?.textContent || t('Report');
   if ($('report-range-label')) $('report-range-label').textContent = label;
 }
 
@@ -1258,7 +1252,7 @@ function renderReportTable(sales) {
   const tbody = $('report-tbody');
   if (!tbody) return;
   if (!sales.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="no-data">No transactions for this report filter.</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="7" class="no-data">${t('No transactions for this report filter.')}</td></tr>`;
     return;
   }
   tbody.innerHTML = sales.map(sale => {
@@ -1269,8 +1263,8 @@ function renderReportTable(sales) {
       <tr class="sale-row" onclick="viewSale(${sale.id})">
         <td class="td-m"><strong>#${sale.id}</strong></td>
         <td>${fmtDate(sale.date)}</td>
-        <td>${esc(sale.cashier?.fullName || 'Unknown cashier')}</td>
-        <td><span class="badge b-muted">${items} items</span></td>
+        <td>${esc(sale.cashier?.fullName || t('Unknown cashier'))}</td>
+        <td><span class="badge b-muted">${t('{count} items', { count: items })}</span></td>
         <td class="td-p">${fmtLek(total - tax)}</td>
         <td class="td-p">${fmtLek(tax)}</td>
         <td class="td-p">${fmtLek(total)}</td>
@@ -1292,14 +1286,14 @@ function getSaleTax(sale) {
 }
 
 function renderReportCharts(summary) {
-  drawLineChart('chart-revenue', summary.byDay.length ? summary.byDay : summary.byMonth, 'Income');
+  drawLineChart('chart-revenue', summary.byDay.length ? summary.byDay : summary.byMonth, t('Income'));
   drawDonutChart('chart-tax', [
-    { label: 'Net sales', value: summary.net },
-    { label: 'Tax', value: summary.tax }
+    { label: t('Net sales'), value: summary.net },
+    { label: t('Tax'), value: summary.tax }
   ]);
-  drawBarChart('chart-cashiers', summary.byCashier.slice(0, 6), 'Revenue');
-  drawHorizontalBarChart('chart-products', summary.byProduct.map(p => ({ label: p.label, value: p.qty })), 'Qty');
-  drawBarChart('chart-monthly', summary.byMonth, 'Monthly income');
+  drawBarChart('chart-cashiers', summary.byCashier.slice(0, 6), t('Revenue'));
+  drawHorizontalBarChart('chart-products', summary.byProduct.map(p => ({ label: p.label, value: p.qty })), t('Qty'));
+  drawBarChart('chart-monthly', summary.byMonth, t('Monthly income'));
 }
 
 const REPORT_CHART_HEIGHTS = {
@@ -1361,7 +1355,7 @@ function drawLineChart(id, data, label) {
   const { ctx, width, height } = setup;
   const c = chartColors();
   ctx.clearRect(0, 0, width, height);
-  if (!data.length) { drawEmptyChart(ctx, width, height, 'No income data yet'); return; }
+  if (!data.length) { drawEmptyChart(ctx, width, height, t('No income data yet')); return; }
   const pad = 34;
   const max = Math.max(...data.map(d => d.value), 1);
   const step = data.length > 1 ? (width - pad * 2) / (data.length - 1) : 0;
@@ -1408,7 +1402,7 @@ function drawBarChart(id, data, label) {
   const { ctx, width, height } = setup;
   const c = chartColors();
   ctx.clearRect(0, 0, width, height);
-  if (!data.length) { drawEmptyChart(ctx, width, height, 'No data for this chart'); return; }
+  if (!data.length) { drawEmptyChart(ctx, width, height, t('No data for this chart')); return; }
   const pad = 34;
   const max = Math.max(...data.map(d => d.value), 1);
   const gap = 10;
@@ -1437,7 +1431,7 @@ function drawHorizontalBarChart(id, data, label) {
   const { ctx, width, height } = setup;
   const c = chartColors();
   ctx.clearRect(0, 0, width, height);
-  if (!data.length) { drawEmptyChart(ctx, width, height, 'No products sold yet'); return; }
+  if (!data.length) { drawEmptyChart(ctx, width, height, t('No products sold yet')); return; }
   const max = Math.max(...data.map(d => d.value), 1);
   const left = 104;
   const top = 30;
@@ -1469,7 +1463,7 @@ function drawDonutChart(id, data) {
   const c = chartColors();
   ctx.clearRect(0, 0, width, height);
   const total = data.reduce((s, d) => s + d.value, 0);
-  if (!total) { drawEmptyChart(ctx, width, height, 'No tax data yet'); return; }
+  if (!total) { drawEmptyChart(ctx, width, height, t('No tax data yet')); return; }
   const colors = [c.green, c.blue, c.purple, c.red];
   const cx = width / 2;
   const cy = height / 2 - 8;
@@ -1521,7 +1515,7 @@ function shortLabel(label, max = 10) {
 async function loadUsers() {
   if (!isSuperAdmin()) return;
   const tbody = $('users-tbody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="no-data">Loading users...</td></tr>';
+  if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="no-data">${t('Loading users...')}</td></tr>`;
   try {
     const res = await req('GET', '/users');
     allUsers = Array.isArray(res.data) ? res.data : [];
@@ -1543,9 +1537,9 @@ function filterUsers(query) {
 function renderUsers(users) {
   const tbody = $('users-tbody');
   if (!tbody) return;
-  $('users-count').textContent = `${users.length} users`;
+  $('users-count').textContent = t('{count} users', { count: users.length });
   if (!users.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="no-data">No users found.</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="6" class="no-data">${t('No users found.')}</td></tr>`;
     return;
   }
   tbody.innerHTML = users.map(user => `
@@ -1554,8 +1548,8 @@ function renderUsers(users) {
       <td><strong>${esc(user.fullName)}</strong></td>
       <td class="td-m">${esc(user.username)}</td>
       <td><span class="badge ${user.role === 'SUPER_ADMIN' ? 'b-blue' : user.role === 'SUPER_CASHIER' ? 'b-green' : 'b-muted'}">${esc(roleLabel(user.role))}</span></td>
-      <td><span class="badge ${user.active ? 'b-green' : 'b-red'}">${user.active ? 'Active' : 'Disabled'}</span></td>
-      <td><button class="btn btn-secondary btn-sm" onclick="openUserModal(${user.id})">Edit</button></td>
+      <td><span class="badge ${user.active ? 'b-green' : 'b-red'}">${user.active ? t('Active') : t('Disabled')}</span></td>
+      <td><button class="btn btn-secondary btn-sm" onclick="openUserModal(${user.id})">${t('Edit')}</button></td>
     </tr>
   `).join('');
 }
@@ -1563,13 +1557,13 @@ function renderUsers(users) {
 function openUserModal(userId) {
   if (!isSuperAdmin()) return;
   const user = allUsers.find(item => item.id === userId);
-  $('um-title').textContent = user ? 'Edit User' : 'Add User';
-  $('um-submit').textContent = user ? 'Update User' : 'Save User';
+  $('um-title').textContent = user ? t('Edit User') : t('Add User');
+  $('um-submit').textContent = user ? t('Update User') : t('Save User');
   $('um-id').value = user?.id || '';
   $('um-name').value = user?.fullName || '';
   $('um-username').value = user?.username || '';
   $('um-password').value = '';
-  $('um-password').placeholder = user ? 'Leave empty to keep current password' : 'Minimum 4 characters';
+  $('um-password').placeholder = user ? t('Leave empty to keep current password') : t('Minimum 4 characters');
   $('um-role').value = user?.role || 'CASHIER';
   $('um-active').value = String(user?.active ?? true);
   openModal('modal-user');
@@ -1585,17 +1579,17 @@ async function submitUser() {
     active: $('um-active').value === 'true'
   };
   if (!body.fullName || !body.username || (!id && body.password.length < 4)) {
-    toast('Name, username, and a password of at least 4 characters are required', 'error');
+    toast(t('Name, username, and a password of at least 4 characters are required'), 'error');
     return;
   }
   try {
     if (id) await req('PUT', `/users/${id}`, body);
     else await req('POST', '/users', body);
     closeModal('modal-user');
-    toast(id ? 'User updated' : 'User created', 'success');
+    toast(id ? t('User updated') : t('User created'), 'success');
     loadUsers();
   } catch (e) {
-    toast(e.message || 'Could not save user', 'error');
+    toast(e.message || t('Could not save user'), 'error');
   }
 }
 
@@ -1614,29 +1608,29 @@ async function loadOperations() {
     renderShiftRows(shiftsRes.data || []);
     if (isSuperAdmin()) renderBackupRows(backupsRes?.data || []);
   } catch (e) {
-    toast(e.message || 'Could not load operations', 'error');
+    toast(e.message || t('Could not load operations'), 'error');
   }
 }
 
 async function openShift() {
   const openingCash = parseFloat($('shift-opening-cash')?.value || '0');
   if (!currentUser?.cashierId) {
-    toast('Login again before opening a shift', 'error');
+    toast(t('Login again before opening a shift'), 'error');
     return;
   }
   try {
     const res = await req('POST', '/shifts/open', { cashierId: currentUser.cashierId, openingCash });
     activeShift = res.data;
-    toast('Shift opened', 'success');
+    toast(t('Shift opened'), 'success');
     loadOperations();
   } catch (e) {
-    toast(e.message || 'Could not open shift', 'error');
+    toast(e.message || t('Could not open shift'), 'error');
   }
 }
 
 async function closeShift() {
   if (!activeShift?.id) {
-    toast('No open shift to close', 'error');
+    toast(t('No open shift to close'), 'error');
     return;
   }
   const closingCash = parseFloat($('shift-closing-cash')?.value || '0');
@@ -1644,25 +1638,25 @@ async function closeShift() {
     const res = await req('POST', `/shifts/${activeShift.id}/close`, { closingCash });
     activeShift = null;
     renderClosedShiftSummary(res.data);
-    toast('Shift closed', 'success');
+    toast(t('Shift closed'), 'success');
     loadOperations();
   } catch (e) {
-    toast(e.message || 'Could not close shift', 'error');
+    toast(e.message || t('Could not close shift'), 'error');
   }
 }
 
 async function runBackup() {
   try {
     const res = await req('POST', '/backups/run');
-    toast(res.data?.status === 'SUCCESS' ? 'Backup created' : 'Backup failed', res.data?.status === 'SUCCESS' ? 'success' : 'error');
+    toast(res.data?.status === 'SUCCESS' ? t('Backup created') : t('Backup failed'), res.data?.status === 'SUCCESS' ? 'success' : 'error');
     loadOperations();
   } catch (e) {
-    toast(e.message || 'Could not run backup', 'error');
+    toast(e.message || t('Could not run backup'), 'error');
   }
 }
 
 function renderActiveShift(shift) {
-  $('shift-status').textContent = shift ? 'OPEN' : 'No open shift';
+  $('shift-status').textContent = shift ? statusLabel('OPEN') : t('No open shift');
   $('shift-opened').textContent = shift ? fmtDate(shift.openedAt) : '-';
   $('shift-opening').textContent = fmtLek(shift?.openingCash || 0);
   $('shift-sales').textContent = fmtLek(shift?.totalSales || 0);
@@ -1680,14 +1674,14 @@ function renderShiftRows(shifts) {
   const tbody = $('shifts-tbody');
   if (!tbody) return;
   if (!shifts.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="no-data">No shifts yet.</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="10" class="no-data">${t('No shifts yet.')}</td></tr>`;
     return;
   }
   tbody.innerHTML = shifts.map(shift => `
     <tr>
       <td>#${shift.id}</td>
-      <td>${esc(shift.cashier?.fullName || 'Cashier')}</td>
-      <td><span class="badge ${shift.status === 'OPEN' ? 'b-green' : 'b-blue'}">${esc(shift.status)}</span></td>
+      <td>${esc(shift.cashier?.fullName || t('Cashier'))}</td>
+      <td><span class="badge ${shift.status === 'OPEN' ? 'b-green' : 'b-blue'}">${esc(statusLabel(shift.status))}</span></td>
       <td>${fmtDate(shift.openedAt)}</td>
       <td>${shift.closedAt ? fmtDate(shift.closedAt) : '-'}</td>
       <td>${fmtLek(shift.openingCash || 0)}</td>
@@ -1703,17 +1697,17 @@ function renderBackupRows(backups) {
   const tbody = $('backups-tbody');
   if (!tbody) return;
   if (!backups.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="no-data">No backups yet.</td></tr>';
-    $('backup-status').textContent = 'No backup yet';
+    tbody.innerHTML = `<tr><td colspan="5" class="no-data">${t('No backups yet.')}</td></tr>`;
+    $('backup-status').textContent = t('No backup yet');
     return;
   }
   const latest = backups[0];
-  $('backup-status').textContent = `${latest.status} - ${fmtDate(latest.createdAt)}`;
+  $('backup-status').textContent = `${statusLabel(latest.status)} - ${fmtDate(latest.createdAt)}`;
   tbody.innerHTML = backups.map(backup => `
     <tr>
       <td>#${backup.id}</td>
       <td>${fmtDate(backup.createdAt)}</td>
-      <td><span class="badge ${backup.status === 'SUCCESS' ? 'b-green' : 'b-red'}">${esc(backup.status)}</span></td>
+      <td><span class="badge ${backup.status === 'SUCCESS' ? 'b-green' : 'b-red'}">${esc(statusLabel(backup.status))}</span></td>
       <td class="td-m">${esc(backup.filePath || '')}</td>
       <td>${esc(backup.message || '')}</td>
     </tr>
@@ -1748,7 +1742,19 @@ document.querySelectorAll('.overlay').forEach(overlay => {
 });
 
 /*  Init  */
+/*  Language  */
+function onLanguageChanged() {
+  if (!currentUser) return;
+  $('user-role').textContent = roleLabel(currentUser.role);
+  updateHomeClock();
+  applyRolePermissions();
+  const activeView = document.querySelector('.view.on')?.id?.replace('view-', '') || 'home';
+  gotoView(activeView);
+  refreshCurrencyDisplay();
+}
+
 (async function init() {
+  applyLanguage();
   await checkInitialSetup();
   const saved = localStorage.getItem('cashier');
   if (!saved) return;

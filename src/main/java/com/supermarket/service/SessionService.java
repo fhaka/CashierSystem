@@ -29,17 +29,17 @@ public class SessionService {
 
     public Cashier requireUser(String token) {
         if (token == null || token.isBlank()) {
-            throw new AuthenticationRequiredException("Please sign in to continue");
+            throw new AuthenticationRequiredException("auth.signInRequired");
         }
         Long cashierId = sessions.get(token);
         if (cashierId == null) {
-            throw new AuthenticationRequiredException("Session expired. Please sign in again");
+            throw new AuthenticationRequiredException("auth.sessionExpired");
         }
         Cashier cashier = cashierRepository.findById(cashierId)
-                .orElseThrow(() -> new AuthenticationRequiredException("Account no longer exists"));
+                .orElseThrow(() -> new AuthenticationRequiredException("auth.accountMissing"));
         if (!cashier.isActive()) {
             sessions.remove(token);
-            throw new AuthenticationRequiredException("This account is disabled");
+            throw new AuthenticationRequiredException("auth.accountDisabled");
         }
         return cashier;
     }
@@ -47,7 +47,7 @@ public class SessionService {
     public Cashier requireSuperAdmin(String token) {
         Cashier cashier = requireUser(token);
         if (!cashier.getRole().isSuperAdmin()) {
-            throw new PermissionDeniedException("Super Admin access is required");
+            throw new PermissionDeniedException("auth.superAdminRequired");
         }
         return cashier;
     }
@@ -55,7 +55,7 @@ public class SessionService {
     public Cashier requireOperationalManager(String token) {
         Cashier cashier = requireUser(token);
         if (!cashier.getRole().isOperationalManager()) {
-            throw new PermissionDeniedException("Super Cashier or Super Admin access is required");
+            throw new PermissionDeniedException("auth.managerRequired");
         }
         return cashier;
     }

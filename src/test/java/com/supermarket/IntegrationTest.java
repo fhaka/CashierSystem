@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -78,7 +79,7 @@ public abstract class IntegrationTest {
     }
 
     protected JsonNode data(ResultActions result) throws Exception {
-        String body = result.andReturn().getResponse().getContentAsString();
+        String body = result.andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         return objectMapper.readTree(body).path("data");
     }
 

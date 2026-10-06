@@ -1,5 +1,6 @@
 package com.supermarket.repository;
 
+import com.supermarket.exception.ValidationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.scheduling.annotation.Async;
@@ -66,7 +67,7 @@ public class JdbcLogRepository {
                 id
         );
         if (updatedRows == 0) {
-            throw new IllegalArgumentException("JDBC sale log not found with id: " + id);
+            throw new ValidationException("saleLog.notFound", id);
         }
         return findSaleLogById(id).orElseThrow(() -> new IllegalStateException("Updated JDBC sale log could not be loaded"));
     }
@@ -74,7 +75,7 @@ public class JdbcLogRepository {
     public void deleteSaleLog(Long id) {
         int deletedRows = jdbcTemplate.update("DELETE FROM sale_logs WHERE id = ?", id);
         if (deletedRows == 0) {
-            throw new IllegalArgumentException("JDBC sale log not found with id: " + id);
+            throw new ValidationException("saleLog.notFound", id);
         }
     }
 }

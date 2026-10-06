@@ -1,5 +1,6 @@
 package com.supermarket.service;
 
+import com.supermarket.exception.ValidationException;
 import com.supermarket.dto.ProductRequest;
 import com.supermarket.exception.ProductNotFoundException;
 import com.supermarket.model.Category;
@@ -46,7 +47,7 @@ public class ProductService {
 
     public Product findByBarcode(String barcode) {
         return productRepository.findByBarcode(barcode)
-                .orElseThrow(() -> new IllegalArgumentException("Product not found with barcode: " + barcode));
+                .orElseThrow(() -> new ValidationException("product.barcodeNotFound", barcode));
     }
 
     public List<Product> findSortedByPrice() {
@@ -106,7 +107,7 @@ public class ProductService {
     private Category resolveCategory(ProductRequest request) {
         if (request.getCategoryId() != null) {
             return categoryRepository.findById(request.getCategoryId())
-                    .orElseThrow(() -> new IllegalArgumentException("Category not found with id: " + request.getCategoryId()));
+                    .orElseThrow(() -> new ValidationException("category.notFound", request.getCategoryId()));
         }
         String categoryName = request.getCategoryName() == null || request.getCategoryName().isBlank()
                 ? "General"
@@ -117,22 +118,22 @@ public class ProductService {
 
     private void validateProductRequest(ProductRequest request) {
         if (request.getName() == null || request.getName().isBlank()) {
-            throw new IllegalArgumentException("Product name is required");
+            throw new ValidationException("product.nameRequired");
         }
         if (request.getBarcode() == null || request.getBarcode().isBlank()) {
-            throw new IllegalArgumentException("Product barcode is required");
+            throw new ValidationException("product.barcodeRequired");
         }
         if (request.getPrice() == null || request.getPrice().signum() <= 0) {
-            throw new IllegalArgumentException("Final selling price must be greater than zero");
+            throw new ValidationException("product.pricePositive");
         }
         if (request.getPurchasePrice() == null || request.getPurchasePrice().signum() < 0) {
-            throw new IllegalArgumentException("Purchase price cannot be negative");
+            throw new ValidationException("product.purchasePriceNegative");
         }
         if (request.getTaxRate() == null || !(request.getTaxRate().compareTo(BigDecimal.ZERO) == 0 || request.getTaxRate().compareTo(BigDecimal.valueOf(20)) == 0)) {
-            throw new IllegalArgumentException("Tax must be either 0% or 20%");
+            throw new ValidationException("product.invalidTax");
         }
         if (request.getStock() == null || request.getStock() < 0) {
-            throw new IllegalArgumentException("Product stock cannot be negative");
+            throw new ValidationException("product.stockNegative");
         }
         normalizeUnit(request.getUnit());
     }
@@ -140,7 +141,7 @@ public class ProductService {
     private String normalizeUnit(String unit) {
         String normalized = unit == null || unit.isBlank() ? "pcs" : unit.trim().toLowerCase();
         if (!normalized.equals("pcs") && !normalized.equals("kg")) {
-            throw new IllegalArgumentException("Product unit must be either pcs or kg");
+            throw new ValidationException("product.invalidUnit");
         }
         return normalized;
     }

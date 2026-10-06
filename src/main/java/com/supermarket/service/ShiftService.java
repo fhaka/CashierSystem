@@ -1,5 +1,7 @@
 package com.supermarket.service;
 
+import com.supermarket.exception.PermissionDeniedException;
+import com.supermarket.exception.ValidationException;
 import com.supermarket.dto.ShiftCloseRequest;
 import com.supermarket.dto.ShiftOpenRequest;
 import com.supermarket.model.Cashier;
@@ -41,10 +43,10 @@ public class ShiftService {
     public Shift openShift(ShiftOpenRequest request, Cashier cashier) {
         BigDecimal openingCash = request.getOpeningCash() == null ? BigDecimal.ZERO : request.getOpeningCash();
         if (openingCash.signum() < 0) {
-            throw new IllegalArgumentException("Opening cash cannot be negative");
+            throw new ValidationException("shift.openingCashNegative");
         }
         findOpenShift(cashier.getId()).ifPresent(shift -> {
-            throw new IllegalArgumentException("This cashier already has an open shift");
+            throw new ValidationException("shift.alreadyOpen");
         });
         return shiftRepository.save(new Shift(cashier, LocalDateTime.now(), openingCash));
     }
@@ -52,16 +54,16 @@ public class ShiftService {
     @Transactional
     public Shift closeShift(Long shiftId, ShiftCloseRequest request, Cashier cashier) {
         Shift shift = shiftRepository.findById(shiftId)
-                .orElseThrow(() -> new IllegalArgumentException("Shift not found with id: " + shiftId));
+                .orElseThrow(() -> new ValidationException("shift.notFound", shiftId));
         if (!shift.getCashier().getId().equals(cashier.getId())) {
-            throw new com.supermarket.exception.PermissionDeniedException("You can only close your own shift");
+            throw new PermissionDeniedException("shift.onlyOwnClose");
         }
         if (!"OPEN".equals(shift.getStatus())) {
-            throw new IllegalArgumentException("Shift is already closed");
+            throw new ValidationException("shift.alreadyClosed");
         }
         BigDecimal closingCash = request.getClosingCash() == null ? BigDecimal.ZERO : request.getClosingCash();
         if (closingCash.signum() < 0) {
-            throw new IllegalArgumentException("Closing cash cannot be negative");
+            throw new ValidationException("shift.closingCashNegative");
         }
 
         LocalDateTime closedAt = LocalDateTime.now();

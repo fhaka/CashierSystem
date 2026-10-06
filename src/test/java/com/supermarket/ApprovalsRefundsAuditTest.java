@@ -145,7 +145,7 @@ class ApprovalsRefundsAuditTest extends IntegrationTest {
         assertThat(first.path("refundNumber").asText()).isEqualTo("R000001");
         assertThat(first.path("totalAmount").decimalValue()).isEqualByComparingTo("100.00");
         assertThat(first.path("approvedByName").asText()).isEqualTo("admin Test");
-        assertThat(first.path("printableReceipt").asText()).startsWith("KTHIM MALLI").contains("Për faturën: 000001");
+        assertThat(first.path("printableReceipt").asText()).contains("KTHIM MALLI").contains(row("Për faturën", "000001"));
         assertThat(stockOf(product)).isEqualTo(8);
 
         Map<String, Object> rest = Map.of("lines", List.of(Map.of("saleItemId", saleItemId, "quantity", 2)),
@@ -187,7 +187,7 @@ class ApprovalsRefundsAuditTest extends IntegrationTest {
         assertThat(z.path("refundsCount").asInt()).isEqualTo(1);
         assertThat(z.path("netSales").decimalValue()).isEqualByComparingTo("5400.00");
         assertThat(z.path("vat").get(0).path("taxAmount").decimalValue()).isEqualByComparingTo("900.00");
-        assertThat(z.path("printableText").asText()).contains("Kthimet (1): -16200.00").contains("Shitjet neto: 5400.00");
+        assertThat(z.path("printableText").asText()).contains(row("Kthimet (1)", "-16200.00")).contains(row("Shitjet neto", "5400.00"));
     }
 
     @Test

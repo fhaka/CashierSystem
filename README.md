@@ -73,6 +73,18 @@ Hibernate does not change tables (`ddl-auto=none`). The tests run with `ddl-auto
 - **Profit** uses the cost price saved on each sale line, so later cost changes do not rewrite history.
 - **Products are deactivated, not deleted.** A deactivated product disappears from the till, stays in old sales, and can be reactivated from the Products screen.
 
+## Till keyboard and customer display
+
+- **Search:** scan a barcode (the scanner's Enter adds it) or type part of a product name; the matches appear under the field, the arrow keys choose and Enter adds. `3*` before a barcode or name sells 3. Typing anywhere on the till goes into the search field.
+- **Keys:** F1 list of shortcuts, F2 search, F3 customer, F4 quantity of the selected line, F6 discount, F7 park cart, F8 parked carts, F9 clear the invoice, F10 pay. Arrow keys select a line, `+`/`-` add or take one, Delete removes it. In the payment window F10 fills in the exact cash and a second F10 finishes the sale; F9 puts it all on card; banknote buttons (500 ... 10000) fill the cash. On the receipt Enter prints and Esc closes.
+- **Customer display** (*Ekrani i klientit*): opens a second window for the screen facing the customer, showing the lines, the total, and after payment the change and the shop's message. Drag it to the second monitor and press F11 for full screen. It works in the same browser as the till and needs no login.
+
+## Shop settings and receipts
+
+- **Settings** (*Cilësimet*, administrator): shop name, address, city, NIPT, phone, email and a message for the bottom of the receipt, shown on every receipt, refund and X/Z report; paper width (58 mm = 32 characters, 80 mm = 42 or 48), the receipt printer, and automatic printing after each sale. A preview shows the result before saving. A new installation works with defaults until this is filled in.
+- **Receipts** are laid out for the paper width with amounts aligned on the right.
+- **Reprints** (*Printo kuponin* in the sales log) give the receipt exactly as it was printed, marked `*** KOPJE ***` at the top and bottom, and every reprint is written to the audit log. Sales made before this version get their receipt rebuilt from the sale.
+
 ## Payments, shifts and reports
 
 - **Checkout opens the payment window first.** The customer can pay with LEK cash, foreign cash (EUR/USD) and card, in any combination. The sale is only saved when the payment covers the total; change is given in LEK cash. Card payments are in LEK and cannot exceed the total. Payments are printed on the receipt.
@@ -146,7 +158,7 @@ Set the Windows printer name in `application.properties`:
 receipt.printer.name=Ocom Printer
 ```
 
-If empty, the default Windows printer is used. Receipts are sent as raw ESC/POS with an automatic paper cut. The printer can also be chosen at checkout.
+If empty, the default Windows printer is used. The printer chosen on the Settings screen takes its place. Receipts are sent as raw ESC/POS with an automatic paper cut. The printer can also be chosen on each receipt.
 
 ## Backups
 
@@ -174,6 +186,7 @@ All endpoints except `/auth/*` need the header `X-Auth-Token` with the token ret
 | Purchases | `GET /purchases`, `POST /purchases` |
 | Reports | `GET /reports/dashboard`, `/reports/analytics?from&to` (+ `.xlsx`, `.pdf`), `/reports/sales.xlsx?from&to`, `/reports/daily?date` (+ `.pdf`), `POST /reports/daily/email?date`, `GET /reports/email-settings` |
 | Users | `GET /users`, `POST /users`, `PUT /users/{id}` |
+| Settings | `GET /settings/shop`, `PUT /settings/shop` (administrator), `POST /settings/shop/preview`; reprint: `GET /sales/{id}/receipt` |
 | Printer | `GET /printer/printers`, `POST /printer/receipt`, `POST /printer/test-cut` |
 | Backups | `GET /backups`, `POST /backups/run` |
 | Sale logs (JDBC) | `GET/POST /sales/logs`, `GET/PUT/DELETE /sales/logs/{id}` |

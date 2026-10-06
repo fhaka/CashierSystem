@@ -1,5 +1,6 @@
 package com.supermarket;
 
+import com.supermarket.util.ReceiptLayout;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,7 +35,7 @@ public abstract class IntegrationTest {
 
     private static final List<String> TABLES_CHILD_FIRST = List.of(
             "audit_events", "customer_transactions", "inventory_count_lines", "inventory_counts", "stock_adjustments", "supplier_payments", "refund_items", "refunds", "cart_items", "carts", "sale_logs", "sale_items", "sale_payments", "sales", "cash_movements", "shifts", "promotions", "customers",
-            "purchase_items", "purchase_invoices", "suppliers", "products", "auth_sessions", "cashiers", "backup_logs"
+            "purchase_items", "purchase_invoices", "suppliers", "products", "auth_sessions", "cashiers", "backup_logs", "shop_settings"
     );
 
     @Autowired
@@ -126,6 +127,11 @@ public abstract class IntegrationTest {
         ResultActions result = postJson("/shifts/open", token, Map.of("openingCash", openingCash))
                 .andExpect(status().isOk());
         return data(result).path("id").asLong();
+    }
+
+    /** One line of a receipt or report as printed on default 32-character paper: label left, value right. */
+    protected static String row(String label, String value) {
+        return new ReceiptLayout(32).row(label, value).toString();
     }
 
     protected int stockOf(long productId) {

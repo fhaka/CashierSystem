@@ -2,14 +2,14 @@
 
 const API = window.location.origin;
 let currentUser  = null;
-let posProducts  = [];
 let cartItems    = [];
 let allProdTable = [];
 let allCategories = [];
 let purchaseItems = [];
 let lastReceipt  = '';
 let keypadBuffer = '';
-let lastCheckoutData = null;
+let shopSettings = null;
+let selectedLine = -1;
 let activeShift = null;
 let allUsers = [];
 
@@ -148,7 +148,10 @@ function roleLabel(role) {
 function clearLocalSession() {
   currentUser = null;
   cartItems = [];
+  cartSummary = null;
+  selectedLine = -1;
   activeShift = null;
+  sendToDisplay();
   try { localStorage.removeItem('cashier'); } catch {}
   $('auth-screen').classList.remove('hidden');
   $('app-screen').classList.add('hidden');
@@ -189,6 +192,7 @@ async function checkInitialSetup() {
   try {
     const res = await req('GET', '/auth/setup');
     const available = res.data?.registrationAvailable === true;
+    showShopName(res.data?.shopName);
     $('tab-register').classList.toggle('hidden', !available);
     if (!available && !$('form-register').classList.contains('hidden')) switchTab('login');
   } catch {
@@ -207,7 +211,8 @@ function bootUser(user) {
   applyRolePermissions();
   gotoView('home');
   setNextInvoiceNumber();
-  loadPosProducts();
+  loadShopSettings();
+  refreshTillInfo();
   refreshCart();
   loadHomeData();
   loadExchangeRates();
@@ -246,7 +251,7 @@ function gotoView(view) {
     toast(t('Super Cashier or Super Admin access is required'), 'error');
     view = 'home';
   }
-  if ((view === 'users' || view === 'audit') && !isSuperAdmin()) {
+  if (['users', 'audit', 'settings'].includes(view) && !isSuperAdmin()) {
     toast(t('Super Admin access is required'), 'error');
     view = 'home';
   }
@@ -262,6 +267,8 @@ function gotoView(view) {
   if (view === 'promotions') loadPromotions();
   if (view === 'inventory') showInventoryTab(currentInventoryTab);
   if (view === 'sales')    loadSales();
+  if (view === 'settings') loadSettingsForm();
+  if (view === 'pos') { refreshTillInfo(); setTimeout(focusSearch, 50); }
   if (view === 'reports')  loadReports();
   if (view === 'users') loadUsers();
   if (view === 'operations') loadOperations();
@@ -298,51 +305,111 @@ function updateHomeClock() {
   if ($('home-time')) $('home-time').textContent = formatTime(now);
 }
 
-/*  POS Products  */
-async function loadPosProducts(query) {
-  const url = query ? `/products/search?query=${encodeURIComponent(query)}` : '/products/in-stock';
-  try {
-    const res = await req('GET', url);
-    posProducts = Array.isArray(res.data) ? res.data : [];
-    renderGrid(posProducts);
-  } catch (e) {
-    toast(t('Could not load products: ') + e.message, 'error');
-    $('prod-grid').innerHTML = `<div class="prod-empty"><span class="em-icon"></span><strong>${t('Failed to load')}</strong><br><span class="t-sm t-muted">${esc(e.message)}</span></div>`;
-  }
-}
-
+/*  Till search  */
+/*
+ * The search field takes a barcode (scanner or keyboard, then Enter), "3*barcode" for three pieces, or part of
+ * a product name: matches appear in a list; arrows choose, Enter adds.
+ */
+let searchResults = [];
+let searchIndex = -1;
 let _searchTmr;
+
 function onSearch(val) {
   clearTimeout(_searchTmr);
-  _searchTmr = setTimeout(() => {
-    if (/^\d{8,}$/.test(val.trim())) {
-      addByBarcode(val.trim());
-      $('pos-search').value = '';
-    } else {
-      loadPosProducts(val.trim() || undefined);
-    }
-  }, 300);
+  const text = val.trim();
+  if (!text || /^(\d+([.,]\d+)?\*)?\d*$/.test(text)) { hideSearchResults(); return; }
+  _searchTmr = setTimeout(async () => {
+    try {
+      const res = await req('GET', `/products/search?query=${encodeURIComponent(text)}`);
+      if ($('pos-search').value.trim() !== text) return;
+      searchResults = (Array.isArray(res.data) ? res.data : []).filter(p => p.active !== false).slice(0, 12);
+      searchIndex = searchResults.length ? 0 : -1;
+      renderSearchResults();
+    } catch (e) { toast(e.message, 'error'); }
+  }, 250);
 }
 
-function renderGrid(products) {
-  const g = $('prod-grid');
-  if (!products.length) {
-    g.innerHTML = `<div class="prod-empty"><span class="em-icon"></span><strong>${t('No products found')}</strong><br><span class="t-sm t-muted">${t('Try a different search or barcode')}</span></div>`;
+function renderSearchResults() {
+  const box = $('search-results');
+  if (!searchResults.length) {
+    box.innerHTML = `<div class="sr-empty">${t('No products found')}</div>`;
+  } else {
+    box.innerHTML = searchResults.map((p, i) => `
+      <div class="sr-item ${i === searchIndex ? 'on' : ''}" onmousedown="event.preventDefault(); pickSearchResult(${i})">
+        <span class="sr-main"><span class="sr-name">${esc(p.name)}</span><span class="sr-code">${esc(p.barcode || '')}</span></span>
+        <span class="sr-stock ${parseFloat(p.stock) > 0 ? '' : 'out'}">${fmtQty(p.stock, p.unit)} ${esc(unitLabel(p.unit))}</span>
+        <span class="sr-price">${fmt(p.price)}</span>
+      </div>`).join('');
+  }
+  box.classList.remove('hidden');
+}
+
+function hideSearchResults() {
+  searchResults = [];
+  searchIndex = -1;
+  $('search-results')?.classList.add('hidden');
+}
+
+async function pickSearchResult(index) {
+  const product = searchResults[index];
+  if (!product) return;
+  const quantity = pendingQuantity();
+  hideSearchResults();
+  $('pos-search').value = '';
+  await addToCart({ productId: product.id, quantity });
+  focusSearch();
+}
+
+/* "3*" typed before a name search sells that many. */
+function pendingQuantity() {
+  const match = $('pos-search').value.trim().match(/^(\d+(?:[.,]\d+)?)\*/);
+  return match ? parseQuantity(match[1]) : 1;
+}
+
+function onSearchKey(event) {
+  const open = !$('search-results').classList.contains('hidden') && searchResults.length;
+  if (open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    event.preventDefault();
+    event.stopPropagation();
+    searchIndex = (searchIndex + (event.key === 'ArrowDown' ? 1 : -1) + searchResults.length) % searchResults.length;
+    renderSearchResults();
     return;
   }
-  g.innerHTML = products.map(p => {
-    const sc = p.stock === 0 ? 'sk-oos' : p.lowStock ? 'sk-low' : 'sk-ok';
-    const sl = p.stock === 0 ? t('Out of Stock') : t('{count} left', { count: fmtQty(p.stock, p.unit) });
-    return `<div class="prod-card${p.stock === 0 ? ' oos' : ''}" onclick="addById(${p.id})">
-      <div class="pc-cat">${esc(p.category?.name || t('None'))}</div>
-      <div class="pc-name">${esc(p.name)}</div>
-      <div class="pc-bc">${esc(p.barcode)}</div>
-      <div class="pc-foot">
-        <span class="pc-price">${fmt(p.price)}</span>
-        <span class="pc-stock ${sc}">${sl}</span>
-      </div>
-    </div>`;
-  }).join('');
+  if (event.key === 'Escape' && open) {
+    event.stopPropagation();
+    hideSearchResults();
+    return;
+  }
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  clearTimeout(_searchTmr);
+  const text = event.target.value.trim();
+  const code = text.match(/^(?:(\d+(?:[.,]\d+)?)\*)?(\d{3,})$/);
+  if (code) {
+    hideSearchResults();
+    event.target.value = '';
+    addByBarcode(code[2], code[1] ? parseQuantity(code[1]) : 1);
+  } else if (open && searchIndex >= 0) {
+    pickSearchResult(searchIndex);
+  }
+}
+
+function focusSearch() {
+  if ($('view-pos').classList.contains('on')) $('pos-search')?.focus();
+}
+
+/* Invoice number, cashier and shift shown at the top of the till. */
+async function refreshTillInfo() {
+  if ($('till-cashier')) $('till-cashier').textContent = currentUser?.fullName || '-';
+  try {
+    const res = await req('GET', '/shifts/open');
+    $('till-shift').textContent = res.data
+      ? t('Open since {time}', { time: formatTime(new Date(res.data.openedAt)) })
+      : t('No open shift');
+    $('till-shift').classList.toggle('t-red', !res.data);
+  } catch {
+    $('till-shift').textContent = '-';
+  }
 }
 
 /*  Cart  */
@@ -359,40 +426,14 @@ async function refreshCart() {
 }
 
 function renderCart() {
-  const list = $('cart-list');
-  const total = cartItems.length;
-  $('cart-count').textContent = total;
+  $('cart-count').textContent = cartItems.length;
+  if (selectedLine >= cartItems.length) selectedLine = cartItems.length - 1;
   renderInvoiceRows();
-
   const hasItems = cartItems.length > 0;
   $('btn-checkout').disabled = !hasItems;
-  $('btn-clear').disabled    = !hasItems;
-
-  if (!hasItems) {
-    list.innerHTML = `<div class="cart-empty-msg">
-      <div class="cart-empty-icon"></div>
-      <strong>${t('Cart is empty')}</strong>
-      <span class="t-sm">${t('Click a product or scan a barcode')}</span>
-    </div>`;
-    $('cart-subtotal').textContent = '0.00 LEK';
-    return;
-  }
-
-  list.innerHTML = cartItems.map(item => `
-    <div class="cart-item">
-      <div class="ci-info">
-        <div class="ci-name">${esc(item.productName)}</div>
-        <div class="ci-unit">${fmt(item.price)} / ${esc(unitLabel(item.unit))}</div>
-      </div>
-      <div class="ci-qty">
-        <button class="qty-btn" onclick="stepQty(${item.productId},-1)"></button>
-        <span class="qty-val">${fmtQty(item.quantity, item.unit)}</span>
-        <button class="qty-btn" onclick="stepQty(${item.productId},1)">+</button>
-      </div>
-      <div class="ci-total">${fmt(item.lineTotal)}</div>
-      <button class="ci-rm" onclick="removeItem(${item.productId})" title="${t('Remove')}"></button>
-    </div>
-  `).join('');
+  $('btn-clear').disabled = !hasItems;
+  if (!hasItems) $('cart-subtotal').textContent = fmt(0);
+  sendToDisplay();
 }
 
 /* The till's summary: total after promotions and discounts, and the customer of the sale. */
@@ -407,6 +448,7 @@ async function fetchSubtotal() {
 
 function renderCartSummary(summary) {
   cartSummary = summary;
+  sendToDisplay();
   if (!summary) return;
   $('cart-subtotal').textContent = fmt(summary.totalAmount);
   const lines = [];
@@ -521,27 +563,32 @@ function onRateChanged() {
 
 function refreshCurrencyDisplay() {
   renderCart();
-  renderGrid(posProducts);
   renderProdsTable(allProdTable);
   if (salesPage) { renderSalesTable(); renderStats(); }
   if ($('view-reports')?.classList.contains('on')) applyReportFilters();
 }
 
-async function addById(productId) {
+/* Adds to the cart; the new or changed line becomes the selected one. */
+async function addToCart(body) {
   try {
-    await req('POST', '/sales/cart', { productId, quantity: 1 });
-    await refreshCart();
-    toast(t('Added to cart'), 'success');
-  } catch (e) { toast(e.message || t('Could not add item'), 'error'); }
+    const res = await req('POST', '/sales/cart', body);
+    cartItems = Array.isArray(res.data) ? res.data : [];
+    const productId = body.productId;
+    const index = productId ? cartItems.findIndex(i => i.productId === productId) : cartItems.length - 1;
+    selectedLine = index >= 0 ? index : cartItems.length - 1;
+    renderCart();
+    fetchSubtotal();
+    return true;
+  } catch (e) {
+    toast(e.message || t('Could not add item'), 'error');
+    return false;
+  }
 }
 
-async function addByBarcode(barcode) {
-  try {
-    await req('POST', '/sales/cart', { barcode, quantity: 1 });
-    await refreshCart();
-    toast(t('Item scanned & added'), 'success');
-  } catch (e) {
-    toast(e.message || t('Product is not registered or does not exist'), 'error');
+async function addByBarcode(barcode, quantity = 1) {
+  if (await addToCart({ barcode, quantity })) {
+    const index = cartItems.findIndex(i => i.barcode === barcode);
+    if (index >= 0) { selectedLine = index; renderInvoiceRows(); }
   }
 }
 
@@ -557,7 +604,7 @@ function renderInvoiceRows() {
       ? `<input class="input pos-edit-cell" type="number" min="0.01" step="0.01" value="${Number(item.price || 0).toFixed(2)}" onchange="updateCartInline(${item.productId}, 'price', this.value)" />`
       : `<span class="td-p">${fmt(item.price)}</span>`;
     return `
-    <tr>
+    <tr class="${index === selectedLine ? 'selected' : ''}" onclick="selectLine(${index})">
       <td class="td-m">${String(index + 1).padStart(4, '0')}</td>
       <td class="invoice-code-cell">${esc(item.barcode || item.productId)}</td>
       <td><strong>${esc(item.productName)}</strong></td>
@@ -576,6 +623,17 @@ function renderInvoiceRows() {
     </tr>
   `;
   }).join('');
+}
+
+function selectLine(index) {
+  if (index < 0 || index >= cartItems.length) return;
+  selectedLine = index;
+  renderInvoiceRows();
+  document.querySelector('#invoice-rows tr.selected')?.scrollIntoView({ block: 'nearest' });
+}
+
+function selectedItem() {
+  return cartItems[selectedLine] || cartItems[cartItems.length - 1];
 }
 
 function updateKeypadDisplay() {
@@ -631,12 +689,12 @@ function promptQuantity() {
     toast(t('Add an item before changing quantity'), 'error');
     return;
   }
-  const last = cartItems[cartItems.length - 1];
-  const value = prompt(t('Quantity for ') + last.productName, fmtQty(last.quantity, last.unit));
+  const item = selectedItem();
+  const value = prompt(t('Quantity for ') + item.productName, fmtQty(item.quantity, item.unit));
   if (value === null) return;
   const qty = parseQuantity(value);
   if (Number.isNaN(qty) || qty < 0) { toast(t('Enter a valid quantity'), 'error'); return; }
-  setQuantity(last.productId, qty);
+  setQuantity(item.productId, qty);
 }
 
 /* The +/- buttons: one piece, or 100 g for weighed products. */
@@ -779,6 +837,7 @@ async function doCheckout() {
     ['pay-cash-lek', 'pay-cash-foreign', 'pay-card', 'pay-points', 'pay-credit'].forEach(id => { $(id).value = ''; });
     updatePaymentSummary();
     openModal('modal-payment');
+    sendToDisplay({ type: 'paying', total: paymentTotal });
     setTimeout(() => $('pay-cash-lek').focus(), 50);
   } catch (e) { toast(e.message || t('Checkout failed'), 'error'); }
 }
@@ -827,6 +886,21 @@ function payExactCash() {
   updatePaymentSummary();
 }
 
+/* A banknote: the cash field gets that amount (pressed twice, twice the amount). */
+function payNote(amount) {
+  const field = $('pay-cash-lek');
+  const current = parseFloat(String(field.value || '').replace(',', '.')) || 0;
+  field.value = (current >= paymentTotal || current === 0 ? amount : current + amount).toFixed(2);
+  updatePaymentSummary();
+  field.focus();
+}
+
+/* F10 in the payment window: exact cash if nothing was entered, then finish the sale. */
+function paymentShortcut() {
+  if (!readPayments().length) payExactCash();
+  confirmPayment();
+}
+
 function payAllByCard() {
   ['pay-points', 'pay-credit'].forEach(id => { $(id).value = ''; });
   $('pay-card').value = paymentTotal.toFixed(2);
@@ -842,16 +916,21 @@ async function confirmPayment() {
   try {
     const res = await req('POST', '/sales/checkout', { payments: readPayments() });
     const data = res.data || {};
-    lastCheckoutData = data;
-    lastReceipt = data.printableReceipt || buildFallbackReceipt(data);
     closeModal('modal-payment');
-    $('receipt-txt').textContent = lastReceipt;
-    openModal('modal-receipt');
-    loadReceiptPrinters();
+    sendToDisplay({ type: 'paid', total: data.totalAmount, paid: data.paidAmount, change: data.changeAmount });
     cartItems = [];
-    renderCart();
-    fetchSubtotal();
+    selectedLine = -1;
+    cartSummary = null;
+    renderInvoiceRows();
+    $('cart-count').textContent = 0;
+    $('btn-checkout').disabled = true;
+    $('btn-clear').disabled = true;
+    $('cart-subtotal').textContent = fmt(0);
+    $('cart-breakdown').innerHTML = '';
+    $('cart-customer').classList.add('hidden');
     setNextInvoiceNumber();
+    showReceipt(data.printableReceipt);
+    if (shopSettings?.autoPrint) printReceipt();
     toast(parseFloat(data.changeAmount) > 0
       ? t('Sale completed. Change: {amount}', { amount: fmtLek(data.changeAmount) })
       : t('Checkout complete!'), 'success');
@@ -885,9 +964,9 @@ function renderCategorySelect(selectedName) {
 async function setNextInvoiceNumber() {
   try {
     const res = await req('GET', '/sales/next-invoice-number');
-    if ($('invoice-no')) $('invoice-no').value = res.data || '';
+    if ($('invoice-no')) $('invoice-no').textContent = res.data || '-';
   } catch {
-    if ($('invoice-no')) $('invoice-no').value = '';
+    if ($('invoice-no')) $('invoice-no').textContent = '-';
   }
 }
 
@@ -1049,35 +1128,23 @@ async function savePurchaseInvoice() {
     await req('POST', '/purchases', body);
     toast(t('Purchase invoice saved and stock updated'), 'success');
     clearPurchaseInvoice();
-    loadPosProducts();
     loadProdsTable();
   } catch (e) {
     toast(e.message || t('Could not save purchase invoice'), 'error');
   }
 }
 
-function buildFallbackReceipt(data) {
-  const lines = [
-    t('SALES RECEIPT'),
-    '='.repeat(32),
-    `${t('Invoice no.')}: ${data.invoiceNumber || data.saleId || ''}`,
-    `${t('Date')}: ${fmtDate(data.date)}`,
-    '-'.repeat(32),
-  ];
-  (data.items || []).forEach(i => {
-    lines.push(`${(i.productName || i.product?.name || '').padEnd(20)} x${i.quantity} ${unitLabel(i.unit || i.product?.unit)}`);
-    lines.push(`  @ ${fmt(i.unitPrice || i.price)} = ${fmt(i.lineTotal)}`);
-  });
-  lines.push('-'.repeat(32));
-  lines.push(`${t('Subtotal')}: ${fmt(data.subtotal ?? data.totalAmount)}`);
-  lines.push(`${t('TOTAL')}: ${fmt(data.totalAmount)}`);
-  (data.payments || []).forEach(p => {
-    lines.push(`${paymentLabel(p.method)}: ${parseFloat(p.amount).toFixed(2)} ${p.currency}`);
-  });
-  if (parseFloat(data.changeAmount) > 0) lines.push(`${t('Change')}: ${fmtLek(data.changeAmount)}`);
-  lines.push('='.repeat(32));
-  lines.push(t('Thank you for shopping!'));
-  return lines.join('\n');
+/* Shows a receipt (or report) text with the print button; the chosen printer is the shop's receipt printer. */
+function showReceipt(text) {
+  lastReceipt = text || '';
+  $('receipt-txt').textContent = lastReceipt;
+  openModal('modal-receipt');
+  loadReceiptPrinters();
+}
+
+function closeReceipt() {
+  closeModal('modal-receipt');
+  focusSearch();
 }
 
 async function printReceipt() {
@@ -1086,7 +1153,7 @@ async function printReceipt() {
 
 /* Sends any text (receipt, X or Z report) to the chosen receipt printer. */
 async function printText(text) {
-  const printerName = $('receipt-printer')?.value || '';
+  const printerName = $('receipt-printer')?.value || shopSettings?.receiptPrinter || '';
   try {
     await req('POST', '/printer/receipt', { receiptText: text, printerName });
     toast(printerName ? t('Receipt sent to {printer}', { printer: printerName }) : t('Receipt sent to default printer'), 'success');
@@ -1108,8 +1175,9 @@ async function loadReceiptPrinters() {
       option.textContent = name;
       select.appendChild(option);
     });
-    if ([...select.options].some(option => option.value === current)) {
-      select.value = current;
+    const wanted = current || shopSettings?.receiptPrinter || '';
+    if ([...select.options].some(option => option.value === wanted)) {
+      select.value = wanted;
     }
   } catch (e) {
     toast(t('Could not load printer list'), 'error');
@@ -1187,7 +1255,7 @@ function renderProdsTable(products) {
 }
 
 async function openProdModalById(productId) {
-  const localProduct = allProdTable.find(product => product.id === productId) || posProducts.find(product => product.id === productId);
+  const localProduct = allProdTable.find(product => product.id === productId);
   if (localProduct) {
     openProdModal(localProduct);
     return;
@@ -1245,7 +1313,6 @@ async function submitProd() {
     }
     closeModal('modal-prod');
     loadProdsTable();
-    loadPosProducts();
     if ($('view-purchases')?.classList.contains('on')) {
       toast(t('Now scan the barcode again to add it to the purchase invoice'), 'info');
     }
@@ -1264,7 +1331,6 @@ async function activateProd(id) {
     await req('POST', `/products/${id}/activate`);
     toast(t('Product reactivated'), 'success');
     loadProdsTable();
-    loadPosProducts();
   } catch (e) { toast(e.message || t('Save failed'), 'error'); }
 }
 
@@ -1274,7 +1340,6 @@ async function deleteProd(id) {
     toast(t('Product deactivated'), 'success');
     closeModal('modal-confirm');
     loadProdsTable();
-    loadPosProducts();
   } catch (e) { toast(e.message || t('Delete failed'), 'error'); }
 }
 
@@ -1450,8 +1515,11 @@ async function viewSale(saleId) {
 async function printSale(saleId) {
   const sale = await fetchSale(saleId);
   if (!sale) return;
-  lastReceipt = buildFallbackReceipt(sale);
-  printReceipt();
+  try {
+    const res = await req('GET', `/sales/${saleId}/receipt`);
+    closeModal('modal-sale');
+    showReceipt(res.data.receiptText);
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 /* Downloads a file the server makes (Excel, PDF); errors come back as JSON and are shown as a message. */
@@ -2208,7 +2276,6 @@ async function submitAdjustment() {
     closeModal('modal-adjust');
     toast(t('Stock adjusted'), 'success');
     loadProdsTable();
-    loadPosProducts();
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -2239,7 +2306,6 @@ async function importProducts(input) {
     }
     toast(summary, r.errors.length ? 'info' : 'success');
     loadProdsTable();
-    loadPosProducts();
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -2495,6 +2561,7 @@ async function submitRefund() {
 
 /*  Audit log  */
 const AUDIT_LABELS = {
+  SETTINGS_CHANGED: 'Shop settings changed', RECEIPT_REPRINTED: 'Receipt reprinted',
   LOGIN: 'Signed in', LOGOUT: 'Signed out', LOGIN_FAILED: 'Failed sign-in', ACCOUNT_LOCKED: 'Account locked',
   APPROVAL_FAILED: 'Wrong manager PIN', PRICE_OVERRIDE: 'Price changed at till', CART_LINE_VOID: 'Line voided',
   CART_CLEARED: 'Cart cleared', REFUND: 'Refund', PRODUCT_CREATED: 'Product created', PRODUCT_UPDATED: 'Product changed',
@@ -2748,15 +2815,199 @@ function renderBackupRows(backups) {
   `).join('');
 }
 
+/*  Shop settings  */
+async function loadShopSettings() {
+  try {
+    const res = await req('GET', '/settings/shop');
+    shopSettings = res.data;
+    showShopName(shopSettings.name);
+    sendToDisplay();
+  } catch {}
+}
+
+function showShopName(name) {
+  if (!name) return;
+  if ($('sb-shop-name')) $('sb-shop-name').textContent = name;
+  if ($('auth-shop-name')) $('auth-shop-name').textContent = name;
+  document.title = name + ' - ' + t('Cash register');
+}
+
+function settingsFromForm() {
+  return {
+    name: $('set-name').value,
+    address: $('set-address').value,
+    city: $('set-city').value,
+    taxId: $('set-taxid').value,
+    phone: $('set-phone').value,
+    email: $('set-email').value,
+    receiptFooter: $('set-footer').value,
+    receiptWidth: parseInt($('set-width').value, 10),
+    autoPrint: $('set-autoprint').checked,
+    receiptPrinter: $('set-printer').value
+  };
+}
+
+async function loadSettingsForm() {
+  await loadShopSettings();
+  const s = shopSettings || {};
+  $('set-name').value = s.name || '';
+  $('set-address').value = s.address || '';
+  $('set-city').value = s.city || '';
+  $('set-taxid').value = s.taxId || '';
+  $('set-phone').value = s.phone || '';
+  $('set-email').value = s.email || '';
+  $('set-footer').value = s.receiptFooter || '';
+  $('set-width').value = String(s.receiptWidth || 32);
+  $('set-autoprint').checked = !!s.autoPrint;
+  const printers = $('set-printer');
+  printers.innerHTML = `<option value="">${t('Default Windows printer')}</option>`;
+  try {
+    const res = await req('GET', '/printer/printers');
+    (res.data || []).forEach(name => printers.add(new Option(name, name)));
+  } catch {}
+  if (s.receiptPrinter && ![...printers.options].some(o => o.value === s.receiptPrinter)) {
+    printers.add(new Option(s.receiptPrinter, s.receiptPrinter));
+  }
+  printers.value = s.receiptPrinter || '';
+  previewSettings();
+}
+
+let _previewTmr;
+function previewSettings() {
+  clearTimeout(_previewTmr);
+  _previewTmr = setTimeout(async () => {
+    try {
+      const res = await req('POST', '/settings/shop/preview', settingsFromForm());
+      $('settings-preview').textContent = res.data.receiptText;
+    } catch (e) {
+      $('settings-preview').textContent = e.message;
+    }
+  }, 300);
+}
+
+async function saveSettings() {
+  try {
+    const res = await req('PUT', '/settings/shop', settingsFromForm());
+    shopSettings = res.data;
+    showShopName(shopSettings.name);
+    sendToDisplay();
+    toast(t('Settings saved'), 'success');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+/*  Customer display  */
+/*
+ * A second window (on the screen facing the customer) shows the cart, the total and the change. It is opened
+ * from the till in the same browser and gets updates through a BroadcastChannel; it needs no login of its own.
+ */
+const displayChannel = 'BroadcastChannel' in window ? new BroadcastChannel('pos-customer-display') : null;
+let displayIdleTimer;
+
+function openCustomerDisplay() {
+  const win = window.open('/display.html', 'pos-customer-display', 'popup,width=1024,height=768');
+  if (!win) toast(t('Allow pop-ups for this page to open the customer display'), 'error');
+  setTimeout(() => sendToDisplay(), 800);
+}
+
+function sendToDisplay(message) {
+  if (!displayChannel) return;
+  clearTimeout(displayIdleTimer);
+  const shop = { name: shopSettings?.name || '', footer: shopSettings?.receiptFooter || '' };
+  if (message) {
+    displayChannel.postMessage({ ...message, shop, lang: currentLang });
+    if (message.type === 'paid') {
+      displayIdleTimer = setTimeout(() => sendToDisplay(), 15000);
+    }
+    return;
+  }
+  displayChannel.postMessage({
+    type: 'cart',
+    shop,
+    lang: currentLang,
+    items: cartItems.map(i => ({ name: i.productName, quantity: fmtQty(i.quantity, i.unit), unit: unitLabel(i.unit), total: i.lineTotal })),
+    total: cartSummary?.totalAmount ?? cartItems.reduce((sum, i) => sum + parseFloat(i.lineTotal || 0), 0),
+    discount: cartSummary?.discountAmount || 0,
+    customer: cartSummary?.customer?.fullName || null
+  });
+}
+
+if (displayChannel) {
+  displayChannel.onmessage = e => { if (e.data?.type === 'hello' && currentUser) sendToDisplay(); };
+}
+
 /*  XSS escape  */
 function esc(str) {
   return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 /*  Keyboard shortcuts  */
+const TILL_KEYS = {
+  F1: () => openModal('modal-shortcuts'),
+  F2: () => { $('pos-search').focus(); $('pos-search').select(); },
+  F3: () => openCustomerPicker(),
+  F4: () => promptQuantity(),
+  F6: () => askManualDiscount(),
+  F7: () => parkCart(),
+  F8: () => openParkedCarts(),
+  F9: () => { if (cartItems.length) clearCart(); },
+  F10: () => doCheckout()
+};
+
+function openOverlay() {
+  return [...document.querySelectorAll('.overlay')].find(m => !m.classList.contains('hidden'));
+}
+
 document.addEventListener('keydown', e => {
+  const overlay = openOverlay();
   if (e.key === 'Escape') {
-    document.querySelectorAll('.overlay:not(.hidden)').forEach(m => m.classList.add('hidden'));
+    if (overlay?.id === 'modal-pin') return;
+    if (overlay) {
+      e.preventDefault();
+      if (overlay.id === 'modal-receipt') closeReceipt(); else overlay.classList.add('hidden');
+    }
+    return;
+  }
+  if (overlay?.id === 'modal-payment') {
+    if (e.key === 'F10') { e.preventDefault(); paymentShortcut(); }
+    if (e.key === 'F9') { e.preventDefault(); payAllByCard(); }
+    return;
+  }
+  if (overlay?.id === 'modal-receipt') {
+    if (e.key === 'Enter') { e.preventDefault(); printReceipt(); }
+    return;
+  }
+  if (overlay || !currentUser || !$('view-pos').classList.contains('on')) return;
+
+  if (TILL_KEYS[e.key]) {
+    e.preventDefault();
+    TILL_KEYS[e.key]();
+    return;
+  }
+  const target = e.target;
+  const inSearch = target === $('pos-search');
+  const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) && !inSearch;
+  if (typing) return;
+  const searchEmpty = !$('pos-search').value;
+  const resultsOpen = !$('search-results').classList.contains('hidden');
+  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !resultsOpen && cartItems.length) {
+    e.preventDefault();
+    const from = selectedLine < 0 ? cartItems.length : selectedLine;
+    selectLine(Math.min(cartItems.length - 1, Math.max(0, from + (e.key === 'ArrowDown' ? 1 : -1))));
+    return;
+  }
+  if (searchEmpty && cartItems.length && (e.key === '+' || e.key === '-')) {
+    e.preventDefault();
+    stepQty(selectedItem().productId, e.key === '+' ? 1 : -1);
+    return;
+  }
+  if (searchEmpty && cartItems.length && e.key === 'Delete') {
+    e.preventDefault();
+    removeItem(selectedItem().productId);
+    return;
+  }
+  // Typing anywhere on the till (or a scanner) goes into the search field.
+  if (!inSearch && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    $('pos-search').focus();
   }
 });
 

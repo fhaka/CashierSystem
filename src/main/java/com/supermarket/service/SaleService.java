@@ -5,6 +5,7 @@ import com.supermarket.dto.CheckoutRequest;
 import com.supermarket.dto.ReceiptItemResponse;
 import com.supermarket.dto.ReceiptResponse;
 import com.supermarket.dto.SalesPage;
+import com.supermarket.dto.ShopSettings;
 import com.supermarket.dto.SaleLogRequest;
 import com.supermarket.exception.InsufficientStockException;
 import com.supermarket.exception.ValidationException;
@@ -24,6 +25,7 @@ import com.supermarket.repository.NumberSequenceRepository;
 import com.supermarket.repository.ProductRepository;
 import com.supermarket.repository.SaleRepository;
 import com.supermarket.util.Quantities;
+import com.supermarket.util.ReceiptLayout;
 import org.springframework.context.MessageSource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -51,7 +53,6 @@ public class SaleService {
 
     private static final DateTimeFormatter RECEIPT_DATE = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
     private static final String INVOICE_SEQUENCE = "SALE_INVOICE";
-    private static final String RULE = "--------------------------------\n";
 
     private final CartService cartService;
     private final ProductRepository productRepository;
@@ -63,6 +64,8 @@ public class SaleService {
     private final CustomerService customerService;
     private final MessageSource messageSource;
     private final ExchangeRateService exchangeRateService;
+    private final ShopSettingsService shopSettingsService;
+    private final AuditService auditService;
 
     public SaleService(
             CartService cartService,
@@ -74,7 +77,9 @@ public class SaleService {
             PricingService pricingService,
             CustomerService customerService,
             MessageSource messageSource,
-            ExchangeRateService exchangeRateService
+            ExchangeRateService exchangeRateService,
+            ShopSettingsService shopSettingsService,
+            AuditService auditService
     ) {
         this.cartService = cartService;
         this.productRepository = productRepository;
@@ -86,6 +91,8 @@ public class SaleService {
         this.customerService = customerService;
         this.messageSource = messageSource;
         this.exchangeRateService = exchangeRateService;
+        this.shopSettingsService = shopSettingsService;
+        this.auditService = auditService;
     }
 
     /**
@@ -352,7 +359,6 @@ public class SaleService {
     }
 
     private ReceiptResponse buildReceipt(Sale sale, PricingService.CartPrice price) {
-        BigDecimal subtotal = price.subtotal();
         List<ReceiptItemResponse> receiptItems = sale.getItems().stream()
                 .map(item -> new ReceiptItemResponse(
                         item.getProduct().getName(),
@@ -367,83 +373,111 @@ public class SaleService {
                         item.getLineTotal()
                 ))
                 .toList();
-        List<ReceiptResponse.VatLine> vatSummary = vatSummary(sale.getItems());
+        String text = receiptText(sale, new ReceiptDiscounts(price.subtotal(), price.promotionDiscount(),
+                price.manualDiscountPercent(), price.manualDiscount(), price.otherDiscount()), shopSettingsService.get());
+        sale.setReceiptText(text);
+        Customer customer = sale.getCustomer();
+        return new ReceiptResponse(sale.getId(), sale.getInvoiceNumber(), sale.getDate(), price.subtotal(),
+                sale.getDiscountAmount(), sale.getTotalAmount(), sale.getPaidAmount(), sale.getChangeAmount(),
+                receiptItems, vatSummary(sale.getItems()), List.copyOf(sale.getPayments()),
+                customer == null ? null : customer.getFullName(), sale.getPointsEarned(),
+                customer == null ? null : customer.getPoints(), customer == null ? null : customer.getBalance(), text);
+    }
 
+    /** Discounts as the receipt shows them. */
+    private record ReceiptDiscounts(BigDecimal subtotal, BigDecimal promotion, BigDecimal manualPercent, BigDecimal manual,
+                                    BigDecimal other) {
+
+        /** For sales saved before receipts were kept: promotions are on the lines, the rest is one discount. */
+        static ReceiptDiscounts of(Sale sale) {
+            BigDecimal promotion = sale.getItems().stream().map(SaleItem::getPromotionDiscount).reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal other = sale.getDiscountAmount().subtract(promotion).max(BigDecimal.ZERO);
+            return new ReceiptDiscounts(sale.getTotalAmount().add(sale.getDiscountAmount()), promotion, BigDecimal.ZERO,
+                    BigDecimal.ZERO, other);
+        }
+    }
+
+    /** The receipt as printed: shop header, lines, discounts, total, payments, customer, VAT and the footer. */
+    private String receiptText(Sale sale, ReceiptDiscounts discounts, ShopSettings shop) {
         Locale locale = LocaleContextHolder.getLocale();
-        StringBuilder text = new StringBuilder();
-        text.append(text("receipt.title", locale)).append("\n");
-        text.append(text("receipt.invoiceNumber", locale)).append(": ").append(sale.getInvoiceNumber()).append("\n");
-        text.append(text("receipt.date", locale)).append(": ").append(sale.getDate().format(RECEIPT_DATE)).append("\n");
+        ReceiptLayout r = shopSettingsService.header(shop);
+        r.center(text("receipt.title", locale));
+        r.row(text("receipt.invoiceNumber", locale), sale.getInvoiceNumber());
+        r.row(text("receipt.date", locale), sale.getDate().format(RECEIPT_DATE));
         if (sale.getCashier() != null) {
-            text.append(text("receipt.cashier", locale)).append(": ").append(sale.getCashier().getFullName()).append("\n");
+            r.row(text("receipt.cashier", locale), sale.getCashier().getFullName());
         }
-        text.append(RULE);
-        for (ReceiptItemResponse item : receiptItems) {
-            text.append(item.productName()).append("\n")
-                    .append("  ").append(formatQuantity(item.quantity(), item.unit()))
-                    .append(" ").append(text("unit." + item.unit(), locale))
-                    .append(" x ").append(item.unitPrice())
-                    .append(" = ").append(item.unitPrice().multiply(item.quantity()).setScale(2, RoundingMode.HALF_UP))
-                    .append("\n");
-        }
+        r.rule();
         for (SaleItem item : sale.getItems()) {
+            r.line(item.getProduct().getName());
+            r.row("  " + formatQuantity(item.getQuantity(), item.getUnit()) + " " + text("unit." + item.getUnit(), locale)
+                    + " x " + ReceiptLayout.format(item.getPrice()), item.getPrice().multiply(item.getQuantity()));
             if (item.getPromotion() != null && item.getPromotionDiscount().signum() > 0) {
-                text.append("  ").append(text("receipt.promotion", locale)).append(" ").append(item.getPromotion().getName())
-                        .append(" (").append(item.getProduct().getName()).append("): -").append(item.getPromotionDiscount()).append("\n");
+                r.row("  " + text("receipt.promotion", locale) + " " + item.getPromotion().getName(),
+                        "-" + ReceiptLayout.format(item.getPromotionDiscount()));
             }
         }
-        text.append(RULE);
-        text.append(text("receipt.subtotal", locale)).append(": ").append(subtotal).append("\n");
-        if (price.promotionDiscount().signum() > 0) {
-            text.append(text("receipt.promotions", locale)).append(": -").append(price.promotionDiscount()).append("\n");
+        r.rule();
+        if (discounts.subtotal().compareTo(sale.getTotalAmount()) != 0) {
+            r.row(text("receipt.subtotal", locale), discounts.subtotal());
         }
-        if (price.manualDiscount().signum() > 0) {
-            text.append(text("receipt.manualDiscount", locale)).append(" (")
-                    .append(price.manualDiscountPercent().stripTrailingZeros().toPlainString()).append("%): -")
-                    .append(price.manualDiscount()).append("\n");
+        if (discounts.promotion().signum() > 0) {
+            r.row(text("receipt.promotions", locale), "-" + ReceiptLayout.format(discounts.promotion()));
         }
-        if (price.otherDiscount().signum() > 0) {
-            text.append(text("receipt.discount", locale)).append(": -").append(price.otherDiscount()).append("\n");
+        if (discounts.manual().signum() > 0) {
+            r.row(text("receipt.manualDiscount", locale) + " " + discounts.manualPercent().stripTrailingZeros().toPlainString() + "%",
+                    "-" + ReceiptLayout.format(discounts.manual()));
         }
-        text.append(text("receipt.total", locale)).append(": ").append(sale.getTotalAmount()).append("\n");
+        if (discounts.other().signum() > 0) {
+            r.row(text("receipt.discount", locale), "-" + ReceiptLayout.format(discounts.other()));
+        }
+        r.row(text("receipt.total", locale) + " LEK", sale.getTotalAmount());
+        r.blank();
         for (SalePayment payment : sale.getPayments()) {
-            text.append(text("payment." + payment.getMethod().name().toLowerCase(), locale)).append(": ")
-                    .append(payment.getAmount()).append(" ").append(payment.getCurrency());
-            if (!ExchangeRateService.HOME_CURRENCY.equals(payment.getCurrency())) {
-                text.append(" (x ").append(payment.getExchangeRate().stripTrailingZeros().toPlainString())
-                        .append(" = ").append(payment.getAmountLek()).append(" LEK)");
+            String label = text("payment." + payment.getMethod().name().toLowerCase(), locale);
+            if (ExchangeRateService.HOME_CURRENCY.equals(payment.getCurrency())) {
+                r.row(label, payment.getAmount());
+            } else {
+                r.row(label + " " + ReceiptLayout.format(payment.getAmount()) + " " + payment.getCurrency()
+                        + " x " + payment.getExchangeRate().stripTrailingZeros().toPlainString(), payment.getAmountLek());
             }
-            text.append("\n");
         }
         if (sale.getChangeAmount().signum() > 0) {
-            text.append(text("receipt.change", locale)).append(": ").append(sale.getChangeAmount()).append(" LEK\n");
+            r.row(text("receipt.change", locale), sale.getChangeAmount());
         }
         Customer customer = sale.getCustomer();
         if (customer != null) {
-            text.append(RULE);
-            text.append(text("receipt.customer", locale)).append(": ").append(customer.getFullName())
-                    .append(" (").append(customer.getCardNumber()).append(")\n");
-            text.append(text("receipt.pointsEarned", locale)).append(": ").append(sale.getPointsEarned())
-                    .append(", ").append(text("receipt.pointsTotal", locale)).append(": ").append(customer.getPoints()).append("\n");
+            r.rule();
+            r.line(text("receipt.customer", locale) + ": " + customer.getFullName() + " (" + customer.getCardNumber() + ")");
+            r.row(text("receipt.pointsEarned", locale), sale.getPointsEarned());
+            r.row(text("receipt.pointsTotal", locale), customer.getPoints());
             if (customer.getBalance().signum() != 0) {
-                text.append(text("receipt.accountBalance", locale)).append(": ").append(customer.getBalance()).append(" LEK\n");
+                r.row(text("receipt.accountBalance", locale), customer.getBalance());
             }
         }
-        text.append(RULE);
-        text.append(text("receipt.vatSummary", locale)).append("\n");
-        for (ReceiptResponse.VatLine vat : vatSummary) {
-            text.append(text("receipt.tax", locale)).append(" ").append(vat.taxRate().stripTrailingZeros().toPlainString())
-                    .append("%: ").append(text("receipt.vatBase", locale)).append(" ").append(vat.netAmount())
-                    .append(", ").append(text("receipt.tax", locale)).append(" ").append(vat.taxAmount()).append("\n");
+        r.rule();
+        r.line(text("receipt.vatSummary", locale));
+        for (ReceiptResponse.VatLine vat : vatSummary(sale.getItems())) {
+            r.row(text("receipt.tax", locale) + " " + vat.taxRate().stripTrailingZeros().toPlainString() + "% ("
+                    + text("receipt.vatBase", locale) + " " + ReceiptLayout.format(vat.netAmount()) + ")", vat.taxAmount());
         }
-        text.append(RULE);
-        text.append(text("receipt.thanks", locale)).append("\n");
+        r.rule();
+        r.center(shop.receiptFooter().isBlank() ? text("receipt.thanks", locale) : shop.receiptFooter());
+        return r.toString();
+    }
 
-        return new ReceiptResponse(sale.getId(), sale.getInvoiceNumber(), sale.getDate(), subtotal,
-                sale.getDiscountAmount(), sale.getTotalAmount(), sale.getPaidAmount(), sale.getChangeAmount(),
-                receiptItems, vatSummary, List.copyOf(sale.getPayments()),
-                customer == null ? null : customer.getFullName(), sale.getPointsEarned(),
-                customer == null ? null : customer.getPoints(), customer == null ? null : customer.getBalance(), text.toString());
+    /**
+     * The receipt of an earlier sale, marked as a copy: exactly as it was printed, or rebuilt from the sale for
+     * sales made before receipts were kept. Every reprint is written to the audit log.
+     */
+    @Transactional
+    public String receiptCopy(Long saleId, Cashier cashier) {
+        Sale sale = findById(saleId);
+        ShopSettings shop = shopSettingsService.get();
+        String original = sale.getReceiptText() != null ? sale.getReceiptText() : receiptText(sale, ReceiptDiscounts.of(sale), shop);
+        String mark = "*** " + text("receipt.copy", LocaleContextHolder.getLocale()) + " ***";
+        auditService.record(cashier, "RECEIPT_REPRINTED", "SALE", sale.getId(), sale.getInvoiceNumber());
+        return new ReceiptLayout(shop.receiptWidth()).center(mark) + original + new ReceiptLayout(shop.receiptWidth()).center(mark);
     }
 
     private static List<ReceiptResponse.VatLine> vatSummary(List<SaleItem> items) {

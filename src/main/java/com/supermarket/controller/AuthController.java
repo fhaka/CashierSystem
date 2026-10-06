@@ -7,6 +7,7 @@ import com.supermarket.dto.AuthResponse;
 import com.supermarket.dto.RegisterRequest;
 import com.supermarket.service.AuthService;
 import com.supermarket.service.SessionService;
+import com.supermarket.service.ShopSettingsService;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,10 +24,12 @@ public class AuthController {
 
     private final AuthService authService;
     private final SessionService sessionService;
+    private final ShopSettingsService shopSettingsService;
 
-    public AuthController(AuthService authService, SessionService sessionService) {
+    public AuthController(AuthService authService, SessionService sessionService, ShopSettingsService shopSettingsService) {
         this.authService = authService;
         this.sessionService = sessionService;
+        this.shopSettingsService = shopSettingsService;
     }
 
     @PostMapping("/register")
@@ -46,10 +49,11 @@ public class AuthController {
     }
 
     @GetMapping("/setup")
-    public ApiResponse<Map<String, Boolean>> setupStatus() {
+    public ApiResponse<Map<String, Object>> setupStatus() {
         return ApiResponse.ok(
                 "Initial registration status loaded",
-                Map.of("registrationAvailable", authService.isInitialRegistrationAvailable())
+                Map.of("registrationAvailable", authService.isInitialRegistrationAvailable(),
+                        "shopName", shopSettingsService.get().name())
         );
     }
 

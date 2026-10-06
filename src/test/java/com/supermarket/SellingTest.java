@@ -42,7 +42,7 @@ class SellingTest extends IntegrationTest {
 
         JsonNode receipt = data(postJson("/sales/checkout", admin, null).andExpect(status().isOk()));
         assertThat(receipt.path("totalAmount").decimalValue()).isEqualByComparingTo("262.50");
-        assertThat(receipt.path("printableReceipt").asText()).contains("  0.350 kg x 750.00 = 262.50");
+        assertThat(receipt.path("printableReceipt").asText()).contains(row("  0.350 kg x 750.00", "262.50"));
         assertThat(stock(cheese)).isEqualByComparingTo("9.650");
     }
 

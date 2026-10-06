@@ -2,6 +2,7 @@ package com.supermarket.service;
 
 import com.supermarket.dto.PeriodReport;
 import com.supermarket.dto.ReceiptResponse;
+import com.supermarket.util.ReceiptLayout;
 import com.supermarket.model.CashMovement;
 import com.supermarket.model.PaymentMethod;
 import com.supermarket.model.Refund;
@@ -37,19 +38,21 @@ public class ReportService {
 
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd.MM.yyyy");
-    private static final String RULE = "--------------------------------\n";
 
     private final SaleRepository saleRepository;
     private final CashMovementRepository cashMovementRepository;
     private final RefundRepository refundRepository;
     private final MessageSource messageSource;
+    private final ShopSettingsService shopSettingsService;
 
     public ReportService(SaleRepository saleRepository, CashMovementRepository cashMovementRepository,
-                         RefundRepository refundRepository, MessageSource messageSource) {
+                         RefundRepository refundRepository, MessageSource messageSource,
+                         ShopSettingsService shopSettingsService) {
         this.saleRepository = saleRepository;
         this.cashMovementRepository = cashMovementRepository;
         this.refundRepository = refundRepository;
         this.messageSource = messageSource;
+        this.shopSettingsService = shopSettingsService;
     }
 
     @Transactional(readOnly = true)
@@ -129,82 +132,74 @@ public class ReportService {
 
     private PeriodReport withText(PeriodReport r, Shift shift) {
         Locale locale = LocaleContextHolder.getLocale();
-        StringBuilder text = new StringBuilder();
+        ReceiptLayout t = shopSettingsService.header();
         if (shift != null) {
-            text.append(text("report.x.title", locale, shift.getId())).append("\n");
-            text.append(text("receipt.cashier", locale)).append(": ").append(shift.getCashier().getFullName()).append("\n");
-            text.append(text("report.from", locale)).append(": ").append(r.from().format(DATE_TIME)).append("\n");
-            text.append(text("report.to", locale)).append(": ")
-                    .append(shift.getClosedAt() == null ? text("report.stillOpen", locale) : r.to().format(DATE_TIME)).append("\n");
+            t.center(text("report.x.title", locale, shift.getId()));
+            t.row(text("receipt.cashier", locale), shift.getCashier().getFullName());
+            t.row(text("report.from", locale), r.from().format(DATE_TIME));
+            t.row(text("report.to", locale), shift.getClosedAt() == null ? text("report.stillOpen", locale) : r.to().format(DATE_TIME));
         } else {
-            text.append(text("report.z.title", locale)).append("\n");
-            text.append(text("receipt.date", locale)).append(": ").append(r.from().format(DATE)).append("\n");
+            t.center(text("report.z.title", locale));
+            t.row(text("receipt.date", locale), r.from().format(DATE));
         }
-        text.append(text("report.printed", locale)).append(": ").append(LocalDateTime.now().format(DATE_TIME)).append("\n");
-        text.append(RULE);
-        line(text, text("report.salesCount", locale), String.valueOf(r.salesCount()));
-        line(text, text("report.gross", locale), r.grossSales());
-        line(text, text("report.discounts", locale), r.discounts().negate());
-        line(text, text("receipt.total", locale), r.totalSales());
+        t.row(text("report.printed", locale), LocalDateTime.now().format(DATE_TIME));
+        t.rule();
+        t.row(text("report.salesCount", locale), r.salesCount());
+        t.row(text("report.gross", locale), r.grossSales());
+        t.row(text("report.discounts", locale), r.discounts().negate());
+        t.row(text("receipt.total", locale), r.totalSales());
         if (r.refundsCount() > 0) {
-            line(text, text("report.refunds", locale) + " (" + r.refundsCount() + ")",
-                    r.totalSales().subtract(r.netSales()).negate());
-            line(text, text("report.netSales", locale), r.netSales());
+            t.row(text("report.refunds", locale) + " (" + r.refundsCount() + ")", r.totalSales().subtract(r.netSales()).negate());
+            t.row(text("report.netSales", locale), r.netSales());
         }
-        text.append(RULE);
-        text.append(text("receipt.vatSummary", locale)).append("\n");
+        t.rule();
+        t.line(text("receipt.vatSummary", locale));
         for (ReceiptResponse.VatLine vat : r.vat()) {
-            text.append(text("receipt.tax", locale)).append(" ").append(vat.taxRate().stripTrailingZeros().toPlainString())
-                    .append("%: ").append(text("receipt.vatBase", locale)).append(" ").append(vat.netAmount())
-                    .append(", ").append(text("receipt.tax", locale)).append(" ").append(vat.taxAmount()).append("\n");
+            t.row(text("receipt.tax", locale) + " " + vat.taxRate().stripTrailingZeros().toPlainString() + "% ("
+                    + text("receipt.vatBase", locale) + " " + ReceiptLayout.format(vat.netAmount()) + ")", vat.taxAmount());
         }
-        text.append(RULE);
-        text.append(text("report.payments", locale)).append("\n");
+        t.rule();
+        t.line(text("report.payments", locale));
         for (PeriodReport.CurrencyLine cash : r.cashByCurrency()) {
-            text.append(text("payment.cash", locale)).append(" ").append(cash.currency()).append(": ").append(cash.amount());
-            if (!ExchangeRateService.HOME_CURRENCY.equals(cash.currency())) {
-                text.append(" (").append(cash.amountLek()).append(" LEK)");
+            String label = text("payment.cash", locale) + " " + cash.currency();
+            if (ExchangeRateService.HOME_CURRENCY.equals(cash.currency())) {
+                t.row(label, cash.amount());
+            } else {
+                t.row(label + " " + ReceiptLayout.format(cash.amount()), cash.amountLek());
             }
-            text.append("\n");
         }
-        line(text, text("report.changeGiven", locale), r.changeGiven().negate());
-        line(text, text("report.cashNet", locale), r.cashSales());
-        line(text, text("payment.card", locale), r.cardSales());
+        t.row(text("report.changeGiven", locale), r.changeGiven().negate());
+        t.row(text("report.cashNet", locale), r.cashSales());
+        t.row(text("payment.card", locale), r.cardSales());
         if (r.creditSales().signum() > 0) {
-            line(text, text("payment.credit", locale), r.creditSales());
+            t.row(text("payment.credit", locale), r.creditSales());
         }
         if (r.pointsUsed().signum() > 0) {
-            line(text, text("payment.points", locale), r.pointsUsed());
+            t.row(text("payment.points", locale), r.pointsUsed());
         }
-        text.append(RULE);
-        line(text, text("report.cashIn", locale), r.cashIn());
-        line(text, text("report.cashOut", locale), r.cashOut().negate());
+        t.rule();
+        t.row(text("report.cashIn", locale), r.cashIn());
+        t.row(text("report.cashOut", locale), r.cashOut().negate());
         if (r.refundsCount() > 0) {
-            line(text, text("report.cashRefunds", locale), r.cashRefunds().negate());
-            line(text, text("report.cardRefunds", locale), r.cardRefunds().negate());
+            t.row(text("report.cashRefunds", locale), r.cashRefunds().negate());
+            t.row(text("report.cardRefunds", locale), r.cardRefunds().negate());
         }
         if (r.openingCash() != null) {
-            line(text, text("report.openingCash", locale), r.openingCash());
-            line(text, text("report.expectedCash", locale), r.expectedCash());
+            t.row(text("report.openingCash", locale), r.openingCash());
+            t.row(text("report.expectedCash", locale), r.expectedCash());
         }
         if (shift == null && !r.byCashier().isEmpty()) {
-            text.append(RULE);
-            text.append(text("report.byCashier", locale)).append("\n");
+            t.rule();
+            t.line(text("report.byCashier", locale));
             for (PeriodReport.CashierLine cashier : r.byCashier()) {
-                text.append(cashier.cashierName()).append(": ").append(cashier.salesCount()).append(" x, ")
-                        .append(cashier.total()).append("\n");
+                t.row(cashier.cashierName() + " (" + cashier.salesCount() + ")", cashier.total());
             }
         }
-        text.append(RULE);
+        t.rule();
         return new PeriodReport(r.type(), r.shiftId(), r.from(), r.to(), r.salesCount(), r.grossSales(), r.discounts(),
                 r.totalSales(), r.vat(), r.cashByCurrency(), r.cashReceived(), r.changeGiven(), r.cashSales(), r.cardSales(),
                 r.cashIn(), r.cashOut(), r.refundsCount(), r.cashRefunds(), r.cardRefunds(), r.netSales(),
-                r.creditSales(), r.pointsUsed(), r.openingCash(), r.expectedCash(), r.byCashier(), text.toString());
-    }
-
-    private static void line(StringBuilder text, String label, Object value) {
-        Object shown = value instanceof BigDecimal amount ? amount.setScale(2, RoundingMode.HALF_UP) : value;
-        text.append(label).append(": ").append(shown).append("\n");
+                r.creditSales(), r.pointsUsed(), r.openingCash(), r.expectedCash(), r.byCashier(), t.toString());
     }
 
     private String text(String code, Locale locale, Object... args) {

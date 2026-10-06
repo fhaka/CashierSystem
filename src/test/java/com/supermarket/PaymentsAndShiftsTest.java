@@ -34,8 +34,8 @@ class PaymentsAndShiftsTest extends IntegrationTest {
         assertThat(receipt.path("paidAmount").decimalValue()).isEqualByComparingTo("500.00");
         assertThat(receipt.path("changeAmount").decimalValue()).isEqualByComparingTo("200.00");
         assertThat(receipt.path("printableReceipt").asText())
-                .contains("Para në dorë: 500.00 LEK")
-                .contains("Kusuri: 200.00 LEK");
+                .contains(row("Para në dorë", "500.00"))
+                .contains(row("Kusuri", "200.00"));
     }
 
     @Test
@@ -52,8 +52,8 @@ class PaymentsAndShiftsTest extends IntegrationTest {
         assertThat(receipt.path("changeAmount").decimalValue()).isEqualByComparingTo("457.00");
         assertThat(receipt.path("payments")).hasSize(2);
         assertThat(receipt.path("printableReceipt").asText())
-                .contains("Kartë: 500.00 LEK")
-                .contains("Para në dorë: 10.00 EUR (x 95.7 = 957.00 LEK)");
+                .contains(row("Kartë", "500.00"))
+                .contains(row("Para në dorë 10.00 EUR x 95.7", "957.00"));
     }
 
     @Test
@@ -154,7 +154,7 @@ class PaymentsAndShiftsTest extends IntegrationTest {
         getJson("/shifts/" + shiftId + "/report", cashier).andExpect(status().isForbidden());
         JsonNode managerView = data(getJson("/shifts/" + shiftId + "/report", admin).andExpect(status().isOk()));
         assertThat(managerView.path("expectedCash").decimalValue()).isEqualByComparingTo("700.00");
-        assertThat(managerView.path("printableText").asText()).startsWith("RAPORTI X - TURNI " + shiftId);
+        assertThat(managerView.path("printableText").asText()).contains("RAPORTI X - TURNI " + shiftId + "\n");
 
         postJson("/shifts/" + shiftId + "/close", cashier, Map.of("closingCash", "690.00")).andExpect(status().isOk());
         JsonNode cashierView = data(getJson("/shifts/" + shiftId + "/report", cashier).andExpect(status().isOk()));
@@ -185,6 +185,6 @@ class PaymentsAndShiftsTest extends IntegrationTest {
         assertThat(report.path("cashByCurrency").get(0).path("currency").asText()).isEqualTo("EUR");
         assertThat(report.path("byCashier")).hasSize(2);
         assertThat(report.path("vat").get(0).path("taxAmount").decimalValue()).isEqualByComparingTo("50.00");
-        assertThat(report.path("printableText").asText()).startsWith("RAPORTI Z").contains("SIPAS ARKËTARIT").contains("Hyrje parash: 0.00");
+        assertThat(report.path("printableText").asText()).contains("RAPORTI Z").contains("SIPAS ARKËTARIT").contains(row("Hyrje parash", "0.00"));
     }
 }

@@ -74,6 +74,18 @@ public class SaleController {
         return ApiResponse.ok("Sale loaded", sale);
     }
 
+    /** The receipt of an earlier sale, marked as a copy, for reprinting. Same access as the sale itself. */
+    @GetMapping("/{id}/receipt")
+    public ApiResponse<Map<String, String>> receiptCopy(@RequestHeader(value = "X-Auth-Token", required = false) String token,
+                                                        @PathVariable Long id) {
+        Cashier cashier = sessionService.requireUser(token);
+        Sale sale = saleService.findById(id);
+        if (!cashier.getRole().isOperationalManager() && (sale.getCashier() == null || !sale.getCashier().getId().equals(cashier.getId()))) {
+            throw new PermissionDeniedException("sale.onlyOwn");
+        }
+        return ApiResponse.ok("Receipt loaded", Map.of("receiptText", saleService.receiptCopy(id, cashier)));
+    }
+
     @GetMapping("/cart")
     public ApiResponse<List<CartItem>> getCart(@RequestHeader(value = "X-Auth-Token", required = false) String token) {
         Cashier cashier = sessionService.requireUser(token);

@@ -19,6 +19,7 @@ import com.supermarket.repository.ProductRepository;
 import com.supermarket.repository.RefundRepository;
 import com.supermarket.repository.SaleRepository;
 import com.supermarket.util.Quantities;
+import com.supermarket.util.ReceiptLayout;
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.stereotype.Service;
@@ -45,7 +46,6 @@ public class RefundService {
 
     private static final String REFUND_SEQUENCE = "REFUND";
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
-    private static final String RULE = "--------------------------------\n";
 
     private final SaleRepository saleRepository;
     private final RefundRepository refundRepository;
@@ -56,11 +56,12 @@ public class RefundService {
     private final AuditService auditService;
     private final CustomerService customerService;
     private final MessageSource messageSource;
+    private final ShopSettingsService shopSettingsService;
 
     public RefundService(SaleRepository saleRepository, RefundRepository refundRepository, ProductRepository productRepository,
                          NumberSequenceRepository numberSequenceRepository, ShiftService shiftService,
                          ApprovalService approvalService, AuditService auditService, CustomerService customerService,
-                         MessageSource messageSource) {
+                         MessageSource messageSource, ShopSettingsService shopSettingsService) {
         this.saleRepository = saleRepository;
         this.refundRepository = refundRepository;
         this.productRepository = productRepository;
@@ -70,6 +71,7 @@ public class RefundService {
         this.auditService = auditService;
         this.customerService = customerService;
         this.messageSource = messageSource;
+        this.shopSettingsService = shopSettingsService;
     }
 
     @Transactional(readOnly = true)
@@ -165,27 +167,27 @@ public class RefundService {
 
     private String printable(Refund refund) {
         Locale locale = LocaleContextHolder.getLocale();
-        StringBuilder text = new StringBuilder();
-        text.append(text("refund.title", locale)).append("\n");
-        text.append(text("refund.number", locale)).append(": ").append(refund.getRefundNumber()).append("\n");
-        text.append(text("refund.forInvoice", locale)).append(": ").append(refund.getInvoiceNumber()).append("\n");
-        text.append(text("receipt.date", locale)).append(": ").append(refund.getCreatedAt().format(DATE_TIME)).append("\n");
-        text.append(text("receipt.cashier", locale)).append(": ").append(refund.getCashier().getFullName()).append("\n");
+        ReceiptLayout r = shopSettingsService.header();
+        r.center(text("refund.title", locale));
+        r.row(text("refund.number", locale), refund.getRefundNumber());
+        r.row(text("refund.forInvoice", locale), refund.getInvoiceNumber());
+        r.row(text("receipt.date", locale), refund.getCreatedAt().format(DATE_TIME));
+        r.row(text("receipt.cashier", locale), refund.getCashier().getFullName());
         if (!refund.getApprovedBy().getId().equals(refund.getCashier().getId())) {
-            text.append(text("refund.approvedBy", locale)).append(": ").append(refund.getApprovedBy().getFullName()).append("\n");
+            r.row(text("refund.approvedBy", locale), refund.getApprovedBy().getFullName());
         }
-        text.append(RULE);
+        r.rule();
         for (RefundItem item : refund.getItems()) {
-            text.append(item.getProductName()).append("\n  ")
-                    .append(item.getQuantity().stripTrailingZeros().toPlainString()).append(" ")
-                    .append(text("unit." + item.getUnit(), locale)).append(" = -").append(item.getAmount()).append("\n");
+            r.line(item.getProductName());
+            r.row("  " + item.getQuantity().stripTrailingZeros().toPlainString() + " " + text("unit." + item.getUnit(), locale),
+                    "-" + ReceiptLayout.format(item.getAmount()));
         }
-        text.append(RULE);
-        text.append(text("refund.total", locale)).append(": -").append(refund.getTotalAmount()).append(" LEK\n");
-        text.append(text("payment." + refund.getMethod().name().toLowerCase(), locale)).append("\n");
-        text.append(text("refund.reason", locale)).append(": ").append(refund.getReason()).append("\n");
-        text.append(RULE);
-        return text.toString();
+        r.rule();
+        r.row(text("refund.total", locale) + " LEK", "-" + ReceiptLayout.format(refund.getTotalAmount()));
+        r.line(text("payment." + refund.getMethod().name().toLowerCase(), locale));
+        r.line(text("refund.reason", locale) + ": " + refund.getReason());
+        r.rule();
+        return r.toString();
     }
 
     /** Per sale line: [quantity already refunded, amount already refunded]. */

@@ -73,6 +73,11 @@ public class Sale {
     @OneToMany(mappedBy = "sale", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<SaleItem> items = new ArrayList<>();
 
+    /** The receipt as printed, for identical reprints. Served by GET /sales/{id}/receipt, not with the sale. */
+    @JsonIgnore
+    @Column(columnDefinition = "TEXT")
+    private String receiptText;
+
     public Sale() {
     }
 
@@ -140,6 +145,14 @@ public class Sale {
 
     public void setDiscountAmount(BigDecimal discountAmount) {
         this.discountAmount = discountAmount;
+    }
+
+    public String getReceiptText() {
+        return receiptText;
+    }
+
+    public void setReceiptText(String receiptText) {
+        this.receiptText = receiptText;
     }
 
     public void addPayment(SalePayment payment) {

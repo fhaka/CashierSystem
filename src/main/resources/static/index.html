@@ -19,7 +19,7 @@
     <div class="auth-brand">
       <div class="auth-icon">POS</div>
       <div class="auth-brand-text">
-        <span class="name" data-i18n>SuperMarket POS</span>
+        <span class="name" id="auth-shop-name">Supermarket</span>
         <span class="sub" data-i18n>Cashier Workstation</span>
       </div>
     </div>
@@ -74,7 +74,7 @@
     <div class="sb-brand">
       <div class="sb-icon"></div>
       <div class="sb-brand-text">
-        <span class="n" data-i18n>SuperMarket</span>
+        <span class="n" id="sb-shop-name">Supermarket</span>
         <span class="s" data-i18n>POS System</span>
       </div>
     </div>
@@ -153,6 +153,12 @@
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>
         </svg>
         <span data-i18n>Audit log</span>
+      </button>
+      <button class="nav-btn super-admin-only" data-v="settings" onclick="gotoView('settings')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 21h18"/><path d="M5 21V8l7-5 7 5v13"/><rect x="9" y="13" width="6" height="8"/>
+        </svg>
+        <span data-i18n>Settings</span>
       </button>
       <button class="nav-btn" data-v="operations" onclick="gotoView('operations')">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -264,8 +270,13 @@
       <div class="invoice-workspace">
         <div class="invoice-top">
           <div class="invoice-panel">
-            <div class="invoice-panel-title" data-i18n>Retail Card F12 (Press Enter to Activate)</div>
-            <div class="mini-row"><label data-i18n>Card</label><input class="input" value="CASH REGISTER 1" /></div>
+            <div class="invoice-panel-title" data-i18n>Sale</div>
+            <div class="balance-line"><span data-i18n>Invoice No.</span><strong id="invoice-no">-</strong></div>
+            <div class="balance-line"><span data-i18n>Cashier</span><strong id="till-cashier">-</strong></div>
+            <div class="balance-line"><span data-i18n>Shift</span><strong id="till-shift">-</strong></div>
+          </div>
+          <div class="invoice-panel">
+            <div class="invoice-panel-title" data-i18n>Currency and exchange rates</div>
             <div class="mini-row">
               <label data-i18n>Currency</label>
               <select class="input" id="currency-select" onchange="refreshCurrencyDisplay()">
@@ -295,25 +306,6 @@
               </div>
             </div>
           </div>
-          <div class="invoice-panel">
-            <div class="invoice-panel-title" data-i18n>Invoice No.</div>
-            <div class="mini-row"><label data-i18n>Number</label><input class="input mono" id="invoice-no" value="0001" /></div>
-            <div class="invoice-panel-title" style="margin-top:12px;" data-i18n>Account Balance Debit - Credit</div>
-            <div class="balance-line"><span data-i18n>Lek</span><strong>0.00</strong></div>
-            <div class="balance-line"><span data-i18n>Euro</span><strong>0.00</strong></div>
-            <div class="balance-line"><span data-i18n>Dollar</span><strong>0.00</strong></div>
-          </div>
-          <div class="invoice-panel">
-            <div class="invoice-panel-title" data-i18n>Account Mask</div>
-            <div class="mask-list">
-              <label><input type="checkbox"> <span data-i18n>Show items that are not in stock</span></label>
-              <label><input type="checkbox" checked> <span data-i18n>Do not sell unavailable items</span></label>
-              <label><input type="checkbox"> <span data-i18n>Allow sale of zero-price items</span></label>
-              <label><input type="checkbox"> <span data-i18n>Recalculate price on each sale</span></label>
-              <label><input type="checkbox"> <span data-i18n>Show sale confirmation message</span></label>
-              <label><input type="checkbox"> <span data-i18n>Show detailed receipt lines</span></label>
-            </div>
-          </div>
         </div>
 
         <div class="pos-toolbar">
@@ -321,9 +313,11 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
             </svg>
-            <input class="input" id="pos-search" data-i18n-placeholder placeholder="Scan barcode or type product name..." oninput="onSearch(this.value)" />
+            <input class="input" id="pos-search" autocomplete="off" data-i18n-placeholder placeholder="Scan a barcode or type a product name (F2)" oninput="onSearch(this.value)" onkeydown="onSearchKey(event)" onblur="setTimeout(hideSearchResults, 150)" />
+            <div class="search-results hidden" id="search-results"></div>
           </div>
-          <button class="btn btn-secondary btn-sm" onclick="refreshCart()" data-i18n>Refresh Invoice</button>
+          <button class="btn btn-secondary btn-sm" onclick="openCustomerDisplay()" data-i18n>Customer display</button>
+          <button class="btn btn-secondary btn-sm" onclick="openModal('modal-shortcuts')" data-i18n>Shortcuts (F1)</button>
         </div>
 
         <div class="invoice-table-wrap">
@@ -350,101 +344,26 @@
             <button class="key" onclick="keyTap('4')">4</button><button class="key" onclick="keyTap('5')">5</button><button class="key" onclick="keyTap('6')">6</button>
             <button class="key" onclick="keyTap('1')">1</button><button class="key" onclick="keyTap('2')">2</button><button class="key" onclick="keyTap('3')">3</button>
             <button class="key action" onclick="keyBack()" data-i18n>Back</button><button class="key" onclick="keyTap('0')">0</button><button class="key action" onclick="keyClear()" data-i18n>Clear</button>
-            <button class="key enter" onclick="keyEnter()" data-i18n>Enter / Scan</button><button class="key action" onclick="promptQuantity()" data-i18n>Qty</button>
+            <button class="key enter" onclick="keyEnter()" data-i18n>Enter / Scan</button><button class="key action" onclick="promptQuantity()" data-i18n>Qty (F4)</button>
           </div>
         </div>
         <div class="compact-summary">
           <div class="subtotal-row"><span class="sub-label" data-i18n>Total</span><span class="sub-amount" id="cart-subtotal">0.00 LEK</span></div>
-          <button class="btn btn-primary btn-checkout" id="btn-checkout" disabled onclick="doCheckout()"><span data-i18n>Checkout</span></button>
-          <button class="btn btn-secondary btn-clear btn-sm" id="btn-clear" disabled onclick="clearCart()"><span data-i18n>Clear Invoice</span></button>
+          <button class="btn btn-primary btn-checkout" id="btn-checkout" disabled onclick="doCheckout()"><span data-i18n>Checkout (F10)</span></button>
+          <button class="btn btn-secondary btn-clear btn-sm" id="btn-clear" disabled onclick="clearCart()"><span data-i18n>Clear Invoice (F9)</span></button>
           <div class="park-actions">
-            <button class="btn btn-secondary btn-sm" onclick="parkCart()"><span data-i18n>Park cart</span></button>
-            <button class="btn btn-secondary btn-sm" onclick="openParkedCarts()"><span data-i18n>Parked carts</span></button>
-            <button class="btn btn-secondary btn-sm" onclick="openCustomerPicker()"><span data-i18n>Customer</span></button>
-            <button class="btn btn-secondary btn-sm" onclick="askManualDiscount()"><span data-i18n>Discount %</span></button>
+            <button class="btn btn-secondary btn-sm" onclick="parkCart()"><span data-i18n>Park cart (F7)</span></button>
+            <button class="btn btn-secondary btn-sm" onclick="openParkedCarts()"><span data-i18n>Parked carts (F8)</span></button>
+            <button class="btn btn-secondary btn-sm" onclick="openCustomerPicker()"><span data-i18n>Customer (F3)</span></button>
+            <button class="btn btn-secondary btn-sm" onclick="askManualDiscount()"><span data-i18n>Discount % (F6)</span></button>
           </div>
           <div id="cart-customer" class="cart-customer hidden"></div>
           <div id="cart-breakdown" class="cart-breakdown"></div>
         </div>
       </div>
-
-      
-      <div class="pos-left">
-        <div class="pos-toolbar">
-          <div class="search-wrap">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <input class="input" id="pos-search" data-i18n-placeholder placeholder="Search products or scan barcode" oninput="onSearch(this.value)" />
-          </div>
-          <button class="btn btn-secondary btn-sm" onclick="loadPosProducts()">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
-            <span data-i18n>Refresh</span>
-          </button>
-        </div>
-        <div class="pos-products">
-          <div class="prod-grid" id="prod-grid">
-            <div class="prod-empty">
-              <span class="em-icon"></span>
-              <strong data-i18n>Loading products</strong>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      
-      <div class="pos-right">
-        <div class="cart-head">
-          <div class="cart-title">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
-              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
-            </svg>
-            <span data-i18n>CART</span>
-            <span class="cart-badge" id="cart-count">0</span>
-          </div>
-          <button class="btn btn-ghost btn-sm btn-icon" data-i18n-title title="Refresh cart" onclick="refreshCart()">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
-          </button>
-        </div>
-
-        <div class="cart-list" id="cart-list">
-          <div class="cart-empty-msg">
-            <div class="cart-empty-icon"></div>
-            <strong data-i18n>Cart is empty</strong>
-            <span class="t-sm" data-i18n>Click a product or scan a barcode to add items</span>
-          </div>
-        </div>
-
-        <div class="cart-foot">
-          <div class="subtotal-row">
-            <span class="sub-label" data-i18n>Total</span>
-            <span class="sub-amount" id="cart-subtotal">0.00 LEK</span>
-          </div>
-          <button class="btn btn-primary btn-checkout" id="btn-checkout" disabled onclick="doCheckout()">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="20 6 9 17 4 12"/>
-            </svg>
-            <span data-i18n>Checkout</span>
-          </button>
-          <button class="btn btn-secondary btn-clear btn-sm" id="btn-clear" disabled onclick="clearCart()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-            </svg>
-            <span data-i18n>Clear Cart</span>
-          </button>
-        </div>
-      </div>
     </div>
 
-    
+
     <div id="view-products" class="view">
       <div class="page-head" style="flex-shrink:0;">
         <div>
@@ -935,6 +854,57 @@
       </div>
     </div>
 
+    <div id="view-settings" class="view">
+      <div class="page-head" style="flex-shrink:0;">
+        <div>
+          <div class="page-title" data-i18n>Settings</div>
+          <div class="page-sub" data-i18n>Shop details printed on receipts and reports</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" onclick="saveSettings()" data-i18n>Save</button>
+        </div>
+      </div>
+      <div class="settings-page">
+        <section class="report-card">
+          <div class="report-card-head"><div><h2 data-i18n>Shop</h2></div></div>
+          <div class="input-group"><label class="input-label" data-i18n>Shop name</label><input class="input" id="set-name" maxlength="120" oninput="previewSettings()" /></div>
+          <div class="two-col">
+            <div class="input-group"><label class="input-label" data-i18n>Address</label><input class="input" id="set-address" maxlength="120" oninput="previewSettings()" /></div>
+            <div class="input-group"><label class="input-label" data-i18n>City</label><input class="input" id="set-city" maxlength="120" oninput="previewSettings()" /></div>
+          </div>
+          <div class="two-col">
+            <div class="input-group"><label class="input-label" data-i18n>Tax number (NIPT)</label><input class="input" id="set-taxid" maxlength="120" oninput="previewSettings()" /></div>
+            <div class="input-group"><label class="input-label" data-i18n>Phone</label><input class="input" id="set-phone" maxlength="120" oninput="previewSettings()" /></div>
+          </div>
+          <div class="input-group"><label class="input-label" data-i18n>Email</label><input class="input" id="set-email" maxlength="120" oninput="previewSettings()" /></div>
+          <div class="input-group"><label class="input-label" data-i18n>Message at the bottom of the receipt</label><textarea class="input" id="set-footer" rows="2" maxlength="300" oninput="previewSettings()"></textarea></div>
+
+          <div class="report-card-head" style="margin-top:14px;"><div><h2 data-i18n>Receipt</h2></div></div>
+          <div class="two-col">
+            <div class="input-group">
+              <label class="input-label" data-i18n>Paper width</label>
+              <select class="input" id="set-width" onchange="previewSettings()">
+                <option value="32" data-i18n>58 mm (32 characters)</option>
+                <option value="42" data-i18n>80 mm (42 characters)</option>
+                <option value="48" data-i18n>80 mm (48 characters)</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label class="input-label" data-i18n>Receipt printer</label>
+              <select class="input" id="set-printer">
+                <option value="" data-i18n>Default Windows printer</option>
+              </select>
+            </div>
+          </div>
+          <label class="check-row"><input type="checkbox" id="set-autoprint" /> <span data-i18n>Print the receipt automatically after each sale</span></label>
+        </section>
+        <section class="report-card">
+          <div class="report-card-head"><div><h2 data-i18n>Receipt preview</h2><p data-i18n>How the top and bottom of a receipt will look</p></div></div>
+          <pre class="receipt-box" id="settings-preview"></pre>
+        </section>
+      </div>
+    </div>
+
     <div id="view-operations" class="view">
       <header class="page-head" style="flex-shrink:0;">
         <div>
@@ -1211,8 +1181,15 @@
       <small id="pay-total-foreign"></small>
     </div>
     <div class="pay-quick">
-      <button class="btn btn-secondary btn-sm" onclick="payExactCash()" data-i18n>Exact cash</button>
-      <button class="btn btn-secondary btn-sm" onclick="payAllByCard()" data-i18n>All by card</button>
+      <button class="btn btn-secondary btn-sm" onclick="payExactCash()" data-i18n>Exact cash (F10)</button>
+      <button class="btn btn-secondary btn-sm" onclick="payAllByCard()" data-i18n>All by card (F9)</button>
+    </div>
+    <div class="pay-notes">
+      <button class="btn btn-secondary btn-sm" onclick="payNote(500)">500</button>
+      <button class="btn btn-secondary btn-sm" onclick="payNote(1000)">1000</button>
+      <button class="btn btn-secondary btn-sm" onclick="payNote(2000)">2000</button>
+      <button class="btn btn-secondary btn-sm" onclick="payNote(5000)">5000</button>
+      <button class="btn btn-secondary btn-sm" onclick="payNote(10000)">10000</button>
     </div>
     <div class="input-group">
       <label class="input-label" data-i18n>Cash (LEK)</label>
@@ -1249,7 +1226,7 @@
     <div class="balance-line"><span id="pay-rest-label" data-i18n>Still to pay</span><strong id="pay-rest">0.00 LEK</strong></div>
     <div class="receipt-acts">
       <button class="btn btn-secondary" onclick="closeModal('modal-payment')" data-i18n>Cancel</button>
-      <button class="btn btn-primary" id="pay-confirm" onclick="confirmPayment()" disabled data-i18n>Complete payment</button>
+      <button class="btn btn-primary" id="pay-confirm" onclick="confirmPayment()" disabled data-i18n>Complete payment (Enter)</button>
     </div>
   </div>
 </div>
@@ -1553,16 +1530,43 @@
       </div>
     </div>
     <div class="receipt-acts">
-      <button class="btn btn-secondary" onclick="closeModal('modal-receipt')" data-i18n>Close</button>
+      <button class="btn btn-secondary" onclick="closeReceipt()" data-i18n>Close (Esc)</button>
       <button class="btn btn-primary" onclick="printReceipt()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="6 9 6 2 18 2 18 9"/>
           <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
           <rect x="6" y="14" width="12" height="8"/>
         </svg>
-        <span data-i18n>Print</span>
+        <span data-i18n>Print (Enter)</span>
       </button>
     </div>
+  </div>
+</div>
+
+
+<div id="modal-shortcuts" class="overlay hidden">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-head">
+      <div class="modal-title" data-i18n>Keyboard shortcuts</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-shortcuts')">x</button>
+    </div>
+    <table class="shortcut-table">
+      <tbody>
+        <tr><td><kbd>F1</kbd></td><td data-i18n>This list</td></tr>
+        <tr><td><kbd>F2</kbd></td><td data-i18n>Search or scan</td></tr>
+        <tr><td><kbd>F3</kbd></td><td data-i18n>Customer of the sale</td></tr>
+        <tr><td><kbd>F4</kbd></td><td data-i18n>Quantity of the selected line</td></tr>
+        <tr><td><kbd>F6</kbd></td><td data-i18n>Discount on the whole cart</td></tr>
+        <tr><td><kbd>F7</kbd> / <kbd>F8</kbd></td><td data-i18n>Park cart / parked carts</td></tr>
+        <tr><td><kbd>F9</kbd></td><td data-i18n>Clear the invoice</td></tr>
+        <tr><td><kbd>F10</kbd></td><td data-i18n>Pay. In the payment window: exact cash; press again to finish</td></tr>
+        <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd></td><td data-i18n>Select a line (or a search result)</td></tr>
+        <tr><td><kbd>+</kbd> <kbd>-</kbd></td><td data-i18n>One more / one less of the selected line</td></tr>
+        <tr><td><kbd>Delete</kbd></td><td data-i18n>Remove the selected line</td></tr>
+        <tr><td><kbd>3*</kbd> + <span data-i18n>barcode</span></td><td data-i18n>Sell 3 pieces of the scanned product</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td data-i18n>Close the window</td></tr>
+      </tbody>
+    </table>
   </div>
 </div>
 

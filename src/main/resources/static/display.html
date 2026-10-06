@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="sq">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ekrani i klientit</title>
+  <style>
+    :root { --bg: #F4F7FB; --card: #FFFFFF; --text: #172033; --muted: #64748B; --accent: #2563EB; --green: #10B981; --border: #DCE5F2; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+    header { display: flex; justify-content: space-between; align-items: center; padding: 22px 36px; background: var(--card); border-bottom: 1px solid var(--border); }
+    #shop { font-size: 2rem; font-weight: 800; letter-spacing: .02em; }
+    #clock { font-size: 1.6rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    main { flex: 1; display: flex; min-height: 0; }
+    .screen { flex: 1; display: none; min-height: 0; }
+    .screen.on { display: flex; }
+    #cart { flex-direction: column; padding: 24px 36px; gap: 18px; }
+    #lines { flex: 1; overflow: hidden; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 8px 24px; display: flex; flex-direction: column; justify-content: flex-end; }
+    .line { display: grid; grid-template-columns: 1fr auto auto; gap: 24px; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 1.5rem; }
+    .line:last-child { border-bottom: none; font-weight: 700; }
+    .qty { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .amount { text-align: right; min-width: 170px; font-variant-numeric: tabular-nums; }
+    .totals { display: flex; justify-content: space-between; align-items: flex-end; background: var(--accent); color: #fff; border-radius: 14px; padding: 22px 30px; }
+    .totals .label { font-size: 1.6rem; text-transform: uppercase; letter-spacing: .08em; opacity: .9; }
+    .totals .sub { font-size: 1.1rem; opacity: .85; margin-top: 6px; }
+    #total { font-size: 4.4rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+    #welcome, #paid { flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 18px; padding: 40px; }
+    #welcome h1 { font-size: 3.4rem; }
+    #welcome p, #paid p { font-size: 1.6rem; color: var(--muted); }
+    #paid h1 { font-size: 3rem; color: var(--green); }
+    .change { font-size: 5rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+    #status { position: fixed; bottom: 10px; right: 14px; font-size: .8rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <div id="shop"></div>
+    <div id="clock"></div>
+  </header>
+  <main>
+    <section class="screen on" id="welcome">
+      <h1 id="welcome-title"></h1>
+      <p id="welcome-text"></p>
+    </section>
+    <section class="screen" id="cart">
+      <div id="lines"></div>
+      <div class="totals">
+        <div>
+          <div class="label" id="total-label"></div>
+          <div class="sub" id="total-sub"></div>
+        </div>
+        <div id="total"></div>
+      </div>
+    </section>
+    <section class="screen" id="paid">
+      <h1 id="paid-title"></h1>
+      <p id="paid-text"></p>
+      <div class="change" id="paid-change"></div>
+      <p id="paid-footer"></p>
+    </section>
+  </main>
+  <div id="status"></div>
+
+  <script>
+    'use strict';
+    // The screen facing the customer. Opened from the till (same browser); updates arrive on a BroadcastChannel.
+    const TEXT = {
+      sq: { welcome: 'Mirë se vini!', next: 'Arka është gati', total: 'Për të paguar', discount: 'Zbritje', customer: 'Klienti',
+            paying: 'Pagesa', thanks: 'Faleminderit!', change: 'Kusuri', paid: 'Paguar', noChannel: 'Ky shfletues nuk e mbështet ekranin e klientit' },
+      en: { welcome: 'Welcome!', next: 'The till is ready', total: 'To pay', discount: 'Discount', customer: 'Customer',
+            paying: 'Payment', thanks: 'Thank you!', change: 'Change', paid: 'Paid', noChannel: 'This browser does not support the customer display' }
+    };
+    let lang = 'sq';
+    const $ = id => document.getElementById(id);
+    const money = n => Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/,/g, ' ') + ' LEK';
+    const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    function show(id) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === id));
+    }
+
+    function render(m) {
+      lang = m.lang === 'en' ? 'en' : 'sq';
+      const T = TEXT[lang];
+      document.documentElement.lang = lang;
+      if (m.shop?.name) { $('shop').textContent = m.shop.name; document.title = m.shop.name; }
+      $('welcome-title').textContent = T.welcome;
+      $('welcome-text').textContent = T.next;
+      if (m.type === 'cart') {
+        if (!m.items.length) { show('welcome'); return; }
+        $('lines').innerHTML = m.items.slice(-9).map(i => `
+          <div class="line"><span>${esc(i.name)}</span><span class="qty">${esc(i.quantity)} ${esc(i.unit)}</span><span class="amount">${money(i.total)}</span></div>`).join('');
+        $('total-label').textContent = T.total;
+        const sub = [];
+        if (Number(m.discount) > 0) sub.push(`${T.discount}: ${money(m.discount)}`);
+        if (m.customer) sub.push(`${T.customer}: ${esc(m.customer)}`);
+        $('total-sub').innerHTML = sub.join(' · ');
+        $('total').textContent = money(m.total);
+        show('cart');
+      } else if (m.type === 'paying') {
+        $('total-label').textContent = T.paying;
+        $('total').textContent = money(m.total);
+        show('cart');
+      } else if (m.type === 'paid') {
+        $('paid-title').textContent = T.thanks;
+        const change = Number(m.change || 0);
+        $('paid-text').textContent = change > 0 ? T.change : `${T.paid}: ${money(m.total)}`;
+        $('paid-change').textContent = change > 0 ? money(change) : '';
+        $('paid-footer').textContent = m.shop?.footer || '';
+        show('paid');
+      }
+    }
+
+    function tick() {
+      const now = new Date();
+      $('clock').textContent = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    }
+    tick();
+    setInterval(tick, 10000);
+
+    if ('BroadcastChannel' in window) {
+      const channel = new BroadcastChannel('pos-customer-display');
+      channel.onmessage = e => render(e.data || {});
+      channel.postMessage({ type: 'hello' });
+      render({ type: 'cart', items: [], lang: 'sq' });
+    } else {
+      $('status').textContent = TEXT.sq.noChannel;
+    }
+  </script>
+</body>
+</html>

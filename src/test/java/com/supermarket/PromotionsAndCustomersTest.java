@@ -56,7 +56,7 @@ class PromotionsAndCustomersTest extends IntegrationTest {
 
         JsonNode receipt = data(postJson("/sales/checkout", admin, null).andExpect(status().isOk()));
         assertThat(receipt.path("items").get(0).path("taxAmount").decimalValue()).isEqualByComparingTo("133.33");
-        assertThat(receipt.path("printableReceipt").asText()).contains("Promocion Djathë -20%").contains("Promocionet: -200.00");
+        assertThat(receipt.path("printableReceipt").asText()).contains(row("  Promocion Djathë -20%", "-200.00")).contains(row("Promocionet", "-200.00"));
         assertThat(jdbc.queryForObject("SELECT promotion_discount FROM sale_items", BigDecimal.class)).isEqualByComparingTo("200.00");
     }
 
@@ -138,7 +138,7 @@ class PromotionsAndCustomersTest extends IntegrationTest {
         assertThat(lines).isEqualByComparingTo(receipt.path("totalAmount").decimalValue());
         // 30500 - 3000 promotion = 27500; -5% manual = 26125; over 20000 so -10% = 23512.50
         assertThat(receipt.path("totalAmount").decimalValue()).isEqualByComparingTo("23512.50");
-        assertThat(receipt.path("printableReceipt").asText()).contains("Zbritje manuale (5%): -1375.00");
+        assertThat(receipt.path("printableReceipt").asText()).contains(row("Zbritje manuale 5%", "-1375.00"));
     }
 
     @Test
@@ -154,7 +154,7 @@ class PromotionsAndCustomersTest extends IntegrationTest {
         putJson("/sales/cart/customer", admin, Map.of("cardNumber", card)).andExpect(jsonPath("$.data.customer.fullName").value("Klient Besnik"));
         JsonNode first = data(postJson("/sales/checkout", admin, null).andExpect(status().isOk()));
         assertThat(first.path("pointsEarned").asInt()).isEqualTo(10);
-        assertThat(first.path("printableReceipt").asText()).contains("Klienti: Klient Besnik").contains("Pikë të fituara: 10");
+        assertThat(first.path("printableReceipt").asText()).contains("Klienti: Klient Besnik").contains(row("Pikë të fituara", "10"));
 
         addToCart(admin, p, 1);
         putJson("/sales/cart/customer", admin, Map.of("customerId", String.valueOf(id))).andExpect(status().isOk());
@@ -184,7 +184,7 @@ class PromotionsAndCustomersTest extends IntegrationTest {
         putJson("/sales/cart/customer", cashier, Map.of("customerId", String.valueOf(neighbour))).andExpect(status().isOk());
         JsonNode sale = data(postJson("/sales/checkout", cashier, Map.of("payments", List.of(pay("CREDIT", "600")))).andExpect(status().isOk()));
         assertThat(sale.path("customerBalance").decimalValue()).isEqualByComparingTo("600.00");
-        assertThat(sale.path("printableReceipt").asText()).contains("Në borxh: 600.00 LEK").contains("Borxhi aktual: 600.00 LEK");
+        assertThat(sale.path("printableReceipt").asText()).contains(row("Në borxh", "600.00")).contains(row("Borxhi aktual", "600.00"));
 
         addToCart(cashier, p, 2);
         putJson("/sales/cart/customer", cashier, Map.of("customerId", String.valueOf(neighbour))).andExpect(status().isOk());
@@ -223,6 +223,6 @@ class PromotionsAndCustomersTest extends IntegrationTest {
         JsonNode z = data(getJson("/reports/daily", admin));
         assertThat(z.path("creditSales").decimalValue()).isEqualByComparingTo("2000.00");
         assertThat(z.path("netSales").decimalValue()).isEqualByComparingTo("1500.00");
-        assertThat(z.path("printableText").asText()).contains("Në borxh: 2000.00");
+        assertThat(z.path("printableText").asText()).contains(row("Në borxh", "2000.00"));
     }
 }

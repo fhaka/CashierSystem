@@ -5,7 +5,7 @@ import java.math.BigDecimal;
 public class PurchaseItemRequest {
 
     private Long productId;
-    private Integer quantity;
+    private BigDecimal quantity;
     private BigDecimal purchasePrice;
     private BigDecimal sellingPrice;
     private BigDecimal taxRate;
@@ -19,11 +19,11 @@ public class PurchaseItemRequest {
         this.productId = productId;
     }
 
-    public Integer getQuantity() {
+    public BigDecimal getQuantity() {
         return quantity;
     }
 
-    public void setQuantity(Integer quantity) {
+    public void setQuantity(BigDecimal quantity) {
         this.quantity = quantity;
     }
 

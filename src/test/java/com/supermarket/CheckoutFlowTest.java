@@ -26,7 +26,7 @@ class CheckoutFlowTest extends IntegrationTest {
         JsonNode receipt = data(postJson("/sales/checkout", cashier, null).andExpect(status().isOk()));
         assertThat(receipt.path("totalAmount").decimalValue()).isEqualByComparingTo("300.00");
         assertThat(receipt.path("items")).hasSize(1);
-        assertThat(receipt.path("items").get(0).path("taxAmount").decimalValue()).isEqualByComparingTo("50.01");
+        assertThat(receipt.path("items").get(0).path("taxAmount").decimalValue()).isEqualByComparingTo("50.00");
         assertThat(stockOf(productId)).isEqualTo(7);
 
         getJson("/sales/cart", cashier).andExpect(jsonPath("$.data").isEmpty());

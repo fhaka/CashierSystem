@@ -1,77 +1,114 @@
 package com.supermarket.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
+/**
+ * One line of a cart. Name, barcode, price, VAT and unit are copied from the product when it is scanned,
+ * so the price the customer was shown does not change while they are at the till.
+ */
+@Entity
+@Table(name = "cart_items")
 public class CartItem {
 
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @JsonIgnore
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "cart_id", nullable = false)
+    @JsonIgnore
+    private Cart cart;
+
+    @Column(name = "product_id", nullable = false)
     private Long productId;
+
+    @Column(nullable = false)
     private String productName;
+
+    @Column(nullable = false)
     private String barcode;
-    private Integer quantity;
+
+    @Column(nullable = false, precision = 12, scale = 3)
+    private BigDecimal quantity;
+
+    @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal price;
+
+    @Column(nullable = false, precision = 5, scale = 2)
     private BigDecimal taxRate;
+
+    @Column(nullable = false, length = 10)
     private String unit;
 
-    public CartItem(Long productId, String productName, String barcode, Integer quantity, BigDecimal price, BigDecimal taxRate, String unit) {
-        this.productId = productId;
-        this.productName = productName;
-        this.barcode = barcode;
+    protected CartItem() {
+    }
+
+    public CartItem(Product product, BigDecimal quantity) {
+        this.productId = product.getId();
+        this.productName = product.getName();
+        this.barcode = product.getBarcode();
         this.quantity = quantity;
-        this.price = price;
-        this.taxRate = taxRate;
-        this.unit = unit;
+        this.price = product.getPrice();
+        this.taxRate = product.getTaxRate();
+        this.unit = product.getUnit();
     }
 
     public BigDecimal getLineTotal() {
-        return price.multiply(BigDecimal.valueOf(quantity));
+        return price.multiply(quantity).setScale(2, RoundingMode.HALF_UP);
     }
 
     public BigDecimal getUnitPriceWithoutTax() {
-        if (taxRate == null || taxRate.signum() == 0) {
-            return price.setScale(2, RoundingMode.HALF_UP);
-        }
-        BigDecimal divisor = BigDecimal.ONE.add(taxRate.divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP));
-        return price.divide(divisor, 2, RoundingMode.HALF_UP);
-    }
-
-    public BigDecimal getUnitTaxAmount() {
-        return price.subtract(getUnitPriceWithoutTax()).setScale(2, RoundingMode.HALF_UP);
+        return withoutTax(price, taxRate);
     }
 
     public BigDecimal getTaxAmount() {
-        return getUnitTaxAmount().multiply(BigDecimal.valueOf(quantity)).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal lineTotal = getLineTotal();
+        return lineTotal.subtract(withoutTax(lineTotal, taxRate));
+    }
+
+    /** Prices include VAT: the amount without VAT is price / (1 + rate). */
+    public static BigDecimal withoutTax(BigDecimal amountWithTax, BigDecimal taxRate) {
+        if (taxRate == null || taxRate.signum() == 0) {
+            return amountWithTax.setScale(2, RoundingMode.HALF_UP);
+        }
+        BigDecimal divisor = BigDecimal.ONE.add(taxRate.movePointLeft(2));
+        return amountWithTax.divide(divisor, 2, RoundingMode.HALF_UP);
+    }
+
+    void setCart(Cart cart) {
+        this.cart = cart;
     }
 
     public Long getProductId() {
         return productId;
     }
 
-    public void setProductId(Long productId) {
-        this.productId = productId;
-    }
-
     public String getProductName() {
         return productName;
-    }
-
-    public void setProductName(String productName) {
-        this.productName = productName;
     }
 
     public String getBarcode() {
         return barcode;
     }
 
-    public void setBarcode(String barcode) {
-        this.barcode = barcode;
-    }
-
-    public Integer getQuantity() {
+    public BigDecimal getQuantity() {
         return quantity;
     }
 
-    public void setQuantity(Integer quantity) {
+    public void setQuantity(BigDecimal quantity) {
         this.quantity = quantity;
     }
 
@@ -87,15 +124,7 @@ public class CartItem {
         return taxRate;
     }
 
-    public void setTaxRate(BigDecimal taxRate) {
-        this.taxRate = taxRate;
-    }
-
     public String getUnit() {
         return unit;
-    }
-
-    public void setUnit(String unit) {
-        this.unit = unit;
     }
 }

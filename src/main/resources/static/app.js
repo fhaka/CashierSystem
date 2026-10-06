@@ -233,7 +233,7 @@ async function loadHomeData() {
     const cart = Array.isArray(cartRes.data) ? cartRes.data : [];
     const revenue = sales.reduce((sum, sale) => sum + parseFloat(sale.totalAmount || 0), 0);
     const lowStock = products.filter(product => (product.stock || 0) <= 5).length;
-    const cartCount = cart.reduce((sum, item) => sum + (item.quantity || 0), 0);
+    const cartCount = cart.length;
 
     $('home-products-count').textContent = products.length;
     $('home-sales-count').textContent = sales.length;
@@ -289,7 +289,7 @@ function renderGrid(products) {
   }
   g.innerHTML = products.map(p => {
     const sc = p.stock === 0 ? 'sk-oos' : p.stock < 5 ? 'sk-low' : 'sk-ok';
-    const sl = p.stock === 0 ? t('Out of Stock') : t('{count} left', { count: p.stock });
+    const sl = p.stock === 0 ? t('Out of Stock') : t('{count} left', { count: fmtQty(p.stock, p.unit) });
     return `<div class="prod-card${p.stock === 0 ? ' oos' : ''}" onclick="addById(${p.id})">
       <div class="pc-cat">${esc(p.category?.name || t('None'))}</div>
       <div class="pc-name">${esc(p.name)}</div>
@@ -317,7 +317,7 @@ async function refreshCart() {
 
 function renderCart() {
   const list = $('cart-list');
-  const total = cartItems.reduce((s, i) => s + (i.quantity || 0), 0);
+  const total = cartItems.length;
   $('cart-count').textContent = total;
   renderInvoiceRows();
 
@@ -342,9 +342,9 @@ function renderCart() {
         <div class="ci-unit">${fmt(item.price)} / ${esc(unitLabel(item.unit))}</div>
       </div>
       <div class="ci-qty">
-        <button class="qty-btn" onclick="changeQty(${item.productId},${item.quantity - 1})"></button>
-        <span class="qty-val">${item.quantity}</span>
-        <button class="qty-btn" onclick="changeQty(${item.productId},${item.quantity + 1})">+</button>
+        <button class="qty-btn" onclick="stepQty(${item.productId},-1)"></button>
+        <span class="qty-val">${fmtQty(item.quantity, item.unit)}</span>
+        <button class="qty-btn" onclick="stepQty(${item.productId},1)">+</button>
       </div>
       <div class="ci-total">${fmt(item.lineTotal)}</div>
       <button class="ci-rm" onclick="removeItem(${item.productId})" title="${t('Remove')}"></button>
@@ -408,12 +408,12 @@ function renderInvoiceRows() {
       <td class="td-m">${fmtTax(item.taxRate)}</td>
       <td class="td-p">${fmt(item.taxAmount)}</td>
       <td>${priceCell}</td>
-      <td><input class="input pos-edit-cell pos-qty-cell" type="number" min="1" step="1" value="${item.quantity}" onchange="updateCartInline(${item.productId}, 'quantity', this.value)" /></td>
+      <td><input class="input pos-edit-cell pos-qty-cell" type="number" min="0" step="${item.unit === 'kg' ? '0.001' : '1'}" value="${fmtQty(item.quantity, item.unit)}" onchange="updateCartInline(${item.productId}, 'quantity', this.value)" /></td>
       <td class="td-p">${fmt(item.lineTotal)}</td>
       <td class="td-m">${esc(unitLabel(item.unit))}</td>
       <td class="td-a">
-        <button class="btn btn-secondary btn-sm btn-icon" title="${t('Decrease')}" onclick="changeQty(${item.productId},${item.quantity - 1})">-</button>
-        <button class="btn btn-secondary btn-sm btn-icon" title="${t('Increase')}" onclick="changeQty(${item.productId},${item.quantity + 1})">+</button>
+        <button class="btn btn-secondary btn-sm btn-icon" title="${t('Decrease')}" onclick="stepQty(${item.productId},-1)">-</button>
+        <button class="btn btn-secondary btn-sm btn-icon" title="${t('Increase')}" onclick="stepQty(${item.productId},1)">+</button>
         <button class="btn btn-danger btn-sm btn-icon" title="${t('Remove')}" onclick="removeItem(${item.productId})">x</button>
       </td>
     </tr>
@@ -453,29 +453,54 @@ function keyEnter() {
   updateKeypadDisplay();
 }
 
+/* Quantities: pieces are whole numbers, kilograms have up to 3 decimals. "0,350" is accepted too. */
+function parseQuantity(value) {
+  const n = parseFloat(String(value ?? '').trim().replace(',', '.'));
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function fmtQty(quantity, unit) {
+  const n = parseFloat(quantity || 0);
+  return unit === 'kg' ? n.toFixed(3) : String(Math.round(n * 1000) / 1000);
+}
+
+/* Lines with pieces count as their quantity, weighed lines count as one item. */
+function itemCount(items) {
+  return (items || []).reduce((sum, item) => sum + (item.unit === 'kg' ? 1 : parseFloat(item.quantity || 0)), 0);
+}
+
 function promptQuantity() {
   if (!cartItems.length) {
     toast(t('Add an item before changing quantity'), 'error');
     return;
   }
   const last = cartItems[cartItems.length - 1];
-  const qty = parseInt(prompt(t('Quantity for ') + last.productName, last.quantity), 10);
-  if (!Number.isNaN(qty)) changeQty(last.productId, qty);
+  const value = prompt(t('Quantity for ') + last.productName, fmtQty(last.quantity, last.unit));
+  if (value === null) return;
+  const qty = parseQuantity(value);
+  if (Number.isNaN(qty) || qty < 0) { toast(t('Enter a valid quantity'), 'error'); return; }
+  setQuantity(last.productId, qty);
 }
 
-async function changeQty(productId, newQty) {
-  if (newQty < 1) { removeItem(productId); return; }
+/* The +/- buttons: one piece, or 100 g for weighed products. */
+function stepQty(productId, direction) {
   const item = cartItems.find(i => i.productId === productId);
   if (!item) return;
-  const delta = newQty - item.quantity;
+  const step = item.unit === 'kg' ? 0.1 : 1;
+  setQuantity(productId, parseFloat(item.quantity) + direction * step);
+}
+
+async function setQuantity(productId, quantity) {
+  const rounded = Math.max(0, Math.round(quantity * 1000) / 1000);
   try {
-    if (delta > 0) {
-      await req('POST', '/sales/cart', { productId, quantity: delta });
-      await refreshCart();
-    } else {
-      await rebuildCart(productId, newQty);
-    }
-  } catch (e) { toast(e.message || t('Could not update qty'), 'error'); }
+    const res = await req('PUT', `/sales/cart/${productId}`, { quantity: rounded });
+    cartItems = Array.isArray(res.data) ? res.data : [];
+    renderCart();
+    fetchSubtotal();
+  } catch (e) {
+    toast(e.message || t('Could not update qty'), 'error');
+    refreshCart();
+  }
 }
 
 async function updateCartInline(productId, field, value) {
@@ -483,9 +508,9 @@ async function updateCartInline(productId, field, value) {
   if (!item) return;
   const body = { quantity: item.quantity };
   if (field === 'quantity') {
-    const quantity = parseInt(value || '0', 10);
-    if (Number.isNaN(quantity) || quantity < 1) {
-      toast(t('Quantity must be at least 1'), 'error');
+    const quantity = parseQuantity(value);
+    if (Number.isNaN(quantity) || quantity <= 0) {
+      toast(t('Enter a valid quantity'), 'error');
       renderInvoiceRows();
       return;
     }
@@ -518,19 +543,52 @@ async function updateCartInline(productId, field, value) {
 }
 
 async function removeItem(productId) {
-  await rebuildCart(productId, 0);
+  await setQuantity(productId, 0);
 }
 
-async function rebuildCart(targetId, targetQty) {
-  const snapshot = [...cartItems];
+/* Parked carts: put the current customer aside and serve the next one. */
+async function parkCart() {
+  if (!cartItems.length) { toast(t('Cart is empty'), 'error'); return; }
+  const label = prompt(t('Note to recognise this cart (optional)'), '');
+  if (label === null) return;
   try {
-    await req('DELETE', '/sales/cart');
-    for (const item of snapshot) {
-      const qty = item.productId === targetId ? targetQty : item.quantity;
-      if (qty > 0) await req('POST', '/sales/cart', { productId: item.productId, quantity: qty });
-    }
-    await refreshCart();
-  } catch (e) { toast(e.message || t('Cart update failed'), 'error'); }
+    await req('POST', '/sales/cart/park', { label });
+    cartItems = [];
+    renderCart();
+    toast(t('Cart parked'), 'success');
+  } catch (e) { toast(e.message || t('Could not park cart'), 'error'); }
+}
+
+async function openParkedCarts() {
+  const tbody = $('parked-tbody');
+  tbody.innerHTML = `<tr><td colspan="6" class="no-data">${t('Loading...')}</td></tr>`;
+  openModal('modal-parked');
+  try {
+    const res = await req('GET', '/sales/carts/parked');
+    const carts = Array.isArray(res.data) ? res.data : [];
+    tbody.innerHTML = carts.length ? carts.map(cart => `
+      <tr>
+        <td><strong>${esc(cart.label || '-')}</strong></td>
+        <td>${esc(cart.cashierName)}</td>
+        <td class="td-m">${cart.lines}</td>
+        <td class="td-p">${fmt(cart.total)}</td>
+        <td>${fmtDate(cart.parkedAt)}</td>
+        <td><button class="btn btn-primary btn-sm" onclick="resumeCart(${cart.id})">${t('Resume')}</button></td>
+      </tr>`).join('') : `<tr><td colspan="6" class="no-data">${t('No parked carts.')}</td></tr>`;
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="no-data" style="color:var(--red)">${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function resumeCart(cartId) {
+  try {
+    const res = await req('POST', `/sales/carts/${cartId}/resume`);
+    cartItems = Array.isArray(res.data) ? res.data : [];
+    renderCart();
+    fetchSubtotal();
+    closeModal('modal-parked');
+    toast(t('Cart resumed'), 'success');
+  } catch (e) { toast(e.message || t('Could not resume cart'), 'error'); }
 }
 
 async function clearCart() {
@@ -559,7 +617,7 @@ async function doCheckout() {
     loadReceiptPrinters();
     cartItems = [];
     renderCart();
-    $('invoice-no').value = String((data.saleId || 0) + 1).padStart(4, '0');
+    setNextInvoiceNumber();
     toast(t('Checkout complete!'), 'success');
   } catch (e) {
     toast(e.message || t('Checkout failed'), 'error');
@@ -612,12 +670,10 @@ function renderCategorySelect(selectedName) {
 
 async function setNextInvoiceNumber() {
   try {
-    const res = await req('GET', '/sales');
-    const sales = Array.isArray(res.data) ? res.data : [];
-    const maxId = sales.reduce((max, sale) => Math.max(max, sale.id || 0), 0);
-    if ($('invoice-no')) $('invoice-no').value = String(maxId + 1).padStart(4, '0');
+    const res = await req('GET', '/sales/next-invoice-number');
+    if ($('invoice-no')) $('invoice-no').value = res.data || '';
   } catch {
-    if ($('invoice-no')) $('invoice-no').value = '0001';
+    if ($('invoice-no')) $('invoice-no').value = '';
   }
 }
 
@@ -697,7 +753,7 @@ function renderPurchaseRows() {
           <option value="kg" ${item.unit === 'kg' ? 'selected' : ''}>kg</option>
         </select>
       </td>
-      <td><input class="input purchase-cell" type="number" min="1" value="${item.quantity}" onchange="updatePurchaseItem(${index}, 'quantity', this.value)" /></td>
+      <td><input class="input purchase-cell" type="number" min="0" step="${item.unit === 'kg' ? '0.001' : '1'}" value="${item.quantity}" onchange="updatePurchaseItem(${index}, 'quantity', this.value)" /></td>
       <td><input class="input purchase-cell" type="number" min="0" step="0.01" value="${item.purchasePrice}" onchange="updatePurchaseItem(${index}, 'purchasePrice', this.value)" /></td>
       <td>
         <select class="input purchase-cell" onchange="updatePurchaseItem(${index}, 'taxRate', this.value)">
@@ -720,7 +776,7 @@ function updatePurchaseItem(index, field, value) {
   const item = purchaseItems[index];
   if (!item) return;
   if (['quantity', 'purchasePrice', 'taxRate', 'sellingPrice'].includes(field)) {
-    item[field] = field === 'quantity' ? parseInt(value || '0', 10) : parseFloat(value || '0');
+    item[field] = field === 'quantity' ? parseQuantity(value) : parseFloat(value || '0');
   } else {
     item[field] = value;
   }
@@ -733,15 +789,15 @@ function removePurchaseItem(index) {
 }
 
 function getPurchaseLineTotal(item) {
-  return parseFloat(item.purchasePrice || 0) * parseInt(item.quantity || 0, 10);
+  return parseFloat(item.purchasePrice || 0) * (parseQuantity(item.quantity) || 0);
 }
 
 function updatePurchaseTotal() {
   const total = purchaseItems.reduce((sum, item) => sum + getPurchaseLineTotal(item), 0);
-  const itemCount = purchaseItems.reduce((sum, item) => sum + parseInt(item.quantity || 0, 10), 0);
+  const itemsInInvoice = itemCount(purchaseItems);
   if ($('purchase-total')) $('purchase-total').textContent = fmtLek(total);
   if ($('purchase-lines-count')) $('purchase-lines-count').textContent = purchaseItems.length;
-  if ($('purchase-items-count')) $('purchase-items-count').textContent = itemCount;
+  if ($('purchase-items-count')) $('purchase-items-count').textContent = itemsInInvoice;
 }
 
 function clearPurchaseInvoice() {
@@ -760,7 +816,7 @@ async function savePurchaseInvoice() {
     invoiceDate: $('purchase-date')?.value,
     items: purchaseItems.map(item => ({
       productId: item.productId,
-      quantity: parseInt(item.quantity || 0, 10),
+      quantity: parseQuantity(item.quantity),
       purchasePrice: parseFloat(item.purchasePrice || 0),
       sellingPrice: parseFloat(item.sellingPrice || 0),
       taxRate: parseFloat(item.taxRate || 0),
@@ -786,7 +842,7 @@ function buildFallbackReceipt(data) {
   const lines = [
     t('SALES RECEIPT'),
     '='.repeat(32),
-    `${t('Sale no.')}: ${data.saleId || ''}`,
+    `${t('Invoice no.')}: ${data.invoiceNumber || data.saleId || ''}`,
     `${t('Date')}: ${fmtDate(data.date)}`,
     '-'.repeat(32),
   ];
@@ -880,16 +936,17 @@ function renderProdsTable(products) {
   }
   tbody.innerHTML = products.map(p => {
     const sc = p.stock === 0 ? 'b-red' : p.stock < 5 ? 'b-amber' : 'b-green';
-    return `<tr>
+    const inactive = p.active === false;
+    return `<tr class="${inactive ? 'row-inactive' : ''}">
       <td class="td-m t-muted">#${p.id}</td>
-      <td><strong>${esc(p.name)}</strong></td>
+      <td><strong>${esc(p.name)}</strong>${inactive ? ` <span class="badge b-red">${t('Inactive')}</span>` : ''}</td>
       <td class="td-m">${esc(p.barcode)}</td>
       <td><span class="badge b-blue">${esc(p.category?.name || t('None'))}</span></td>
       <td><span class="badge b-muted">${esc(unitLabel(p.unit))}</span></td>
       <td class="td-p">${fmt(p.purchasePrice)}</td>
       <td class="td-m">${fmtTax(p.taxRate)}</td>
       <td class="td-p">${fmt(p.price)}</td>
-      <td><span class="badge ${sc}">${p.stock}</span></td>
+      <td><span class="badge ${sc}">${fmtQty(p.stock, p.unit)}</span></td>
       <td class="td-a">
         <button class="btn btn-secondary btn-sm btn-icon" title="${t('Edit')}" onclick="openProdModalById(${p.id})">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -897,12 +954,12 @@ function renderProdsTable(products) {
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
           </svg>
         </button>
-        <button class="btn btn-danger btn-sm btn-icon" title="${t('Delete')}" onclick="confirmDelete(${p.id})">
+        ${inactive ? `<button class="btn btn-secondary btn-sm" onclick="activateProd(${p.id})">${t('Reactivate')}</button>` : `<button class="btn btn-danger btn-sm btn-icon" title="${t('Deactivate')}" onclick="confirmDelete(${p.id})">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
           </svg>
-        </button>
+        </button>`}
       </td>
     </tr>`;
   }).join('');
@@ -947,7 +1004,7 @@ async function submitProd() {
     taxRate:      parseFloat($('pm-tax').value),
     unit:         $('pm-unit').value,
     price:        parseFloat($('pm-price').value),
-    stock:        parseInt($('pm-stock').value),
+    stock:        parseQuantity($('pm-stock').value),
     categoryName: $('pm-cat').value,
   };
   if (!body.name || !body.barcode || isNaN(body.purchasePrice) || isNaN(body.taxRate) || isNaN(body.price) || isNaN(body.stock)) {
@@ -972,15 +1029,24 @@ async function submitProd() {
 
 function confirmDelete(id) {
   const name = allProdTable.find(product => product.id === id)?.name || '';
-  $('confirm-msg').textContent = t('Delete "{name}"? This cannot be undone.', { name });
+  $('confirm-msg').textContent = t('Deactivate "{name}"? It will no longer be sold, but stays in old sales and can be reactivated.', { name });
   $('confirm-ok').onclick = () => deleteProd(id);
   openModal('modal-confirm');
+}
+
+async function activateProd(id) {
+  try {
+    await req('POST', `/products/${id}/activate`);
+    toast(t('Product reactivated'), 'success');
+    loadProdsTable();
+    loadPosProducts();
+  } catch (e) { toast(e.message || t('Save failed'), 'error'); }
 }
 
 async function deleteProd(id) {
   try {
     await req('DELETE', `/products/${id}`);
-    toast(t('Product deleted'), 'success');
+    toast(t('Product deactivated'), 'success');
     closeModal('modal-confirm');
     loadProdsTable();
     loadPosProducts();
@@ -1022,7 +1088,7 @@ function renderStats(sales) {
   if (!sales.length) { grid.classList.add('hidden'); return; }
   const total = sales.reduce((s, sale) => s + parseFloat(sale.totalAmount || 0), 0);
   const avgTx = total / sales.length;
-  const totalItems = sales.reduce((s, sale) => s + (sale.items || []).reduce((q, item) => q + (item.quantity || 0), 0), 0);
+  const totalItems = sales.reduce((s, sale) => s + itemCount(sale.items), 0);
   const profit = sales.reduce((sum, sale) => sum + getSaleProfit(sale), 0);
   const profitCard = isOperationalManager()
     ? `<div class="stat-card sc-green"><div class="sc-label">${t('Profit')}</div><div class="sc-value">${fmt(profit)}</div></div>`
@@ -1044,10 +1110,10 @@ function renderSalesTable(sales) {
   }
   tbody.innerHTML = sales.map(sale => `
     <tr class="sale-row" onclick="viewSale(${sale.id})">
-      <td class="td-m"><strong>#${sale.id}</strong></td>
+      <td class="td-m"><strong>${esc(sale.invoiceNumber || sale.id)}</strong></td>
       <td>${fmtDate(sale.date)}</td>
       <td>${esc(sale.cashier?.fullName || t('Unknown cashier'))}</td>
-      <td><span class="badge b-muted">${t('{count} items', { count: (sale.items || []).reduce((q, item) => q + (item.quantity || 0), 0) })}</span></td>
+      <td><span class="badge b-muted">${t('{count} items', { count: itemCount(sale.items) })}</span></td>
       <td class="td-p">${fmt(sale.totalAmount)}</td>
       <td>
         <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();viewSale(${sale.id})">
@@ -1072,14 +1138,14 @@ function viewSale(saleId) {
   }
 
   // Otherwise show detail modal
-  $('sale-modal-title').textContent = t('Sale #{id}', { id: sale.id });
+  $('sale-modal-title').textContent = t('Invoice {number}', { number: sale.invoiceNumber || sale.id });
   const items = (sale.items || []);
   const itemRows = items.map(i => `
     <tr>
       <td>${esc(i.productName || i.product?.name || '')}</td>
       <td class="td-m">${esc(i.barcode || i.product?.barcode || '')}</td>
       <td class="td-m">${esc(unitLabel(i.unit || i.product?.unit))}</td>
-      <td class="td-m" style="text-align:center">${i.quantity}</td>
+      <td class="td-m" style="text-align:center">${fmtQty(i.quantity, i.unit)}</td>
       <td class="td-p">${fmt(i.priceWithoutTax || i.unitPriceWithoutTax || i.price)}</td>
       <td class="td-m">${fmtTax(i.taxRate)}</td>
       <td class="td-p">${fmt(i.taxAmount)}</td>
@@ -1126,7 +1192,7 @@ function getSaleProfit(sale) {
   const total = parseFloat(sale.totalAmount || 0);
   const cost = (sale.items || []).reduce((sum, item) => {
     const qty = parseFloat(item.quantity || 0);
-    const purchase = parseFloat(item.product?.purchasePrice || 0);
+    const purchase = parseFloat(item.purchasePrice ?? item.product?.purchasePrice ?? 0);
     return sum + purchase * qty;
   }, 0);
   return Math.max(0, total - cost);
@@ -1204,7 +1270,7 @@ function buildReportSummary(sales) {
         ? parseFloat(item.taxAmount || 0)
         : Math.max(0, (finalPrice - netPrice) * qty);
       const productName = item.productName || item.product?.name || t('Unknown product');
-      const purchasePrice = parseFloat(item.product?.purchasePrice || 0);
+      const purchasePrice = parseFloat(item.purchasePrice ?? item.product?.purchasePrice ?? 0);
       const existing = byProduct.get(productName) || { label: productName, qty: 0, revenue: 0 };
 
       existing.qty += qty;
@@ -1262,10 +1328,10 @@ function renderReportTable(sales) {
   tbody.innerHTML = sales.map(sale => {
     const tax = getSaleTax(sale);
     const total = parseFloat(sale.totalAmount || 0);
-    const items = (sale.items || []).reduce((sum, item) => sum + (item.quantity || 0), 0);
+    const items = itemCount(sale.items);
     return `
       <tr class="sale-row" onclick="viewSale(${sale.id})">
-        <td class="td-m"><strong>#${sale.id}</strong></td>
+        <td class="td-m"><strong>${esc(sale.invoiceNumber || sale.id)}</strong></td>
         <td>${fmtDate(sale.date)}</td>
         <td>${esc(sale.cashier?.fullName || t('Unknown cashier'))}</td>
         <td><span class="badge b-muted">${t('{count} items', { count: items })}</span></td>

@@ -2,6 +2,8 @@ package com.supermarket.controller;
 
 import com.supermarket.dto.ApiResponse;
 import com.supermarket.dto.CartItemRequest;
+import com.supermarket.dto.ParkCartRequest;
+import com.supermarket.dto.ParkedCartResponse;
 import com.supermarket.dto.ReceiptResponse;
 import com.supermarket.dto.SaleLogRequest;
 import com.supermarket.model.CartItem;
@@ -51,7 +53,7 @@ public class SaleController {
     @GetMapping("/cart")
     public ApiResponse<List<CartItem>> getCart(@RequestHeader(value = "X-Auth-Token", required = false) String token) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Cart loaded", cartService.getCart(cashier.getId()));
+        return ApiResponse.ok("Cart loaded", cartService.getCart(cashier));
     }
 
     @PostMapping("/cart")
@@ -60,7 +62,7 @@ public class SaleController {
             @RequestBody CartItemRequest request
     ) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Item added to cart", cartService.addToCart(cashier.getId(), request));
+        return ApiResponse.ok("Item added to cart", cartService.addToCart(cashier, request));
     }
 
     @PutMapping("/cart/{productId}")
@@ -70,22 +72,51 @@ public class SaleController {
             @RequestBody CartItemRequest request
     ) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Cart item updated", cartService.updateCartItem(
-                cashier.getId(), productId, request, cashier.getRole().isOperationalManager()
-        ));
+        return ApiResponse.ok("Cart item updated", cartService.updateCartItem(cashier, productId, request));
     }
 
     @GetMapping("/cart/subtotal")
     public ApiResponse<BigDecimal> getSubtotal(@RequestHeader(value = "X-Auth-Token", required = false) String token) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Cart subtotal calculated with streams", cartService.calculateSubtotal(cashier.getId()));
+        return ApiResponse.ok("Cart subtotal calculated with streams", cartService.calculateSubtotal(cashier));
     }
 
     @DeleteMapping("/cart")
     public ApiResponse<Void> clearCart(@RequestHeader(value = "X-Auth-Token", required = false) String token) {
         Cashier cashier = sessionService.requireUser(token);
-        cartService.clear(cashier.getId());
+        cartService.clear(cashier);
         return ApiResponse.ok("Cart cleared", null);
+    }
+
+    /** Puts the cart on screen aside (customer went to fetch something) so the till can serve someone else. */
+    @PostMapping("/cart/park")
+    public ApiResponse<ParkedCartResponse> parkCart(
+            @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestBody(required = false) ParkCartRequest request
+    ) {
+        Cashier cashier = sessionService.requireUser(token);
+        return ApiResponse.ok("Cart parked", ParkedCartResponse.from(cartService.park(cashier, request == null ? null : request.label())));
+    }
+
+    @GetMapping("/carts/parked")
+    public ApiResponse<List<ParkedCartResponse>> findParkedCarts(@RequestHeader(value = "X-Auth-Token", required = false) String token) {
+        sessionService.requireUser(token);
+        return ApiResponse.ok("Parked carts loaded", cartService.findParked().stream().map(ParkedCartResponse::from).toList());
+    }
+
+    @PostMapping("/carts/{cartId}/resume")
+    public ApiResponse<List<CartItem>> resumeCart(
+            @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @PathVariable Long cartId
+    ) {
+        Cashier cashier = sessionService.requireUser(token);
+        return ApiResponse.ok("Cart resumed", cartService.resume(cashier, cartId));
+    }
+
+    @GetMapping("/next-invoice-number")
+    public ApiResponse<String> nextInvoiceNumber(@RequestHeader(value = "X-Auth-Token", required = false) String token) {
+        sessionService.requireUser(token);
+        return ApiResponse.ok("Next invoice number", saleService.peekNextInvoiceNumber());
     }
 
     @PostMapping("/checkout")

@@ -95,7 +95,13 @@ public class ProductController {
     @DeleteMapping("/{id}")
     public ApiResponse<Void> delete(@RequestHeader(value = "X-Auth-Token", required = false) String token, @PathVariable Long id) {
         sessionService.requireOperationalManager(token);
-        productService.delete(id);
-        return ApiResponse.ok("Product deleted", null);
+        productService.deactivate(id);
+        return ApiResponse.ok("Product deactivated", null);
+    }
+
+    @PostMapping("/{id}/activate")
+    public ApiResponse<Product> activate(@RequestHeader(value = "X-Auth-Token", required = false) String token, @PathVariable Long id) {
+        sessionService.requireOperationalManager(token);
+        return ApiResponse.ok("Product activated", productService.activate(id));
     }
 }

@@ -6,7 +6,7 @@ public class CartItemRequest {
 
     private Long productId;
     private String barcode;
-    private Integer quantity;
+    private BigDecimal quantity;
     private BigDecimal price;
 
     public Long getProductId() {
@@ -25,11 +25,11 @@ public class CartItemRequest {
         this.barcode = barcode;
     }
 
-    public Integer getQuantity() {
+    public BigDecimal getQuantity() {
         return quantity;
     }
 
-    public void setQuantity(Integer quantity) {
+    public void setQuantity(BigDecimal quantity) {
         this.quantity = quantity;
     }
 

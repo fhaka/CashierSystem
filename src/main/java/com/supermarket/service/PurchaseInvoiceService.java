@@ -8,10 +8,12 @@ import com.supermarket.model.PurchaseInvoice;
 import com.supermarket.model.PurchaseItem;
 import com.supermarket.repository.ProductRepository;
 import com.supermarket.repository.PurchaseInvoiceRepository;
+import com.supermarket.util.Quantities;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
 @Service
@@ -46,19 +48,20 @@ public class PurchaseInvoiceService {
             validateItem(itemRequest);
             Product product = productService.findById(itemRequest.getProductId());
             String unit = normalizeUnit(itemRequest.getUnit());
-            BigDecimal lineTotal = itemRequest.getPurchasePrice().multiply(BigDecimal.valueOf(itemRequest.getQuantity()));
+            BigDecimal quantity = Quantities.requirePositive(itemRequest.getQuantity(), unit);
+            BigDecimal lineTotal = itemRequest.getPurchasePrice().multiply(quantity).setScale(2, RoundingMode.HALF_UP);
             total = total.add(lineTotal);
 
             product.setPurchasePrice(itemRequest.getPurchasePrice());
             product.setPrice(itemRequest.getSellingPrice());
             product.setTaxRate(itemRequest.getTaxRate());
             product.setUnit(unit);
-            product.setStock(product.getStock() + itemRequest.getQuantity());
+            product.setStock(product.getStock().add(quantity));
             productRepository.save(product);
 
             invoice.addItem(new PurchaseItem(
                     product,
-                    itemRequest.getQuantity(),
+                    quantity,
                     itemRequest.getPurchasePrice(),
                     itemRequest.getSellingPrice(),
                     itemRequest.getTaxRate(),
@@ -92,9 +95,6 @@ public class PurchaseInvoiceService {
     private void validateItem(PurchaseItemRequest item) {
         if (item.getProductId() == null) {
             throw new ValidationException("purchase.productRequired");
-        }
-        if (item.getQuantity() == null || item.getQuantity() <= 0) {
-            throw new ValidationException("cart.quantityPositive");
         }
         if (item.getPurchasePrice() == null || item.getPurchasePrice().signum() < 0) {
             throw new ValidationException("product.purchasePriceNegative");

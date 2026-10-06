@@ -61,9 +61,11 @@ class LanguageTest extends IntegrationTest {
 
         assertThat(text)
                 .startsWith("KUPON SHITJEJE\n")
-                .contains("Nr. shitjes: ")
-                .contains("x2 copë @ 120.00 (TVSH 20%: 40.00) = 240.00")
+                .contains("Nr. faturës: 000001")
+                .contains("Arkëtari: Admin Test")
+                .contains("  2 copë x 120.00 = 240.00")
                 .contains("TOTALI: 240.00")
+                .contains("TVSH 20%: Baza 200.00, TVSH 40.00")
                 .contains("Faleminderit për blerjen!")
                 .containsPattern("Data: \\d{2}\\.\\d{2}\\.\\d{4} \\d{2}:\\d{2}");
     }

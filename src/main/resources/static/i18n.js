@@ -376,6 +376,32 @@ const SQ = {
   'No backups yet.': 'Ende pa kopje rezervë.',
   'No backup yet': 'Ende pa kopje rezervë',
 
+  // Parked carts, quantities, deactivated products
+  'Park cart': 'Parko shportën',
+  'Parked carts': 'Shportat e parkuara',
+  "A parked cart can be resumed on any till. The till's own cart must be empty first.":
+    'Një shportë e parkuar mund të vazhdohet në çdo arkë. Shporta e arkës duhet të jetë fillimisht bosh.',
+  'Note': 'Shënimi',
+  'Parked at': 'Parkuar më',
+  'Note to recognise this cart (optional)': 'Shënim për ta njohur këtë shportë (opsional)',
+  'Cart parked': 'Shporta u parkua',
+  'Could not park cart': 'Shporta nuk u parkua',
+  'Resume': 'Vazhdo',
+  'No parked carts.': 'Nuk ka shporta të parkuara.',
+  'Cart resumed': 'Shporta u vazhdua',
+  'Could not resume cart': 'Shporta nuk u vazhdua',
+  'Enter a valid quantity': 'Shkruani një sasi të vlefshme',
+  'Invoice no.': 'Nr. faturës',
+  'Invoice {number}': 'Fatura {number}',
+  'Deactivate product': 'Çaktivizo produktin',
+  'Deactivate': 'Çaktivizo',
+  'Inactive': 'Joaktiv',
+  'Reactivate': 'Riaktivizo',
+  'Deactivate "{name}"? It will no longer be sold, but stays in old sales and can be reactivated.':
+    'Të çaktivizohet "{name}"? Nuk do të shitet më, por mbetet në shitjet e vjetra dhe mund të riaktivizohet.',
+  'Product reactivated': 'Produkti u riaktivizua',
+  'Product deactivated': 'Produkti u çaktivizua',
+
   // Units
   'pcs': 'copë',
   'kg': 'kg',

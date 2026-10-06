@@ -4,45 +4,19 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
-public class ReceiptResponse {
+public record ReceiptResponse(
+        Long saleId,
+        String invoiceNumber,
+        LocalDateTime date,
+        BigDecimal subtotal,
+        BigDecimal discountAmount,
+        BigDecimal totalAmount,
+        List<ReceiptItemResponse> items,
+        List<VatLine> vatSummary,
+        String printableReceipt
+) {
 
-    private Long saleId;
-    private LocalDateTime date;
-    private BigDecimal subtotal;
-    private BigDecimal totalAmount;
-    private List<ReceiptItemResponse> items;
-    private String printableReceipt;
-
-    public ReceiptResponse(Long saleId, LocalDateTime date, BigDecimal subtotal, BigDecimal totalAmount, List<ReceiptItemResponse> items, String printableReceipt) {
-        this.saleId = saleId;
-        this.date = date;
-        this.subtotal = subtotal;
-        this.totalAmount = totalAmount;
-        this.items = items;
-        this.printableReceipt = printableReceipt;
-    }
-
-    public Long getSaleId() {
-        return saleId;
-    }
-
-    public LocalDateTime getDate() {
-        return date;
-    }
-
-    public BigDecimal getSubtotal() {
-        return subtotal;
-    }
-
-    public BigDecimal getTotalAmount() {
-        return totalAmount;
-    }
-
-    public List<ReceiptItemResponse> getItems() {
-        return items;
-    }
-
-    public String getPrintableReceipt() {
-        return printableReceipt;
+    /** VAT per rate, as required on a receipt: amount without VAT, VAT, and total for that rate. */
+    public record VatLine(BigDecimal taxRate, BigDecimal netAmount, BigDecimal taxAmount, BigDecimal totalAmount) {
     }
 }

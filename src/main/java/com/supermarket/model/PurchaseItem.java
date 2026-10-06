@@ -32,8 +32,8 @@ public class PurchaseItem {
     @JoinColumn(name = "product_id", nullable = false)
     private Product product;
 
-    @Column(nullable = false)
-    private Integer quantity;
+    @Column(nullable = false, precision = 12, scale = 3)
+    private BigDecimal quantity;
 
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal purchasePrice;
@@ -53,7 +53,7 @@ public class PurchaseItem {
     public PurchaseItem() {
     }
 
-    public PurchaseItem(Product product, Integer quantity, BigDecimal purchasePrice, BigDecimal sellingPrice, BigDecimal taxRate, String unit, BigDecimal lineTotal) {
+    public PurchaseItem(Product product, BigDecimal quantity, BigDecimal purchasePrice, BigDecimal sellingPrice, BigDecimal taxRate, String unit, BigDecimal lineTotal) {
         this.product = product;
         this.quantity = quantity;
         this.purchasePrice = purchasePrice;
@@ -83,11 +83,11 @@ public class PurchaseItem {
         this.product = product;
     }
 
-    public Integer getQuantity() {
+    public BigDecimal getQuantity() {
         return quantity;
     }
 
-    public void setQuantity(Integer quantity) {
+    public void setQuantity(BigDecimal quantity) {
         this.quantity = quantity;
     }
 

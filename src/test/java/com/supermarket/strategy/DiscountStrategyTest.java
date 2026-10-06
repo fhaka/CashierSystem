@@ -9,7 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class DiscountStrategyTest {
 
-    private final DiscountStrategy strategy = new DiscountStrategy();
+    private final DiscountStrategy strategy = new DiscountStrategy(true, new BigDecimal("20000.00"), BigDecimal.TEN);
 
     @Test
     void noDiscountUpToTheThreshold() {

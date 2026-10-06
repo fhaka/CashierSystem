@@ -37,8 +37,12 @@ public class Product {
     @Column(nullable = false, precision = 5, scale = 2)
     private BigDecimal taxRate;
 
+    @Column(nullable = false, precision = 12, scale = 3)
+    private BigDecimal stock;
+
+    /** Deactivated products stay in old sales but cannot be sold. */
     @Column(nullable = false)
-    private Integer stock;
+    private boolean active = true;
 
     @Column(nullable = false)
     private String unit;
@@ -50,7 +54,7 @@ public class Product {
     public Product() {
     }
 
-    public Product(String name, String barcode, BigDecimal price, BigDecimal purchasePrice, BigDecimal taxRate, Integer stock, String unit, Category category) {
+    public Product(String name, String barcode, BigDecimal price, BigDecimal purchasePrice, BigDecimal taxRate, BigDecimal stock, String unit, Category category) {
         this.name = name;
         this.barcode = barcode;
         this.price = price;
@@ -109,11 +113,11 @@ public class Product {
         this.taxRate = taxRate;
     }
 
-    public Integer getStock() {
+    public BigDecimal getStock() {
         return stock;
     }
 
-    public void setStock(Integer stock) {
+    public void setStock(BigDecimal stock) {
         this.stock = stock;
     }
 
@@ -131,5 +135,13 @@ public class Product {
 
     public void setCategory(Category category) {
         this.category = category;
+    }
+
+    public boolean isActive() {
+        return active;
+    }
+
+    public void setActive(boolean active) {
+        this.active = active;
     }
 }

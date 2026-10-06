@@ -32,8 +32,8 @@ public class SaleItem {
     @JoinColumn(name = "product_id", nullable = false)
     private Product product;
 
-    @Column(nullable = false)
-    private Integer quantity;
+    @Column(nullable = false, precision = 12, scale = 3)
+    private BigDecimal quantity;
 
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal price;
@@ -50,10 +50,22 @@ public class SaleItem {
     @Column(nullable = false)
     private String unit;
 
+    /** Cost price when sold, so profit reports do not change when the cost changes later. */
+    @Column(precision = 10, scale = 2)
+    private BigDecimal purchasePrice;
+
+    /** This line's share of the sale discount. */
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal discountAmount = BigDecimal.ZERO;
+
+    /** Amount paid for this line, after discount. VAT is calculated on this amount. */
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal lineTotal;
+
     public SaleItem() {
     }
 
-    public SaleItem(Product product, Integer quantity, BigDecimal price, BigDecimal priceWithoutTax, BigDecimal taxRate, BigDecimal taxAmount, String unit) {
+    public SaleItem(Product product, BigDecimal quantity, BigDecimal price, BigDecimal priceWithoutTax, BigDecimal taxRate, BigDecimal taxAmount, String unit) {
         this.product = product;
         this.quantity = quantity;
         this.price = price;
@@ -87,11 +99,11 @@ public class SaleItem {
         this.product = product;
     }
 
-    public Integer getQuantity() {
+    public BigDecimal getQuantity() {
         return quantity;
     }
 
-    public void setQuantity(Integer quantity) {
+    public void setQuantity(BigDecimal quantity) {
         this.quantity = quantity;
     }
 
@@ -133,5 +145,29 @@ public class SaleItem {
 
     public void setUnit(String unit) {
         this.unit = unit;
+    }
+
+    public BigDecimal getPurchasePrice() {
+        return purchasePrice;
+    }
+
+    public void setPurchasePrice(BigDecimal purchasePrice) {
+        this.purchasePrice = purchasePrice;
+    }
+
+    public BigDecimal getDiscountAmount() {
+        return discountAmount;
+    }
+
+    public void setDiscountAmount(BigDecimal discountAmount) {
+        this.discountAmount = discountAmount;
+    }
+
+    public BigDecimal getLineTotal() {
+        return lineTotal;
+    }
+
+    public void setLineTotal(BigDecimal lineTotal) {
+        this.lineTotal = lineTotal;
     }
 }

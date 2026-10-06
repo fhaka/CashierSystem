@@ -9,7 +9,7 @@ public class ProductRequest {
     private BigDecimal price;
     private BigDecimal purchasePrice;
     private BigDecimal taxRate;
-    private Integer stock;
+    private BigDecimal stock;
     private String unit;
     private Long categoryId;
     private String categoryName;
@@ -54,11 +54,11 @@ public class ProductRequest {
         this.taxRate = taxRate;
     }
 
-    public Integer getStock() {
+    public BigDecimal getStock() {
         return stock;
     }
 
-    public void setStock(Integer stock) {
+    public void setStock(BigDecimal stock) {
         this.stock = stock;
     }
 

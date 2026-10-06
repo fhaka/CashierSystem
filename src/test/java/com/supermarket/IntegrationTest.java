@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 public abstract class IntegrationTest {
 
     private static final List<String> TABLES_CHILD_FIRST = List.of(
-            "sale_logs", "sale_items", "sales", "shifts",
+            "cart_items", "carts", "sale_logs", "sale_items", "sales", "shifts",
             "purchase_items", "purchase_invoices", "products", "auth_sessions", "cashiers", "backup_logs"
     );
 
@@ -49,6 +49,7 @@ public abstract class IntegrationTest {
     @BeforeEach
     void cleanDatabase() {
         TABLES_CHILD_FIRST.forEach(table -> jdbc.update("DELETE FROM " + table));
+        jdbc.update("UPDATE number_sequences SET current_value = 0");
     }
 
     protected ResultActions call(MockHttpServletRequestBuilder request, String token, Object body) throws Exception {

@@ -33,6 +33,13 @@ public class Sale {
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal totalAmount;
 
+    /** Printed on the receipt. Consecutive, without gaps. */
+    @Column(nullable = false, unique = true, length = 20)
+    private String invoiceNumber;
+
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal discountAmount = BigDecimal.ZERO;
+
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "cashier_id")
     private Cashier cashier;
@@ -91,5 +98,21 @@ public class Sale {
 
     public void setCashier(Cashier cashier) {
         this.cashier = cashier;
+    }
+
+    public String getInvoiceNumber() {
+        return invoiceNumber;
+    }
+
+    public void setInvoiceNumber(String invoiceNumber) {
+        this.invoiceNumber = invoiceNumber;
+    }
+
+    public BigDecimal getDiscountAmount() {
+        return discountAmount;
+    }
+
+    public void setDiscountAmount(BigDecimal discountAmount) {
+        this.discountAmount = discountAmount;
     }
 }

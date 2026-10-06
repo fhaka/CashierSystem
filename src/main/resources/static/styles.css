@@ -669,3 +669,8 @@
     /* Language switch */
     .lang-select { width: 100%; padding: 6px 10px; font-size: .8rem; margin-bottom: 8px; }
     .auth-card .lang-select { width: auto; margin: 0 0 14px auto; display: block; }
+
+    /* Parked carts and deactivated products */
+    .park-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .row-inactive td { opacity: .55; }
+    .row-inactive td.td-a { opacity: 1; }

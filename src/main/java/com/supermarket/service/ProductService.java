@@ -8,6 +8,7 @@ import com.supermarket.model.Product;
 import com.supermarket.repository.CategoryRepository;
 import com.supermarket.repository.ProductRepository;
 import com.supermarket.util.FilterUtil;
+import com.supermarket.util.Quantities;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,15 +35,18 @@ public class ProductService {
         return productRepository.findAll();
     }
 
+    /** Products the till can sell right now: active and with stock. */
     public List<Product> findInStock() {
-        return productFilter.filter(productRepository.findAll(), product -> product.getStock() > 0);
+        return productFilter.filter(productRepository.findByActiveTrue(), product -> product.getStock().signum() > 0);
     }
 
     public List<Product> search(String query) {
         if (query == null || query.isBlank()) {
-            return findAll();
+            return productRepository.findByActiveTrue();
         }
-        return productRepository.findByNameContainingIgnoreCaseOrBarcodeContainingIgnoreCase(query.trim(), query.trim());
+        return productFilter.filter(
+                productRepository.findByNameContainingIgnoreCaseOrBarcodeContainingIgnoreCase(query.trim(), query.trim()),
+                Product::isActive);
     }
 
     public Product findByBarcode(String barcode) {
@@ -78,8 +82,11 @@ public class ProductService {
     @Transactional
     public Product create(ProductRequest request) {
         validateProductRequest(request);
+        requireFreeBarcode(request.getBarcode().trim(), null);
         Category category = resolveCategory(request);
-        Product product = new Product(request.getName(), request.getBarcode(), request.getPrice(), request.getPurchasePrice(), request.getTaxRate(), request.getStock(), normalizeUnit(request.getUnit()), category);
+        String unit = normalizeUnit(request.getUnit());
+        Product product = new Product(request.getName().trim(), request.getBarcode().trim(), request.getPrice(), request.getPurchasePrice(),
+                request.getTaxRate(), Quantities.requireStock(request.getStock(), unit), unit, category);
         return productRepository.save(product);
     }
 
@@ -87,21 +94,41 @@ public class ProductService {
     public Product update(Long id, ProductRequest request) {
         validateProductRequest(request);
         Product product = findById(id);
-        product.setName(request.getName());
-        product.setBarcode(request.getBarcode());
+        requireFreeBarcode(request.getBarcode().trim(), id);
+        String unit = normalizeUnit(request.getUnit());
+        product.setName(request.getName().trim());
+        product.setBarcode(request.getBarcode().trim());
         product.setPrice(request.getPrice());
         product.setPurchasePrice(request.getPurchasePrice());
         product.setTaxRate(request.getTaxRate());
-        product.setStock(request.getStock());
-        product.setUnit(normalizeUnit(request.getUnit()));
+        product.setStock(Quantities.requireStock(request.getStock(), unit));
+        product.setUnit(unit);
         product.setCategory(resolveCategory(request));
         return productRepository.save(product);
     }
 
+    /**
+     * Products are never deleted: old sales and purchases keep pointing at them. A deactivated product
+     * disappears from the till and can be reactivated later.
+     */
     @Transactional
-    public void delete(Long id) {
+    public void deactivate(Long id) {
+        findById(id).setActive(false);
+    }
+
+    @Transactional
+    public Product activate(Long id) {
         Product product = findById(id);
-        productRepository.delete(product);
+        product.setActive(true);
+        return product;
+    }
+
+    private void requireFreeBarcode(String barcode, Long ownId) {
+        productRepository.findByBarcode(barcode)
+                .filter(other -> !other.getId().equals(ownId))
+                .ifPresent(other -> {
+                    throw new ValidationException(other.isActive() ? "product.barcodeExists" : "product.barcodeInactive", other.getName());
+                });
     }
 
     private Category resolveCategory(ProductRequest request) {
@@ -131,9 +158,6 @@ public class ProductService {
         }
         if (request.getTaxRate() == null || !(request.getTaxRate().compareTo(BigDecimal.ZERO) == 0 || request.getTaxRate().compareTo(BigDecimal.valueOf(20)) == 0)) {
             throw new ValidationException("product.invalidTax");
-        }
-        if (request.getStock() == null || request.getStock() < 0) {
-            throw new ValidationException("product.stockNegative");
         }
         normalizeUnit(request.getUnit());
     }

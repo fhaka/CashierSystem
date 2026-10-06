@@ -327,6 +327,10 @@
           <div class="subtotal-row"><span class="sub-label" data-i18n>Subtotal</span><span class="sub-amount" id="cart-subtotal">0.00 LEK</span></div>
           <button class="btn btn-primary btn-checkout" id="btn-checkout" disabled onclick="doCheckout()"><span data-i18n>Checkout</span></button>
           <button class="btn btn-secondary btn-clear btn-sm" id="btn-clear" disabled onclick="clearCart()"><span data-i18n>Clear Invoice</span></button>
+          <div class="park-actions">
+            <button class="btn btn-secondary btn-sm" onclick="parkCart()"><span data-i18n>Park cart</span></button>
+            <button class="btn btn-secondary btn-sm" onclick="openParkedCarts()"><span data-i18n>Parked carts</span></button>
+          </div>
         </div>
       </div>
 
@@ -782,7 +786,7 @@
         </div>
         <div class="input-group">
           <label class="input-label" data-i18n>Stock Qty</label>
-          <input class="input" id="pm-stock" type="number" placeholder="0" min="0" />
+          <input class="input" id="pm-stock" type="number" placeholder="0" min="0" step="any" />
         </div>
       </div>
       <div class="two-col">
@@ -926,10 +930,27 @@
 </div>
 
 
+<div id="modal-parked" class="overlay hidden">
+  <div class="modal sale-detail-modal">
+    <div class="modal-head">
+      <div class="modal-title" data-i18n>Parked carts</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-parked')">x</button>
+    </div>
+    <p class="t-sm t-muted" style="margin-bottom:12px;" data-i18n>A parked cart can be resumed on any till. The till's own cart must be empty first.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th data-i18n>Note</th><th data-i18n>Cashier</th><th data-i18n>Lines</th><th data-i18n>Total</th><th data-i18n>Parked at</th><th></th></tr></thead>
+        <tbody id="parked-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+
 <div id="modal-confirm" class="overlay hidden">
   <div class="modal" style="max-width:370px;">
     <div class="modal-head">
-      <div class="modal-title" data-i18n>Confirm Delete</div>
+      <div class="modal-title" data-i18n>Deactivate product</div>
     </div>
     <p style="color:var(--muted);font-size:.88rem;margin-bottom:22px;" id="confirm-msg">Are you sure?</p>
     <div class="modal-foot">
@@ -939,7 +960,7 @@
           <polyline points="3 6 5 6 21 6"/>
           <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
         </svg>
-        <span data-i18n>Delete</span>
+        <span data-i18n>Deactivate</span>
       </button>
     </div>
   </div>

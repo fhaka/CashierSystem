@@ -63,6 +63,16 @@ Hibernate does not change tables (`ddl-auto=none`). The tests run with `ddl-auto
 | Super Cashier | Everything a cashier can, plus products, purchase invoices, reports, change prices at the till |
 | Super Admin | Everything, plus users and backups |
 
+## Selling
+
+- **Weighed products** (`kg`) accept quantities with up to 3 decimals (0.350 kg); products sold by piece (`pcs`) need whole numbers. Stock follows the same rule.
+- **Two tills, one last item:** checkout locks the product rows until the sale is saved, so stock can never be sold twice.
+- **Carts** are stored in the database and survive a restart. *Park cart* puts a customer aside; *Parked carts* lets any till resume it (the till's own cart must be empty).
+- **Invoice numbers** (`000001`, `000002`, ...) come from a counter locked inside the sale, so they are consecutive with no gaps. Sales made before this version got their id as number.
+- **Discount:** above `pos.discount.threshold` the total gets `pos.discount.percent` off (`pos.discount.enabled=false` turns it off). The discount is spread over the lines and VAT is calculated on what was actually paid; the receipt shows VAT per rate.
+- **Profit** uses the cost price saved on each sale line, so later cost changes do not rewrite history.
+- **Products are deactivated, not deleted.** A deactivated product disappears from the till, stays in old sales, and can be reactivated from the Products screen.
+
 ## Security
 
 - **Passwords** are stored with BCrypt. Accounts from older versions (SHA-256) keep working and are upgraded automatically at their next sign-in. The minimum length is 4 characters.

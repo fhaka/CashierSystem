@@ -2,6 +2,8 @@ package com.supermarket.controller;
 
 import com.supermarket.dto.ApiResponse;
 import com.supermarket.dto.CartItemRequest;
+import com.supermarket.dto.CartSummary;
+import com.supermarket.dto.CheckoutRequest;
 import com.supermarket.dto.ParkCartRequest;
 import com.supermarket.dto.ParkedCartResponse;
 import com.supermarket.dto.ReceiptResponse;
@@ -81,6 +83,12 @@ public class SaleController {
         return ApiResponse.ok("Cart subtotal calculated with streams", cartService.calculateSubtotal(cashier));
     }
 
+    @GetMapping("/cart/summary")
+    public ApiResponse<CartSummary> getCartSummary(@RequestHeader(value = "X-Auth-Token", required = false) String token) {
+        Cashier cashier = sessionService.requireUser(token);
+        return ApiResponse.ok("Cart summary", saleService.cartSummary(cashier));
+    }
+
     @DeleteMapping("/cart")
     public ApiResponse<Void> clearCart(@RequestHeader(value = "X-Auth-Token", required = false) String token) {
         Cashier cashier = sessionService.requireUser(token);
@@ -121,10 +129,11 @@ public class SaleController {
 
     @PostMapping("/checkout")
     public ApiResponse<ReceiptResponse> checkout(
-            @RequestHeader(value = "X-Auth-Token", required = false) String token
+            @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestBody(required = false) CheckoutRequest request
     ) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Checkout completed", saleService.checkout(cashier));
+        return ApiResponse.ok("Checkout completed", saleService.checkout(cashier, request));
     }
 
     @GetMapping("/logs")

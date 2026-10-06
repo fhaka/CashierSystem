@@ -1,12 +1,16 @@
 package com.supermarket.controller;
 
 import com.supermarket.dto.ApiResponse;
+import com.supermarket.dto.CashMovementRequest;
+import com.supermarket.dto.PeriodReport;
 import com.supermarket.dto.ShiftCloseRequest;
 import com.supermarket.dto.ShiftOpenRequest;
+import com.supermarket.model.CashMovement;
 import com.supermarket.model.Shift;
 import com.supermarket.model.Cashier;
 import com.supermarket.model.CashierRole;
 import com.supermarket.exception.PermissionDeniedException;
+import com.supermarket.service.ReportService;
 import com.supermarket.service.ShiftService;
 import com.supermarket.service.SessionService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,10 +30,12 @@ public class ShiftController {
 
     private final ShiftService shiftService;
     private final SessionService sessionService;
+    private final ReportService reportService;
 
-    public ShiftController(ShiftService shiftService, SessionService sessionService) {
+    public ShiftController(ShiftService shiftService, SessionService sessionService, ReportService reportService) {
         this.shiftService = shiftService;
         this.sessionService = sessionService;
+        this.reportService = reportService;
     }
 
     @GetMapping
@@ -74,5 +80,50 @@ public class ShiftController {
     ) {
         Cashier cashier = sessionService.requireUser(token);
         return ApiResponse.ok("Shift closed", shiftService.closeShift(shiftId, request, cashier));
+    }
+
+    @PostMapping("/{shiftId}/cash-movements")
+    public ApiResponse<CashMovement> addCashMovement(
+            @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @PathVariable Long shiftId,
+            @RequestBody CashMovementRequest request
+    ) {
+        Cashier cashier = sessionService.requireUser(token);
+        return ApiResponse.ok("Cash movement saved", shiftService.addCashMovement(shiftId, request, cashier));
+    }
+
+    @GetMapping("/{shiftId}/cash-movements")
+    public ApiResponse<List<CashMovement>> findCashMovements(
+            @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @PathVariable Long shiftId
+    ) {
+        Cashier cashier = sessionService.requireUser(token);
+        Shift shift = shiftService.findById(shiftId);
+        if (!cashier.getRole().isOperationalManager() && !shift.getCashier().getId().equals(cashier.getId())) {
+            throw new PermissionDeniedException("shift.onlyOwnView");
+        }
+        return ApiResponse.ok("Cash movements loaded", shiftService.findCashMovements(shiftId));
+    }
+
+    /**
+     * X report of a shift. Managers can print it any time. Cashiers only see their own shift's report after
+     * closing it, so they count the drawer without knowing the expected amount (blind close).
+     */
+    @GetMapping("/{shiftId}/report")
+    public ApiResponse<PeriodReport> shiftReport(
+            @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @PathVariable Long shiftId
+    ) {
+        Cashier cashier = sessionService.requireUser(token);
+        Shift shift = shiftService.findById(shiftId);
+        if (!cashier.getRole().isOperationalManager()) {
+            if (!shift.getCashier().getId().equals(cashier.getId())) {
+                throw new PermissionDeniedException("shift.onlyOwnView");
+            }
+            if ("OPEN".equals(shift.getStatus())) {
+                throw new PermissionDeniedException("shift.reportAfterClose");
+            }
+        }
+        return ApiResponse.ok("Shift report loaded", reportService.shiftReport(shift));
     }
 }

@@ -247,21 +247,21 @@
             <div class="two-col">
               <div class="input-group">
                 <label class="input-label" data-i18n>EUR sale</label>
-                <input class="input" id="eur-sale-rate" type="number" step="0.01" value="95.1" onchange="refreshCurrencyDisplay()" />
+                <input class="input rate-input" id="eur-sale-rate" type="number" step="0.0001" min="0" onchange="onRateChanged()" />
               </div>
               <div class="input-group">
                 <label class="input-label" data-i18n>EUR buy</label>
-                <input class="input" id="eur-buy-rate" type="number" step="0.01" value="95.7" onchange="refreshCurrencyDisplay()" />
+                <input class="input rate-input" id="eur-buy-rate" type="number" step="0.0001" min="0" onchange="onRateChanged()" />
               </div>
             </div>
             <div class="two-col">
               <div class="input-group">
                 <label class="input-label" data-i18n>USD sale</label>
-                <input class="input" id="usd-sale-rate" type="number" step="0.01" value="81.7" onchange="refreshCurrencyDisplay()" />
+                <input class="input rate-input" id="usd-sale-rate" type="number" step="0.0001" min="0" onchange="onRateChanged()" />
               </div>
               <div class="input-group">
                 <label class="input-label" data-i18n>USD buy</label>
-                <input class="input" id="usd-buy-rate" type="number" step="0.01" value="82.7" onchange="refreshCurrencyDisplay()" />
+                <input class="input rate-input" id="usd-buy-rate" type="number" step="0.0001" min="0" onchange="onRateChanged()" />
               </div>
             </div>
           </div>
@@ -567,6 +567,21 @@
       <div class="reports-page">
         <div class="report-kpis" id="report-kpis"></div>
 
+        <section class="report-card">
+          <div class="report-card-head">
+            <div>
+              <h2 data-i18n>Daily Z report</h2>
+              <p data-i18n>Everything sold and received on one day, on all tills</p>
+            </div>
+            <div class="actions">
+              <input class="input" id="z-date" type="date" />
+              <button class="btn btn-secondary btn-sm" onclick="loadZReport()" data-i18n>Show</button>
+              <button class="btn btn-primary btn-sm" onclick="printZReport()" data-i18n>Print</button>
+            </div>
+          </div>
+          <pre class="receipt-box hidden" id="z-report-text"></pre>
+        </section>
+
         <div class="report-grid">
           <section class="report-card report-wide">
             <div class="report-card-head">
@@ -714,10 +729,54 @@
               <label class="input-label" data-i18n>Closing cash counted</label>
               <input class="input" id="shift-closing-cash" type="number" min="0" step="0.01" value="0" />
             </div>
-            <div class="balance-line"><span data-i18n>Total Sales</span><strong id="shift-sales">0.00 LEK</strong></div>
-            <div class="balance-line"><span data-i18n>Expected Cash</span><strong id="shift-expected">0.00 LEK</strong></div>
-            <div class="balance-line"><span data-i18n>Difference</span><strong id="shift-difference">0.00 LEK</strong></div>
+            <p class="t-sm t-muted" data-i18n>Count the drawer first. The expected amount is shown after the shift is closed.</p>
             <button class="btn btn-danger" style="margin-top:12px;" onclick="closeShift()" data-i18n>Close Shift</button>
+          </section>
+
+          <section class="report-card">
+            <div class="report-card-head">
+              <div>
+                <h2 data-i18n>Cash in / out</h2>
+                <p data-i18n>Money put into or taken out of the drawer outside of sales</p>
+              </div>
+            </div>
+            <div class="two-col">
+              <div class="input-group">
+                <label class="input-label" data-i18n>Type</label>
+                <select class="input" id="cash-type">
+                  <option value="IN" data-i18n>Cash in</option>
+                  <option value="OUT" data-i18n>Cash out</option>
+                </select>
+              </div>
+              <div class="input-group">
+                <label class="input-label" data-i18n>Amount (LEK)</label>
+                <input class="input" id="cash-amount" type="number" min="0" step="0.01" />
+              </div>
+            </div>
+            <div class="input-group">
+              <label class="input-label" data-i18n>Reason</label>
+              <input class="input" id="cash-reason" type="text" data-i18n-placeholder placeholder="e.g. supplier paid from the drawer" />
+            </div>
+            <button class="btn btn-primary" style="margin-top:12px;" onclick="addCashMovement()" data-i18n>Save</button>
+            <div id="cash-movements-list" class="cash-movements"></div>
+          </section>
+
+          <section class="report-card hidden" id="shift-summary">
+            <div class="report-card-head">
+              <div>
+                <h2 data-i18n>Shift summary</h2>
+                <p id="shift-summary-sub"></p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="printShiftReport()" data-i18n>Print X report</button>
+            </div>
+            <div class="balance-line"><span data-i18n>Total Sales</span><strong id="sum-total">-</strong></div>
+            <div class="balance-line"><span data-i18n>Cash (net)</span><strong id="sum-cash">-</strong></div>
+            <div class="balance-line"><span data-i18n>Card</span><strong id="sum-card">-</strong></div>
+            <div class="balance-line"><span data-i18n>Cash in</span><strong id="sum-in">-</strong></div>
+            <div class="balance-line"><span data-i18n>Cash out</span><strong id="sum-out">-</strong></div>
+            <div class="balance-line"><span data-i18n>Expected Cash</span><strong id="sum-expected">-</strong></div>
+            <div class="balance-line"><span data-i18n>Closing cash counted</span><strong id="sum-closing">-</strong></div>
+            <div class="balance-line"><span data-i18n>Difference</span><strong id="sum-difference">-</strong></div>
           </section>
 
           <section class="report-card report-wide">
@@ -730,7 +789,7 @@
             <div class="tbl-wrap report-table-wrap">
               <table>
                 <thead>
-                  <tr><th data-i18n>ID</th><th data-i18n>Cashier</th><th data-i18n>Status</th><th data-i18n>Opened</th><th data-i18n>Closed</th><th data-i18n>Opening</th><th data-i18n>Sales</th><th data-i18n>Expected</th><th data-i18n>Closing</th><th data-i18n>Diff</th></tr>
+                  <tr><th data-i18n>ID</th><th data-i18n>Cashier</th><th data-i18n>Status</th><th data-i18n>Opened</th><th data-i18n>Closed</th><th data-i18n>Opening</th><th data-i18n>Sales</th><th data-i18n>Cash</th><th data-i18n>Card</th><th data-i18n>Expected</th><th data-i18n>Closing</th><th data-i18n>Diff</th></tr>
                 </thead>
                 <tbody id="shifts-tbody"></tbody>
               </table>
@@ -872,6 +931,52 @@
 </div>
 
 
+<div id="modal-payment" class="overlay hidden">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-head">
+      <div class="modal-title" data-i18n>Payment</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-payment')">x</button>
+    </div>
+    <div class="pay-total">
+      <span data-i18n>To pay</span>
+      <strong id="pay-total">0.00 LEK</strong>
+      <small id="pay-total-foreign"></small>
+    </div>
+    <div class="pay-quick">
+      <button class="btn btn-secondary btn-sm" onclick="payExactCash()" data-i18n>Exact cash</button>
+      <button class="btn btn-secondary btn-sm" onclick="payAllByCard()" data-i18n>All by card</button>
+    </div>
+    <div class="input-group">
+      <label class="input-label" data-i18n>Cash (LEK)</label>
+      <input class="input pay-input" id="pay-cash-lek" type="number" min="0" step="0.01" oninput="updatePaymentSummary()" />
+    </div>
+    <div class="two-col">
+      <div class="input-group">
+        <label class="input-label" data-i18n>Foreign cash</label>
+        <input class="input pay-input" id="pay-cash-foreign" type="number" min="0" step="0.01" oninput="updatePaymentSummary()" />
+      </div>
+      <div class="input-group">
+        <label class="input-label" data-i18n>Currency</label>
+        <select class="input" id="pay-foreign-currency" onchange="updatePaymentSummary()">
+          <option value="EUR">EUR</option>
+          <option value="USD">USD</option>
+        </select>
+      </div>
+    </div>
+    <div class="input-group">
+      <label class="input-label" data-i18n>Card (LEK)</label>
+      <input class="input pay-input" id="pay-card" type="number" min="0" step="0.01" oninput="updatePaymentSummary()" />
+    </div>
+    <div class="balance-line"><span data-i18n>Paid</span><strong id="pay-paid">0.00 LEK</strong></div>
+    <div class="balance-line"><span id="pay-rest-label" data-i18n>Still to pay</span><strong id="pay-rest">0.00 LEK</strong></div>
+    <div class="receipt-acts">
+      <button class="btn btn-secondary" onclick="closeModal('modal-payment')" data-i18n>Cancel</button>
+      <button class="btn btn-primary" id="pay-confirm" onclick="confirmPayment()" disabled data-i18n>Complete payment</button>
+    </div>
+  </div>
+</div>
+
+
 <div id="modal-receipt" class="overlay hidden">
   <div class="modal" style="max-width:440px;">
     <div class="modal-head">
@@ -880,23 +985,6 @@
     </div>
     <div class="receipt-box" id="receipt-txt"></div>
     <div class="keypad-card" style="margin-top:14px;">
-      <div class="keypad-title"><span data-i18n>Payment</span><span id="payment-total-lek">0.00 LEK</span></div>
-      <div class="two-col">
-        <div class="input-group">
-          <label class="input-label" data-i18n>Customer gave</label>
-          <input class="input" id="payment-amount" type="number" step="0.01" min="0" oninput="calculateChange()" />
-        </div>
-        <div class="input-group">
-          <label class="input-label" data-i18n>Currency</label>
-          <select class="input" id="payment-currency" onchange="calculateChange()">
-            <option>EURO</option>
-            <option selected>LEK</option>
-            <option>USD</option>
-          </select>
-        </div>
-      </div>
-      <div class="balance-line"><span data-i18n>Converted payment</span><strong id="payment-converted">0.00 LEK</strong></div>
-      <div class="balance-line"><span data-i18n>Change / Resto</span><strong id="payment-change">0.00 LEK</strong></div>
       <div class="input-group" style="margin-top:12px;">
         <label class="input-label" data-i18n>Receipt printer</label>
         <select class="input" id="receipt-printer">

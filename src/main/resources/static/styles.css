@@ -674,3 +674,15 @@
     .park-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
     .row-inactive td { opacity: .55; }
     .row-inactive td.td-a { opacity: 1; }
+
+    /* Payment window, cash movements, shift summary */
+    .pay-total { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px; margin-bottom: 12px;
+      border-radius: 10px; background: var(--surface-2, rgba(37,99,235,.06)); }
+    .pay-total strong { font-size: 1.8rem; }
+    .pay-total small { color: var(--muted); }
+    .pay-quick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    #pay-rest.is-change { color: var(--green); }
+    #pay-rest.is-missing { color: var(--red); }
+    .cash-movements { margin-top: 12px; display: grid; gap: 6px; }
+    .cash-movements .balance-line span { white-space: normal; }
+    .rate-input:disabled { opacity: .75; }

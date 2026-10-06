@@ -169,6 +169,7 @@ function bootUser(user) {
   loadPosProducts();
   refreshCart();
   loadHomeData();
+  loadExchangeRates();
 }
 
 async function doLogout() {
@@ -185,6 +186,7 @@ function applyRolePermissions() {
   const superAdmin = isSuperAdmin();
   document.querySelectorAll('.manager-only').forEach(element => element.classList.toggle('hidden', !manager));
   document.querySelectorAll('.super-admin-only').forEach(element => element.classList.toggle('hidden', !superAdmin));
+  document.querySelectorAll('.rate-input').forEach(input => { input.disabled = !manager; });
   const salesSubtitle = document.querySelector('#view-sales .page-sub');
   if (salesSubtitle) salesSubtitle.textContent = manager ? t('Transaction history for all cashiers') : t('Your transaction history');
   if ($('home-description')) {
@@ -360,6 +362,41 @@ async function fetchSubtotal() {
   } catch {}
 }
 
+/* Exchange rates live on the server. Managers change them here; cashiers only see them. */
+let exchangeRates = {};
+let rateSaveTimer;
+
+async function loadExchangeRates() {
+  try {
+    const res = await req('GET', '/exchange-rates');
+    exchangeRates = {};
+    (res.data || []).forEach(rate => { exchangeRates[rate.currency] = rate; });
+    if (exchangeRates.EUR) { $('eur-sale-rate').value = exchangeRates.EUR.sellRate; $('eur-buy-rate').value = exchangeRates.EUR.buyRate; }
+    if (exchangeRates.USD) { $('usd-sale-rate').value = exchangeRates.USD.sellRate; $('usd-buy-rate').value = exchangeRates.USD.buyRate; }
+    refreshCurrencyDisplay();
+  } catch (e) { toast(e.message || t('Could not load exchange rates'), 'error'); }
+}
+
+function onRateChanged() {
+  refreshCurrencyDisplay();
+  if (!isOperationalManager()) return;
+  clearTimeout(rateSaveTimer);
+  rateSaveTimer = setTimeout(async () => {
+    const rates = getRates();
+    try {
+      await req('PUT', '/exchange-rates', [
+        { currency: 'EUR', buyRate: rates.eurBuy, sellRate: rates.eurSale },
+        { currency: 'USD', buyRate: rates.usdBuy, sellRate: rates.usdSale }
+      ]);
+      await loadExchangeRates();
+      toast(t('Exchange rates saved'), 'success');
+    } catch (e) {
+      toast(e.message || t('Could not save exchange rates'), 'error');
+      loadExchangeRates();
+    }
+  }, 600);
+}
+
 function refreshCurrencyDisplay() {
   renderCart();
   renderGrid(posProducts);
@@ -367,7 +404,6 @@ function refreshCurrencyDisplay() {
   renderSalesTable(allSales);
   renderStats(allSales);
   if ($('view-reports')?.classList.contains('on')) applyReportFilters();
-  calculateChange();
 }
 
 async function addById(productId) {
@@ -601,50 +637,93 @@ async function clearCart() {
 }
 
 /*  Checkout  */
+/* Checkout opens the payment window. The sale is only saved when the payment covers the total. */
+let paymentTotal = 0;
+
 async function doCheckout() {
   if (!cartItems.length) { toast(t('Cart is empty'), 'error'); return; }
-  const btn = $('btn-checkout');
-  btn.disabled = true;
-  btn.innerHTML = `<div class="spin"></div> ${t('Processing')}`;
   try {
-    const res = await req('POST', '/sales/checkout');
+    const res = await req('GET', '/sales/cart/summary');
+    paymentTotal = parseFloat(res.data?.totalAmount || 0);
+    const discount = parseFloat(res.data?.discountAmount || 0);
+    $('pay-total').textContent = fmtLek(paymentTotal);
+    const foreign = ['EUR', 'USD'].filter(c => exchangeRates[c])
+      .map(c => `${(paymentTotal / exchangeRates[c].buyRate).toFixed(2)} ${c}`).join(' / ');
+    $('pay-total-foreign').textContent = (discount > 0 ? t('Discount') + ': ' + fmtLek(discount) + ' | ' : '') + foreign;
+    ['pay-cash-lek', 'pay-cash-foreign', 'pay-card'].forEach(id => { $(id).value = ''; });
+    updatePaymentSummary();
+    openModal('modal-payment');
+    setTimeout(() => $('pay-cash-lek').focus(), 50);
+  } catch (e) { toast(e.message || t('Checkout failed'), 'error'); }
+}
+
+function readPayments() {
+  const amount = id => parseFloat(String($(id).value || '').replace(',', '.')) || 0;
+  const currency = $('pay-foreign-currency').value;
+  const payments = [];
+  if (amount('pay-cash-lek') > 0) payments.push({ method: 'CASH', currency: 'LEK', amount: amount('pay-cash-lek') });
+  if (amount('pay-cash-foreign') > 0) payments.push({ method: 'CASH', currency, amount: amount('pay-cash-foreign') });
+  if (amount('pay-card') > 0) payments.push({ method: 'CARD', currency: 'LEK', amount: amount('pay-card') });
+  return payments;
+}
+
+/* Same conversion as the server: foreign cash at the buy rate, rounded to cents. */
+function paymentInLek(payment) {
+  const rate = payment.currency === 'LEK' ? 1 : (exchangeRates[payment.currency]?.buyRate || 0);
+  return Math.round(payment.amount * rate * 100) / 100;
+}
+
+function updatePaymentSummary() {
+  const payments = readPayments();
+  const paid = payments.reduce((sum, p) => sum + paymentInLek(p), 0);
+  const card = payments.filter(p => p.method === 'CARD').reduce((sum, p) => sum + p.amount, 0);
+  const rest = Math.round((paymentTotal - paid) * 100) / 100;
+  $('pay-paid').textContent = fmtLek(paid);
+  const restEl = $('pay-rest');
+  restEl.classList.toggle('is-missing', rest > 0);
+  restEl.classList.toggle('is-change', rest <= 0);
+  $('pay-rest-label').textContent = rest > 0 ? t('Still to pay') : t('Change');
+  restEl.textContent = fmtLek(Math.abs(rest));
+  $('pay-confirm').disabled = rest > 0 || card > paymentTotal + 0.001 || !payments.length;
+}
+
+function payExactCash() {
+  $('pay-cash-lek').value = paymentTotal.toFixed(2);
+  $('pay-cash-foreign').value = '';
+  $('pay-card').value = '';
+  updatePaymentSummary();
+}
+
+function payAllByCard() {
+  $('pay-card').value = paymentTotal.toFixed(2);
+  $('pay-cash-lek').value = '';
+  $('pay-cash-foreign').value = '';
+  updatePaymentSummary();
+}
+
+async function confirmPayment() {
+  const btn = $('pay-confirm');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  try {
+    const res = await req('POST', '/sales/checkout', { payments: readPayments() });
     const data = res.data || {};
     lastCheckoutData = data;
     lastReceipt = data.printableReceipt || buildFallbackReceipt(data);
+    closeModal('modal-payment');
     $('receipt-txt').textContent = lastReceipt;
-    preparePayment(data);
     openModal('modal-receipt');
     loadReceiptPrinters();
     cartItems = [];
     renderCart();
     setNextInvoiceNumber();
-    toast(t('Checkout complete!'), 'success');
+    toast(parseFloat(data.changeAmount) > 0
+      ? t('Sale completed. Change: {amount}', { amount: fmtLek(data.changeAmount) })
+      : t('Checkout complete!'), 'success');
   } catch (e) {
     toast(e.message || t('Checkout failed'), 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> ${t('Checkout')}`;
+    updatePaymentSummary();
   }
-}
-
-function preparePayment(data) {
-  const totalLek = parseFloat(data.totalAmount || 0);
-  if ($('payment-total-lek')) $('payment-total-lek').textContent = fmtLek(totalLek);
-  if ($('payment-currency')) $('payment-currency').value = $('currency-select')?.value || 'LEK';
-  if ($('payment-amount')) $('payment-amount').value = '';
-  calculateChange();
-}
-
-function calculateChange() {
-  if (!lastCheckoutData) return;
-  const totalLek = parseFloat(lastCheckoutData.totalAmount || 0);
-  const paymentCurrency = $('payment-currency')?.value || 'LEK';
-  const paidAmount = parseFloat($('payment-amount')?.value || '0');
-  const paidLek = convertPaymentToLek(paidAmount, paymentCurrency);
-  const changeLek = paidLek - totalLek;
-  if ($('payment-total-lek')) $('payment-total-lek').textContent = fmtLek(totalLek);
-  if ($('payment-converted')) $('payment-converted').textContent = fmtLek(paidLek);
-  if ($('payment-change')) $('payment-change').textContent = fmtLek(changeLek);
 }
 
 async function loadCategories(selectedName) {
@@ -853,22 +932,24 @@ function buildFallbackReceipt(data) {
   lines.push('-'.repeat(32));
   lines.push(`${t('Subtotal')}: ${fmt(data.subtotal ?? data.totalAmount)}`);
   lines.push(`${t('TOTAL')}: ${fmt(data.totalAmount)}`);
+  (data.payments || []).forEach(p => {
+    lines.push(`${p.method === 'CARD' ? t('Card') : t('Cash')}: ${parseFloat(p.amount).toFixed(2)} ${p.currency}`);
+  });
+  if (parseFloat(data.changeAmount) > 0) lines.push(`${t('Change')}: ${fmtLek(data.changeAmount)}`);
   lines.push('='.repeat(32));
   lines.push(t('Thank you for shopping!'));
   return lines.join('\n');
 }
 
 async function printReceipt() {
-  calculateChange();
-  const paidAmount = $('payment-amount')?.value || '0';
-  const paidCurrency = $('payment-currency')?.value || 'LEK';
-  const paidLek = convertPaymentToLek(paidAmount, paidCurrency);
-  const totalLek = parseFloat(lastCheckoutData?.totalAmount || 0);
-  const paymentLines = lastCheckoutData ? `\n\n${t('PAYMENT')}\n${t('Total')}: ${fmtLek(totalLek)}\n${t('Customer gave')}: ${paidAmount} ${paidCurrency}\n${t('Converted')}: ${fmtLek(paidLek)}\n${t('Change')}: ${fmtLek(paidLek - totalLek)}` : '';
-  const receiptToPrint = lastReceipt + paymentLines;
+  await printText(lastReceipt);
+}
+
+/* Sends any text (receipt, X or Z report) to the chosen receipt printer. */
+async function printText(text) {
   const printerName = $('receipt-printer')?.value || '';
   try {
-    await req('POST', '/printer/receipt', { receiptText: receiptToPrint, printerName });
+    await req('POST', '/printer/receipt', { receiptText: text, printerName });
     toast(printerName ? t('Receipt sent to {printer}', { printer: printerName }) : t('Receipt sent to default printer'), 'success');
   } catch (e) {
     toast(e.message || t('Could not print receipt'), 'error');
@@ -1166,6 +1247,8 @@ function viewSale(saleId) {
       <span class="lbl">${t('Total Amount')}</span>
       <span class="amt">${fmt(sale.totalAmount)}</span>
     </div>
+    ${(sale.payments || []).map(p => `<div class="balance-line"><span>${p.method === 'CARD' ? t('Card') : t('Cash')}</span><strong>${parseFloat(p.amount).toFixed(2)} ${esc(p.currency)}${p.currency !== 'LEK' ? ` (${fmtLek(p.amountLek)})` : ''}</strong></div>`).join('')}
+    ${parseFloat(sale.changeAmount) > 0 ? `<div class="balance-line"><span>${t('Change')}</span><strong>${fmtLek(sale.changeAmount)}</strong></div>` : ''}
     <div class="modal-foot" style="margin-top:18px;">
       <button class="btn btn-secondary" onclick="closeModal('modal-sale')">${t('Close')}</button>
       <button class="btn btn-primary" onclick="printSale(${sale.id})">
@@ -1200,6 +1283,7 @@ function getSaleProfit(sale) {
 
 /*  Reports  */
 async function loadReports() {
+  if ($('z-date') && !$('z-date').value) $('z-date').value = new Date().toISOString().slice(0, 10);
   const tbody = $('report-tbody');
   if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="no-data">${t('Loading reports...')}</td></tr>`;
   try {
@@ -1664,6 +1748,8 @@ async function submitUser() {
 }
 
 /*  Shifts and backups  */
+let summaryShiftId = null;
+
 async function loadOperations() {
   if (!currentUser?.cashierId) return;
   try {
@@ -1677,9 +1763,92 @@ async function loadOperations() {
     renderActiveShift(activeShift);
     renderShiftRows(shiftsRes.data || []);
     if (isSuperAdmin()) renderBackupRows(backupsRes?.data || []);
+    loadCashMovements();
+    // Managers follow the open shift live; cashiers only see the summary after closing (blind close).
+    if (activeShift && isOperationalManager()) loadShiftSummary(activeShift.id);
+    else if (activeShift) $('shift-summary').classList.add('hidden');
   } catch (e) {
     toast(e.message || t('Could not load operations'), 'error');
   }
+}
+
+async function loadShiftSummary(shiftId) {
+  try {
+    const res = await req('GET', `/shifts/${shiftId}/report`);
+    const r = res.data;
+    renderShiftSummary({ id: shiftId, totalSales: r.totalSales, cashSales: r.cashSales, cardSales: r.cardSales,
+      cashIn: r.cashIn, cashOut: r.cashOut, expectedCash: r.expectedCash, closingCash: null, difference: null });
+  } catch {}
+}
+
+function renderShiftSummary(shift) {
+  summaryShiftId = shift.id;
+  const show = v => (v === null || v === undefined ? '-' : fmtLek(v));
+  $('shift-summary').classList.remove('hidden');
+  $('shift-summary-sub').textContent = t('Shift #{id}', { id: shift.id });
+  $('sum-total').textContent = show(shift.totalSales);
+  $('sum-cash').textContent = show(shift.cashSales);
+  $('sum-card').textContent = show(shift.cardSales);
+  $('sum-in').textContent = show(shift.cashIn);
+  $('sum-out').textContent = show(shift.cashOut);
+  $('sum-expected').textContent = show(shift.expectedCash);
+  $('sum-closing').textContent = show(shift.closingCash);
+  $('sum-difference').textContent = show(shift.difference);
+}
+
+async function printShiftReport() {
+  if (!summaryShiftId) return;
+  try {
+    const res = await req('GET', `/shifts/${summaryShiftId}/report`);
+    await printText(res.data.printableText);
+  } catch (e) { toast(e.message || t('Could not print receipt'), 'error'); }
+}
+
+async function loadCashMovements() {
+  const list = $('cash-movements-list');
+  if (!activeShift) { list.innerHTML = ''; return; }
+  try {
+    const res = await req('GET', `/shifts/${activeShift.id}/cash-movements`);
+    list.innerHTML = (res.data || []).map(m => `
+      <div class="balance-line">
+        <span>${formatTime(m.createdAt)} · ${esc(m.type === 'IN' ? t('Cash in') : t('Cash out'))} · ${esc(m.reason)}</span>
+        <strong>${m.type === 'IN' ? '+' : '-'}${fmtLek(m.amount)}</strong>
+      </div>`).join('');
+  } catch { list.innerHTML = ''; }
+}
+
+async function addCashMovement() {
+  if (!activeShift?.id) { toast(t('Open a shift first'), 'error'); return; }
+  const body = {
+    type: $('cash-type').value,
+    amount: parseFloat($('cash-amount').value || '0'),
+    reason: $('cash-reason').value.trim()
+  };
+  try {
+    await req('POST', `/shifts/${activeShift.id}/cash-movements`, body);
+    $('cash-amount').value = '';
+    $('cash-reason').value = '';
+    toast(t('Cash movement saved'), 'success');
+    loadOperations();
+  } catch (e) { toast(e.message || t('Save failed'), 'error'); }
+}
+
+/* Z report: everything sold and received on one day, on all tills. */
+let zReportText = '';
+
+async function loadZReport() {
+  const date = $('z-date').value || new Date().toISOString().slice(0, 10);
+  try {
+    const res = await req('GET', `/reports/daily?date=${encodeURIComponent(date)}`);
+    zReportText = res.data.printableText;
+    $('z-report-text').textContent = zReportText;
+    $('z-report-text').classList.remove('hidden');
+  } catch (e) { toast(e.message || t('Could not load reports: '), 'error'); }
+}
+
+async function printZReport() {
+  if (!zReportText) await loadZReport();
+  if (zReportText) await printText(zReportText);
 }
 
 async function openShift() {
@@ -1707,7 +1876,7 @@ async function closeShift() {
   try {
     const res = await req('POST', `/shifts/${activeShift.id}/close`, { closingCash });
     activeShift = null;
-    renderClosedShiftSummary(res.data);
+    renderShiftSummary(res.data);
     toast(t('Shift closed'), 'success');
     loadOperations();
   } catch (e) {
@@ -1729,22 +1898,13 @@ function renderActiveShift(shift) {
   $('shift-status').textContent = shift ? statusLabel('OPEN') : t('No open shift');
   $('shift-opened').textContent = shift ? fmtDate(shift.openedAt) : '-';
   $('shift-opening').textContent = fmtLek(shift?.openingCash || 0);
-  $('shift-sales').textContent = fmtLek(shift?.totalSales || 0);
-  $('shift-expected').textContent = fmtLek(shift?.expectedCash || shift?.openingCash || 0);
-  $('shift-difference').textContent = fmtLek(shift?.difference || 0);
-}
-
-function renderClosedShiftSummary(shift) {
-  $('shift-sales').textContent = fmtLek(shift?.totalSales || 0);
-  $('shift-expected').textContent = fmtLek(shift?.expectedCash || 0);
-  $('shift-difference').textContent = fmtLek(shift?.difference || 0);
 }
 
 function renderShiftRows(shifts) {
   const tbody = $('shifts-tbody');
   if (!tbody) return;
   if (!shifts.length) {
-    tbody.innerHTML = `<tr><td colspan="10" class="no-data">${t('No shifts yet.')}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="12" class="no-data">${t('No shifts yet.')}</td></tr>`;
     return;
   }
   tbody.innerHTML = shifts.map(shift => `
@@ -1755,10 +1915,12 @@ function renderShiftRows(shifts) {
       <td>${fmtDate(shift.openedAt)}</td>
       <td>${shift.closedAt ? fmtDate(shift.closedAt) : '-'}</td>
       <td>${fmtLek(shift.openingCash || 0)}</td>
-      <td>${fmtLek(shift.totalSales || 0)}</td>
-      <td>${fmtLek(shift.expectedCash || 0)}</td>
-      <td>${shift.closingCash === null || shift.closingCash === undefined ? '-' : fmtLek(shift.closingCash)}</td>
-      <td>${fmtLek(shift.difference || 0)}</td>
+      <td>${shift.status === 'OPEN' ? '-' : fmtLek(shift.totalSales || 0)}</td>
+      <td>${shift.cashSales == null ? '-' : fmtLek(shift.cashSales)}</td>
+      <td>${shift.cardSales == null ? '-' : fmtLek(shift.cardSales)}</td>
+      <td>${shift.expectedCash == null ? '-' : fmtLek(shift.expectedCash)}</td>
+      <td>${shift.closingCash == null ? '-' : fmtLek(shift.closingCash)}</td>
+      <td>${shift.status === 'OPEN' ? '-' : fmtLek(shift.difference || 0)}</td>
     </tr>
   `).join('');
 }
@@ -1794,6 +1956,10 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     document.querySelectorAll('.overlay:not(.hidden)').forEach(m => m.classList.add('hidden'));
   }
+});
+
+document.querySelectorAll('.pay-input').forEach(input => {
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') confirmPayment(); });
 });
 
 /*  Close modal on backdrop click  */

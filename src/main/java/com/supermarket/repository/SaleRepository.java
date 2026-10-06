@@ -27,4 +27,9 @@ public interface SaleRepository extends JpaRepository<Sale, Long> {
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to
     );
+
+    @Query("select s from Sale s where s.shift.id = :shiftId order by s.date")
+    List<Sale> findByShiftIdOrderByDate(@Param("shiftId") Long shiftId);
+
+    List<Sale> findByDateBetweenOrderByDate(LocalDateTime from, LocalDateTime to);
 }

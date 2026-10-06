@@ -1,5 +1,7 @@
 package com.supermarket.dto;
 
+import com.supermarket.model.SalePayment;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -11,8 +13,11 @@ public record ReceiptResponse(
         BigDecimal subtotal,
         BigDecimal discountAmount,
         BigDecimal totalAmount,
+        BigDecimal paidAmount,
+        BigDecimal changeAmount,
         List<ReceiptItemResponse> items,
         List<VatLine> vatSummary,
+        List<SalePayment> payments,
         String printableReceipt
 ) {
 

@@ -47,6 +47,19 @@ public class Shift {
     @Column(precision = 12, scale = 2)
     private BigDecimal difference;
 
+    /** Breakdown behind expected cash, filled when the shift closes. Cash sales are net of change given. */
+    @Column(precision = 12, scale = 2)
+    private BigDecimal cashSales;
+
+    @Column(precision = 12, scale = 2)
+    private BigDecimal cardSales;
+
+    @Column(precision = 12, scale = 2)
+    private BigDecimal cashIn;
+
+    @Column(precision = 12, scale = 2)
+    private BigDecimal cashOut;
+
     @Column(nullable = false)
     private String status;
 
@@ -137,5 +150,37 @@ public class Shift {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public BigDecimal getCashSales() {
+        return cashSales;
+    }
+
+    public void setCashSales(BigDecimal cashSales) {
+        this.cashSales = cashSales;
+    }
+
+    public BigDecimal getCardSales() {
+        return cardSales;
+    }
+
+    public void setCardSales(BigDecimal cardSales) {
+        this.cardSales = cardSales;
+    }
+
+    public BigDecimal getCashIn() {
+        return cashIn;
+    }
+
+    public void setCashIn(BigDecimal cashIn) {
+        this.cashIn = cashIn;
+    }
+
+    public BigDecimal getCashOut() {
+        return cashOut;
+    }
+
+    public void setCashOut(BigDecimal cashOut) {
+        this.cashOut = cashOut;
     }
 }

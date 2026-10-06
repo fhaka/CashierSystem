@@ -73,6 +73,15 @@ Hibernate does not change tables (`ddl-auto=none`). The tests run with `ddl-auto
 - **Profit** uses the cost price saved on each sale line, so later cost changes do not rewrite history.
 - **Products are deactivated, not deleted.** A deactivated product disappears from the till, stays in old sales, and can be reactivated from the Products screen.
 
+## Payments, shifts and reports
+
+- **Checkout opens the payment window first.** The customer can pay with LEK cash, foreign cash (EUR/USD) and card, in any combination. The sale is only saved when the payment covers the total; change is given in LEK cash. Card payments are in LEK and cannot exceed the total. Payments are printed on the receipt.
+- **Exchange rates** are stored on the server and edited by managers in the till's rate fields; cashiers see them read-only. Foreign cash is converted with the *buy* rate; prices are shown in foreign currency with the *sell* rate.
+- **Every sale belongs to the shift** of the cashier who made it.
+- **Cash in / out:** money put into or taken out of the drawer outside of sales is recorded with a reason on the Operations screen.
+- **Closing a shift** is blind: the cashier enters the counted cash before seeing what was expected. Expected cash = opening cash + cash received − change given + cash in − cash out. Card payments are not expected in the drawer.
+- **X report** (one shift) and **Z report** (one day, all tills): sales, discounts, VAT per rate, payments per method and currency, change, cash in/out and totals per cashier. Both can be printed on the receipt printer. Managers can print an X report while the shift is open; cashiers see their own after closing it.
+
 ## Security
 
 - **Passwords** are stored with BCrypt. Accounts from older versions (SHA-256) keep working and are upgraded automatically at their next sign-in. The minimum length is 4 characters.

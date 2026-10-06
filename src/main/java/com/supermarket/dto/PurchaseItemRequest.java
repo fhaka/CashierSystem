@@ -1,6 +1,7 @@
 package com.supermarket.dto;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 
 public class PurchaseItemRequest {
 
@@ -10,6 +11,7 @@ public class PurchaseItemRequest {
     private BigDecimal sellingPrice;
     private BigDecimal taxRate;
     private String unit;
+    private LocalDate expiryDate;
 
     public Long getProductId() {
         return productId;
@@ -57,5 +59,13 @@ public class PurchaseItemRequest {
 
     public void setUnit(String unit) {
         this.unit = unit;
+    }
+
+    public LocalDate getExpiryDate() {
+        return expiryDate;
+    }
+
+    public void setExpiryDate(LocalDate expiryDate) {
+        this.expiryDate = expiryDate;
     }
 }

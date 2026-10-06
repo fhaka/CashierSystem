@@ -29,6 +29,7 @@ public class CartService {
     private final ProductService productService;
     private final ApprovalService approvalService;
     private final AuditService auditService;
+    private final ScaleBarcodes scaleBarcodes;
     private final boolean voidsNeedApproval;
 
     public CartService(
@@ -36,12 +37,14 @@ public class CartService {
             ProductService productService,
             ApprovalService approvalService,
             AuditService auditService,
+            ScaleBarcodes scaleBarcodes,
             @Value("${pos.approval.voids:true}") boolean voidsNeedApproval
     ) {
         this.cartRepository = cartRepository;
         this.productService = productService;
         this.approvalService = approvalService;
         this.auditService = auditService;
+        this.scaleBarcodes = scaleBarcodes;
         this.voidsNeedApproval = voidsNeedApproval;
     }
 
@@ -57,11 +60,24 @@ public class CartService {
 
     @Transactional
     public List<CartItem> addToCart(Cashier cashier, CartItemRequest request) {
-        Product product = resolveProduct(request);
+        Product product;
+        BigDecimal quantity;
+        Optional<ScaleBarcodes.ScaleCode> scaleCode = scaleCodeFor(request);
+        if (scaleCode.isPresent()) {
+            // A label printed by the scale: the barcode carries the product and its weight (or price).
+            product = productService.findOptionalByBarcode(scaleCode.get().productBarcode())
+                    .orElseThrow(() -> new ValidationException("product.barcodeNotFound", request.getBarcode().trim()));
+            if (scaleBarcodes.mode() == ScaleBarcodes.Mode.WEIGHT && !Quantities.KILOGRAMS.equals(product.getUnit())) {
+                throw new ValidationException("scale.notWeighed", product.getName());
+            }
+            quantity = Quantities.requirePositive(scaleBarcodes.quantity(scaleCode.get(), product.getPrice()), product.getUnit());
+        } else {
+            product = resolveProduct(request);
+            quantity = Quantities.requirePositive(request.getQuantity(), product.getUnit());
+        }
         if (!product.isActive()) {
             throw new ValidationException("product.inactive", product.getName());
         }
-        BigDecimal quantity = Quantities.requirePositive(request.getQuantity(), product.getUnit());
         Cart cart = openCartOrCreate(cashier);
         Optional<CartItem> existing = cart.findItem(product.getId());
         BigDecimal newQuantity = existing.map(item -> item.getQuantity().add(quantity)).orElse(quantity);
@@ -196,6 +212,15 @@ public class CartService {
         if (product.getStock().compareTo(quantity) < 0) {
             throw new InsufficientStockException(product.getName());
         }
+    }
+
+    /** A scanned barcode that is not a product of its own but a scale label. */
+    private Optional<ScaleBarcodes.ScaleCode> scaleCodeFor(CartItemRequest request) {
+        if (request.getProductId() != null || request.getBarcode() == null) {
+            return Optional.empty();
+        }
+        String barcode = request.getBarcode().trim();
+        return productService.findOptionalByBarcode(barcode).isPresent() ? Optional.empty() : scaleBarcodes.parse(barcode);
     }
 
     private Product resolveProduct(CartItemRequest request) {

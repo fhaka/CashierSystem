@@ -106,6 +106,18 @@
         </svg>
         <span data-i18n>Purchases</span>
       </button>
+      <button class="nav-btn manager-only" data-v="suppliers" onclick="gotoView('suppliers')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="1" y="3" width="15" height="13"/><path d="M16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>
+        </svg>
+        <span data-i18n>Suppliers</span>
+      </button>
+      <button class="nav-btn manager-only" data-v="inventory" onclick="gotoView('inventory')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+        </svg>
+        <span data-i18n>Inventory</span>
+      </button>
       <button class="nav-btn" data-v="sales" onclick="gotoView('sales')">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
@@ -423,12 +435,17 @@
           <div class="page-title" data-i18n>Products</div>
           <div class="page-sub" data-i18n>Manage inventory and pricing</div>
         </div>
-        <button class="btn btn-primary" onclick="openProdModal()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-          <span data-i18n>Add Product</span>
-        </button>
+        <div class="actions">
+          <button class="btn btn-secondary" onclick="exportProducts()" data-i18n>Export CSV</button>
+          <button class="btn btn-secondary" onclick="$('import-file').click()" data-i18n>Import CSV</button>
+          <input type="file" id="import-file" accept=".csv,text/csv" class="hidden" onchange="importProducts(this)" />
+          <button class="btn btn-primary" onclick="openProdModal()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            <span data-i18n>Add Product</span>
+          </button>
+        </div>
       </div>
       <div class="prod-page">
         <div class="toolbar">
@@ -464,7 +481,7 @@
           <div class="invoice-panel">
             <div class="invoice-panel-title" data-i18n>Purchase Invoice</div>
             <div class="mini-row"><label data-i18n>Invoice No.</label><input class="input mono" id="purchase-invoice-no" placeholder="e.g. F-1001" /></div>
-            <div class="mini-row"><label data-i18n>Company</label><input class="input" id="purchase-company" data-i18n-placeholder placeholder="Supplier company" /></div>
+            <div class="mini-row"><label data-i18n>Company</label><input class="input" id="purchase-company" list="supplier-options" autocomplete="off" data-i18n-placeholder placeholder="Supplier company" /><datalist id="supplier-options"></datalist></div>
           </div>
           <div class="invoice-panel">
             <div class="invoice-panel-title" data-i18n>Invoice Date</div>
@@ -494,11 +511,11 @@
             <thead>
               <tr>
                 <th data-i18n>ID</th><th data-i18n>Barcode</th><th data-i18n>Product</th><th data-i18n>Category</th><th data-i18n>Unit</th>
-                <th data-i18n>Qty</th><th data-i18n>Purchase Price</th><th data-i18n>Tax %</th><th data-i18n>Selling Price</th><th data-i18n>Total</th><th></th>
+                <th data-i18n>Qty</th><th data-i18n>Purchase Price</th><th data-i18n>Tax %</th><th data-i18n>Selling Price</th><th data-i18n>Expiry date</th><th data-i18n>Total</th><th></th>
               </tr>
             </thead>
             <tbody id="purchase-rows">
-              <tr class="invoice-empty"><td colspan="11" data-i18n>Scan products to build the supplier invoice.</td></tr>
+              <tr class="invoice-empty"><td colspan="12" data-i18n>Scan products to build the supplier invoice.</td></tr>
             </tbody>
           </table>
         </div>
@@ -506,6 +523,95 @@
     </div>
 
     
+    <div id="view-suppliers" class="view">
+      <div class="page-head" style="flex-shrink:0;">
+        <div>
+          <div class="page-title" data-i18n>Suppliers</div>
+          <div class="page-sub" data-i18n>Purchase invoices, payments and amount owed</div>
+        </div>
+        <button class="btn btn-primary" onclick="openSupplierModal()" data-i18n>Add supplier</button>
+      </div>
+      <div class="users-page">
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th data-i18n>Name</th><th data-i18n>NIPT</th><th data-i18n>Phone</th><th data-i18n>Invoiced</th><th data-i18n>Paid</th><th data-i18n>Owed</th><th data-i18n>Actions</th></tr></thead>
+            <tbody id="suppliers-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="view-inventory" class="view">
+      <div class="page-head" style="flex-shrink:0;">
+        <div>
+          <div class="page-title" data-i18n>Inventory</div>
+          <div class="page-sub" data-i18n>Low stock, reorder list, expiry dates and stock counts</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary inv-tab on" data-tab="reorder" onclick="showInventoryTab('reorder')" data-i18n>Reorder</button>
+          <button class="btn btn-secondary inv-tab" data-tab="expiring" onclick="showInventoryTab('expiring')" data-i18n>Expiring</button>
+          <button class="btn btn-secondary inv-tab" data-tab="count" onclick="showInventoryTab('count')" data-i18n>Stock count</button>
+        </div>
+      </div>
+      <div class="reports-page">
+        <section class="report-card inv-panel" id="inv-reorder">
+          <div class="report-card-head">
+            <div>
+              <h2 data-i18n>Reorder list</h2>
+              <p data-i18n>Products at or below their minimum stock, grouped by the supplier they were last bought from</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="loadReorder()" data-i18n>Refresh</button>
+          </div>
+          <div id="reorder-groups"></div>
+        </section>
+
+        <section class="report-card inv-panel hidden" id="inv-expiring">
+          <div class="report-card-head">
+            <div>
+              <h2 data-i18n>Expiring soon</h2>
+              <p data-i18n>Estimated from delivery dates: older deliveries are assumed to be sold first</p>
+            </div>
+            <select class="input" id="expiry-days" onchange="loadExpiring()" style="width:auto;">
+              <option value="7" data-i18n>Next 7 days</option>
+              <option value="30" data-i18n>Next 30 days</option>
+              <option value="90" data-i18n>Next 90 days</option>
+            </select>
+          </div>
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr><th data-i18n>Product</th><th data-i18n>Expiry date</th><th data-i18n>Days left</th><th data-i18n>Probably on shelf</th><th data-i18n>Supplier</th><th data-i18n>Invoice</th></tr></thead>
+              <tbody id="expiring-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="report-card inv-panel hidden" id="inv-count">
+          <div class="report-card-head">
+            <div>
+              <h2 data-i18n>Stock count</h2>
+              <p id="count-status"></p>
+            </div>
+            <div class="actions">
+              <button class="btn btn-primary btn-sm" id="count-start" onclick="startCount()" data-i18n>Start count</button>
+              <button class="btn btn-primary btn-sm hidden" id="count-apply" onclick="applyCount()" data-i18n>Apply differences</button>
+              <button class="btn btn-secondary btn-sm hidden" id="count-cancel" onclick="cancelCount()" data-i18n>Cancel count</button>
+            </div>
+          </div>
+          <div class="count-entry hidden" id="count-entry">
+            <input class="input" id="count-barcode" data-i18n-placeholder placeholder="Scan barcode" onkeydown="if (event.key === 'Enter') $('count-qty').focus()" />
+            <input class="input" id="count-qty" type="number" min="0" step="any" data-i18n-placeholder placeholder="Quantity on shelf" onkeydown="if (event.key === 'Enter') saveCountLine()" />
+            <button class="btn btn-primary" onclick="saveCountLine()" data-i18n>Save</button>
+          </div>
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr><th data-i18n>Product</th><th data-i18n>Barcode</th><th data-i18n>Counted</th><th data-i18n>In system</th><th data-i18n>Difference</th></tr></thead>
+              <tbody id="count-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+
     <div id="view-sales" class="view">
       <div class="page-head" style="flex-shrink:0;">
         <div>
@@ -714,10 +820,10 @@
     </div>
 
     <div id="view-operations" class="view">
-      <header class="view-head">
+      <header class="page-head" style="flex-shrink:0;">
         <div>
-          <p class="eyebrow" data-i18n>Daily control</p>
-          <h1 id="operations-title">Shifts & Backups</h1>
+          <div class="page-title" id="operations-title">Shifts & Backups</div>
+          <div class="page-sub" data-i18n>Daily control</div>
         </div>
         <div class="actions">
           <button class="btn btn-secondary" onclick="loadOperations()" data-i18n>Refresh</button>
@@ -907,6 +1013,16 @@
           </select>
         </div>
       </div>
+      <div class="two-col">
+        <div class="input-group">
+          <label class="input-label" data-i18n>Minimum stock</label>
+          <input class="input" id="pm-min" type="number" min="0" step="any" data-i18n-placeholder placeholder="Empty: no alert" />
+        </div>
+        <div class="input-group">
+          <label class="input-label" data-i18n>Reorder quantity</label>
+          <input class="input" id="pm-reorder" type="number" min="0" step="any" data-i18n-placeholder placeholder="Empty: automatic" />
+        </div>
+      </div>
     </div>
     <div class="modal-foot">
       <button class="btn btn-secondary" onclick="closeModal('modal-prod')" data-i18n>Cancel</button>
@@ -1007,6 +1123,104 @@
     <div class="receipt-acts">
       <button class="btn btn-secondary" onclick="closeModal('modal-payment')" data-i18n>Cancel</button>
       <button class="btn btn-primary" id="pay-confirm" onclick="confirmPayment()" disabled data-i18n>Complete payment</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="modal-supplier" class="overlay hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="sm-title">Add supplier</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-supplier')">x</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="sm-id" />
+      <div class="input-group"><label class="input-label" data-i18n>Name</label><input class="input" id="sm-name" /></div>
+      <div class="two-col">
+        <div class="input-group"><label class="input-label" data-i18n>NIPT</label><input class="input" id="sm-tax" /></div>
+        <div class="input-group"><label class="input-label" data-i18n>Phone</label><input class="input" id="sm-phone" /></div>
+      </div>
+      <div class="input-group"><label class="input-label" data-i18n>Email</label><input class="input" id="sm-email" type="email" /></div>
+      <div class="input-group"><label class="input-label" data-i18n>Address</label><input class="input" id="sm-address" /></div>
+      <div class="input-group"><label class="input-label" data-i18n>Notes</label><input class="input" id="sm-notes" /></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal('modal-supplier')" data-i18n>Cancel</button>
+      <button class="btn btn-primary" onclick="submitSupplier()" data-i18n>Save</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="modal-supplier-detail" class="overlay hidden">
+  <div class="modal sale-detail-modal">
+    <div class="modal-head">
+      <div class="modal-title" id="sd-title"></div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-supplier-detail')">x</button>
+    </div>
+    <div class="sale-detail-meta" id="sd-meta"></div>
+    <div class="report-kpis" id="sd-kpis"></div>
+    <h3 class="section-title" data-i18n>Record a payment</h3>
+    <div class="supplier-payment-form">
+      <input class="input" id="sp-amount" type="number" min="0" step="0.01" data-i18n-placeholder placeholder="Amount (LEK)" />
+      <input class="input" id="sp-date" type="date" />
+      <select class="input" id="sp-method"><option value="BANK" data-i18n>Bank</option><option value="CASH" data-i18n>Cash</option></select>
+      <input class="input" id="sp-note" data-i18n-placeholder placeholder="Note" />
+      <button class="btn btn-primary" onclick="addSupplierPayment()" data-i18n>Save</button>
+    </div>
+    <div class="two-col supplier-history">
+      <div>
+        <h3 class="section-title" data-i18n>Purchase invoices</h3>
+        <div class="tbl-wrap"><table><thead><tr><th data-i18n>Invoice</th><th data-i18n>Date</th><th data-i18n>Total</th></tr></thead><tbody id="sd-invoices"></tbody></table></div>
+      </div>
+      <div>
+        <h3 class="section-title" data-i18n>Payments</h3>
+        <div class="tbl-wrap"><table><thead><tr><th data-i18n>Date</th><th data-i18n>Method</th><th data-i18n>Amount</th><th data-i18n>Note</th></tr></thead><tbody id="sd-payments"></tbody></table></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div id="modal-adjust" class="overlay hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" data-i18n>Adjust stock</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-adjust')">x</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="adj-product" />
+      <p class="sale-detail-meta" id="adj-meta"></p>
+      <div class="two-col">
+        <div class="input-group">
+          <label class="input-label" data-i18n>Reason</label>
+          <select class="input" id="adj-reason">
+            <option value="DAMAGED" data-i18n>Damaged</option>
+            <option value="EXPIRED" data-i18n>Expired</option>
+            <option value="LOST" data-i18n>Lost / stolen</option>
+            <option value="INTERNAL_USE" data-i18n>Internal use</option>
+            <option value="OTHER" data-i18n>Other</option>
+          </select>
+        </div>
+        <div class="input-group">
+          <label class="input-label" data-i18n>Direction</label>
+          <select class="input" id="adj-direction">
+            <option value="-1" data-i18n>Remove from stock</option>
+            <option value="1" data-i18n>Add to stock</option>
+          </select>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="input-group"><label class="input-label" data-i18n>Quantity</label><input class="input" id="adj-qty" type="number" min="0" step="any" /></div>
+        <div class="input-group"><label class="input-label" data-i18n>Note</label><input class="input" id="adj-note" /></div>
+      </div>
+      <h3 class="section-title" data-i18n>History</h3>
+      <div class="tbl-wrap"><table><thead><tr><th data-i18n>Date</th><th data-i18n>Change</th><th data-i18n>Reason</th><th data-i18n>Stock after</th><th data-i18n>User</th></tr></thead><tbody id="adj-history"></tbody></table></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal('modal-adjust')" data-i18n>Cancel</button>
+      <button class="btn btn-primary" onclick="submitAdjustment()" data-i18n>Save</button>
     </div>
   </div>
 </div>

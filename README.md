@@ -82,6 +82,16 @@ Hibernate does not change tables (`ddl-auto=none`). The tests run with `ddl-auto
 - **Closing a shift** is blind: the cashier enters the counted cash before seeing what was expected. Expected cash = opening cash + cash received − change given + cash in − cash out. Card payments are not expected in the drawer.
 - **X report** (one shift) and **Z report** (one day, all tills): sales, discounts, VAT per rate, payments per method and currency, change, cash in/out and totals per cashier. Both can be printed on the receipt printer. Managers can print an X report while the shift is open; cashiers see their own after closing it.
 
+## Inventory and suppliers
+
+- **Suppliers** (*Furnitorët*): name, NIPT, phone, email, address, notes. A purchase invoice is linked to its supplier (type the name; a new name creates the supplier). Payments to suppliers are recorded, and each supplier shows invoiced, paid and **owed**.
+- **Minimum stock / reorder quantity** per product. *Inventari → Porositë* lists products at or below their minimum, grouped by the supplier they were last bought from, with a suggested quantity (the reorder quantity, or enough to reach twice the minimum) and estimated cost.
+- **Stock adjustments** (*Produktet → Gjendja*): damaged, expired, lost, internal use or other (with a note), with history per product. Stock can never go negative.
+- **Stock count** (*Inventari → Numërimi*): start a count, scan each product and type what is on the shelf, check the differences, then apply. Only counted products change; each difference is recorded as a count correction.
+- **Expiry dates** can be entered per line of a purchase invoice. *Inventari → Skadimet* lists deliveries expiring soon that are probably still on the shelf (estimated: older deliveries are assumed sold first).
+- **Scale labels:** EAN-13 barcodes starting with `pos.scale.prefixes` (default 21–29) are read as `PP IIIII VVVVV C`; the product is registered with the first 7 digits, and VVVVV is the weight in grams (`pos.scale.mode=WEIGHT`) or the price in LEK (`PRICE`). The check digit is verified.
+- **CSV import/export** (*Produktet*): export opens in Excel (`;`, UTF-8). Import matches products by barcode, creates or updates them, accepts `;` or `,` and decimal commas, and reports bad lines by number. Required columns: `barcode`, `name`, `price`; optional: `category`, `unit`, `purchase_price`, `tax_rate`, `stock`, `min_stock`, `reorder_quantity`.
+
 ## Approvals, refunds and audit log
 
 - **Manager PIN:** each Super Cashier / Super Admin can have a personal approval PIN (4–8 digits, set in the Users screen; two managers cannot share one). When a cashier does something sensitive, the till asks for a manager's PIN; the server checks it and records who approved. Managers approve their own actions. After 5 wrong PINs, approvals on that till pause for 5 minutes.

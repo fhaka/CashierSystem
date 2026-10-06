@@ -13,6 +13,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 
 @Entity
 @Table(name = "purchase_items")
@@ -49,6 +50,9 @@ public class PurchaseItem {
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal lineTotal;
+
+    /** Best-before date of this delivery, if recorded. */
+    private LocalDate expiryDate;
 
     public PurchaseItem() {
     }
@@ -129,5 +133,13 @@ public class PurchaseItem {
 
     public void setLineTotal(BigDecimal lineTotal) {
         this.lineTotal = lineTotal;
+    }
+
+    public LocalDate getExpiryDate() {
+        return expiryDate;
+    }
+
+    public void setExpiryDate(LocalDate expiryDate) {
+        this.expiryDate = expiryDate;
     }
 }

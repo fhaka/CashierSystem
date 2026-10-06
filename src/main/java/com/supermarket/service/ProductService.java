@@ -18,6 +18,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 
 @Service
@@ -51,6 +52,10 @@ public class ProductService {
         return productFilter.filter(
                 productRepository.findByNameContainingIgnoreCaseOrBarcodeContainingIgnoreCase(query.trim(), query.trim()),
                 Product::isActive);
+    }
+
+    public Optional<Product> findOptionalByBarcode(String barcode) {
+        return productRepository.findByBarcode(barcode);
     }
 
     public Product findByBarcode(String barcode) {
@@ -91,6 +96,7 @@ public class ProductService {
         String unit = normalizeUnit(request.getUnit());
         Product product = new Product(request.getName().trim(), request.getBarcode().trim(), request.getPrice(), request.getPurchasePrice(),
                 request.getTaxRate(), Quantities.requireStock(request.getStock(), unit), unit, category);
+        applyReorderSettings(product, request, unit);
         Product saved = productRepository.save(product);
         auditService.record(actor, "PRODUCT_CREATED", "PRODUCT", saved.getId(),
                 saved.getName() + ", price " + saved.getPrice() + ", stock " + saved.getStock().stripTrailingZeros().toPlainString());
@@ -112,6 +118,7 @@ public class ProductService {
         product.setStock(Quantities.requireStock(request.getStock(), unit));
         product.setUnit(unit);
         product.setCategory(resolveCategory(request));
+        applyReorderSettings(product, request, unit);
         Product saved = productRepository.save(product);
         String after = summary(saved);
         if (!before.equals(after)) {
@@ -139,11 +146,18 @@ public class ProductService {
         return product;
     }
 
+    private static void applyReorderSettings(Product product, ProductRequest request, String unit) {
+        product.setMinStock(request.getMinStock() == null ? null : Quantities.requireStock(request.getMinStock(), unit));
+        product.setReorderQuantity(request.getReorderQuantity() == null || request.getReorderQuantity().signum() == 0
+                ? null : Quantities.requirePositive(request.getReorderQuantity(), unit));
+    }
+
     /** The fields worth auditing, in one line, to show what an edit changed. */
     private static String summary(Product product) {
         return product.getName() + " [" + product.getBarcode() + "] price " + product.getPrice()
                 + ", cost " + product.getPurchasePrice() + ", VAT " + product.getTaxRate().stripTrailingZeros().toPlainString()
-                + "%, stock " + product.getStock().stripTrailingZeros().toPlainString() + " " + product.getUnit();
+                + "%, stock " + product.getStock().stripTrailingZeros().toPlainString() + " " + product.getUnit()
+                + (product.getMinStock() == null ? "" : ", min " + product.getMinStock().stripTrailingZeros().toPlainString());
     }
 
     private void requireFreeBarcode(String barcode, Long ownId) {

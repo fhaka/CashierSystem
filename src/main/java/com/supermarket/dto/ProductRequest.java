@@ -13,6 +13,8 @@ public class ProductRequest {
     private String unit;
     private Long categoryId;
     private String categoryName;
+    private BigDecimal minStock;
+    private BigDecimal reorderQuantity;
 
     public String getName() {
         return name;
@@ -84,5 +86,21 @@ public class ProductRequest {
 
     public void setCategoryName(String categoryName) {
         this.categoryName = categoryName;
+    }
+
+    public BigDecimal getMinStock() {
+        return minStock;
+    }
+
+    public void setMinStock(BigDecimal minStock) {
+        this.minStock = minStock;
+    }
+
+    public BigDecimal getReorderQuantity() {
+        return reorderQuantity;
+    }
+
+    public void setReorderQuantity(BigDecimal reorderQuantity) {
+        this.reorderQuantity = reorderQuantity;
     }
 }

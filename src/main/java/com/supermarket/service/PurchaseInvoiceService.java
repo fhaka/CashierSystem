@@ -7,6 +7,7 @@ import com.supermarket.model.Cashier;
 import com.supermarket.model.Product;
 import com.supermarket.model.PurchaseInvoice;
 import com.supermarket.model.PurchaseItem;
+import com.supermarket.model.Supplier;
 import com.supermarket.repository.ProductRepository;
 import com.supermarket.repository.PurchaseInvoiceRepository;
 import com.supermarket.util.Quantities;
@@ -24,13 +25,15 @@ public class PurchaseInvoiceService {
     private final ProductRepository productRepository;
     private final ProductService productService;
     private final AuditService auditService;
+    private final SupplierService supplierService;
 
     public PurchaseInvoiceService(PurchaseInvoiceRepository purchaseInvoiceRepository, ProductRepository productRepository, ProductService productService,
-                                  AuditService auditService) {
+                                  AuditService auditService, SupplierService supplierService) {
         this.purchaseInvoiceRepository = purchaseInvoiceRepository;
         this.productRepository = productRepository;
         this.productService = productService;
         this.auditService = auditService;
+        this.supplierService = supplierService;
     }
 
     public List<PurchaseInvoice> findAll() {
@@ -40,13 +43,15 @@ public class PurchaseInvoiceService {
     @Transactional
     public PurchaseInvoice create(PurchaseInvoiceRequest request, Cashier actor) {
         validateRequest(request);
+        Supplier supplier = supplierService.resolveForPurchase(request.getSupplierId(), request.getCompany(), actor);
         BigDecimal total = BigDecimal.ZERO;
         PurchaseInvoice invoice = new PurchaseInvoice(
                 request.getInvoiceNumber().trim(),
-                request.getCompany().trim(),
+                supplier.getName(),
                 request.getInvoiceDate(),
                 BigDecimal.ZERO
         );
+        invoice.setSupplier(supplier);
 
         for (PurchaseItemRequest itemRequest : request.getItems()) {
             validateItem(itemRequest);
@@ -63,7 +68,7 @@ public class PurchaseInvoiceService {
             product.setStock(product.getStock().add(quantity));
             productRepository.save(product);
 
-            invoice.addItem(new PurchaseItem(
+            PurchaseItem item = new PurchaseItem(
                     product,
                     quantity,
                     itemRequest.getPurchasePrice(),
@@ -71,7 +76,9 @@ public class PurchaseInvoiceService {
                     itemRequest.getTaxRate(),
                     unit,
                     lineTotal
-            ));
+            );
+            item.setExpiryDate(itemRequest.getExpiryDate());
+            invoice.addItem(item);
         }
 
         invoice.setTotalAmount(total);
@@ -87,9 +94,6 @@ public class PurchaseInvoiceService {
         }
         if (purchaseInvoiceRepository.existsByInvoiceNumberIgnoreCase(request.getInvoiceNumber().trim())) {
             throw new ValidationException("purchase.invoiceNumberExists");
-        }
-        if (request.getCompany() == null || request.getCompany().isBlank()) {
-            throw new ValidationException("purchase.companyRequired");
         }
         if (request.getInvoiceDate() == null) {
             throw new ValidationException("purchase.dateRequired");

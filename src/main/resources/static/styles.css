@@ -692,3 +692,20 @@
     .refund-qty { width: 90px; }
     #audit-tbody td { vertical-align: top; }
     #audit-tbody .audit-details { white-space: normal; max-width: 520px; }
+
+    /* Inventory and suppliers */
+    .inv-tab.on { background: var(--blue, #2563EB); color: #fff; border-color: transparent; }
+    .count-entry { display: grid; grid-template-columns: 2fr 1fr auto; gap: 8px; margin-bottom: 12px; }
+    .reorder-group { margin-bottom: 18px; }
+    .reorder-group h3, .section-title { font-size: .95rem; margin: 14px 0 8px; }
+    .supplier-payment-form { display: grid; grid-template-columns: 1fr 1fr 1fr 2fr auto; gap: 8px; }
+    .supplier-history { gap: 16px; align-items: start; }
+    .diff-minus { color: var(--red); font-weight: 600; }
+    .diff-plus { color: var(--green); font-weight: 600; }
+    @media (max-width: 760px) {
+      .supplier-payment-form, .count-entry { grid-template-columns: 1fr; }
+    }
+
+    /* Pages stack their header above their content */
+    #view-audit, #view-suppliers, #view-inventory, #view-operations { flex-direction: column; overflow: hidden; }
+    #view-audit .users-page, #view-suppliers .users-page, #view-inventory .reports-page, #view-operations .reports-page { overflow-y: auto; }

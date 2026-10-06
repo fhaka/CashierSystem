@@ -243,7 +243,7 @@ function applyRolePermissions() {
 
 /*  Navigation  */
 function gotoView(view) {
-  if (['products', 'purchases', 'reports'].includes(view) && !isOperationalManager()) {
+  if (['products', 'purchases', 'reports', 'suppliers', 'inventory'].includes(view) && !isOperationalManager()) {
     toast(t('Super Cashier or Super Admin access is required'), 'error');
     view = 'home';
   }
@@ -258,6 +258,8 @@ function gotoView(view) {
   if (view === 'home') loadHomeData();
   if (view === 'products') { loadCategories(); loadProdsTable(); }
   if (view === 'purchases') initPurchasePage();
+  if (view === 'suppliers') loadSuppliers();
+  if (view === 'inventory') showInventoryTab(currentInventoryTab);
   if (view === 'sales')    loadSales();
   if (view === 'reports')  loadReports();
   if (view === 'users') loadUsers();
@@ -277,7 +279,7 @@ async function loadHomeData() {
     const sales = Array.isArray(salesRes.data) ? salesRes.data : [];
     const cart = Array.isArray(cartRes.data) ? cartRes.data : [];
     const revenue = sales.reduce((sum, sale) => sum + parseFloat(sale.totalAmount || 0), 0);
-    const lowStock = products.filter(product => (product.stock || 0) <= 5).length;
+    const lowStock = products.filter(product => product.active !== false && product.lowStock).length;
     const cartCount = cart.length;
 
     $('home-products-count').textContent = products.length;
@@ -333,7 +335,7 @@ function renderGrid(products) {
     return;
   }
   g.innerHTML = products.map(p => {
-    const sc = p.stock === 0 ? 'sk-oos' : p.stock < 5 ? 'sk-low' : 'sk-ok';
+    const sc = p.stock === 0 ? 'sk-oos' : p.lowStock ? 'sk-low' : 'sk-ok';
     const sl = p.stock === 0 ? t('Out of Stock') : t('{count} left', { count: fmtQty(p.stock, p.unit) });
     return `<div class="prod-card${p.stock === 0 ? ' oos' : ''}" onclick="addById(${p.id})">
       <div class="pc-cat">${esc(p.category?.name || t('None'))}</div>
@@ -797,6 +799,7 @@ async function setNextInvoiceNumber() {
 /*  Purchase Invoices  */
 function initPurchasePage() {
   loadCategories();
+  loadSupplierOptions();
   if (!$('purchase-date')?.value) {
     $('purchase-date').value = new Date().toISOString().slice(0, 10);
   }
@@ -844,7 +847,8 @@ function addPurchaseProduct(product) {
       quantity: 1,
       purchasePrice: parseFloat(product.purchasePrice || 0),
       taxRate: parseFloat(product.taxRate || 20),
-      sellingPrice: parseFloat(product.price || 0)
+      sellingPrice: parseFloat(product.price || 0),
+      expiryDate: ''
     });
   }
   renderPurchaseRows();
@@ -854,7 +858,7 @@ function renderPurchaseRows() {
   const tbody = $('purchase-rows');
   if (!tbody) return;
   if (!purchaseItems.length) {
-    tbody.innerHTML = `<tr class="invoice-empty"><td colspan="11">${t('Scan products to build the supplier invoice.')}</td></tr>`;
+    tbody.innerHTML = `<tr class="invoice-empty"><td colspan="12">${t('Scan products to build the supplier invoice.')}</td></tr>`;
     updatePurchaseTotal();
     return;
   }
@@ -879,6 +883,7 @@ function renderPurchaseRows() {
         </select>
       </td>
       <td><input class="input purchase-cell" type="number" min="0" step="0.01" value="${item.sellingPrice}" onchange="updatePurchaseItem(${index}, 'sellingPrice', this.value)" /></td>
+      <td><input class="input purchase-cell" type="date" value="${esc(item.expiryDate || '')}" onchange="updatePurchaseItem(${index}, 'expiryDate', this.value)" /></td>
       <td class="td-p">${fmtLek(getPurchaseLineTotal(item))}</td>
       <td class="td-a">
         <button class="btn btn-secondary btn-sm btn-icon" title="${t('Edit product')}" onclick="openProdModalById(${item.productId})">E</button>
@@ -937,7 +942,8 @@ async function savePurchaseInvoice() {
       purchasePrice: parseFloat(item.purchasePrice || 0),
       sellingPrice: parseFloat(item.sellingPrice || 0),
       taxRate: parseFloat(item.taxRate || 0),
-      unit: item.unit || 'pcs'
+      unit: item.unit || 'pcs',
+      expiryDate: item.expiryDate || null
     }))
   };
   if (!body.invoiceNumber || !body.company || !body.invoiceDate || !body.items.length) {
@@ -1054,7 +1060,7 @@ function renderProdsTable(products) {
     tbody.innerHTML = `<tr><td colspan="10" class="no-data">${t('No products found')}</td></tr>`; return;
   }
   tbody.innerHTML = products.map(p => {
-    const sc = p.stock === 0 ? 'b-red' : p.stock < 5 ? 'b-amber' : 'b-green';
+    const sc = p.stock === 0 ? 'b-red' : p.lowStock ? 'b-amber' : 'b-green';
     const inactive = p.active === false;
     return `<tr class="${inactive ? 'row-inactive' : ''}">
       <td class="td-m t-muted">#${p.id}</td>
@@ -1067,6 +1073,7 @@ function renderProdsTable(products) {
       <td class="td-p">${fmt(p.price)}</td>
       <td><span class="badge ${sc}">${fmtQty(p.stock, p.unit)}</span></td>
       <td class="td-a">
+        <button class="btn btn-secondary btn-sm" onclick="openAdjust(${p.id})">${t('Stock')}</button>
         <button class="btn btn-secondary btn-sm btn-icon" title="${t('Edit')}" onclick="openProdModalById(${p.id})">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -1111,6 +1118,8 @@ function openProdModal(prod, barcodePrefill) {
   $('pm-unit').value   = prod?.unit || 'pcs';
   $('pm-price').value  = prod?.price || '';
   $('pm-stock').value  = prod?.stock ?? '';
+  $('pm-min').value    = prod?.minStock ?? '';
+  $('pm-reorder').value = prod?.reorderQuantity ?? '';
   openModal('modal-prod');
 }
 
@@ -1125,6 +1134,8 @@ async function submitProd() {
     price:        parseFloat($('pm-price').value),
     stock:        parseQuantity($('pm-stock').value),
     categoryName: $('pm-cat').value,
+    minStock:     $('pm-min').value === '' ? null : parseQuantity($('pm-min').value),
+    reorderQuantity: $('pm-reorder').value === '' ? null : parseQuantity($('pm-reorder').value),
   };
   if (!body.name || !body.barcode || isNaN(body.purchasePrice) || isNaN(body.taxRate) || isNaN(body.price) || isNaN(body.stock)) {
     toast(t('Please fill in all required fields'), 'error'); return;
@@ -1795,6 +1806,297 @@ async function submitUser() {
   }
 }
 
+/*  Suppliers  */
+let allSuppliers = [];
+let currentSupplierId = null;
+
+async function loadSupplierOptions() {
+  try {
+    const res = await req('GET', '/suppliers');
+    allSuppliers = res.data || [];
+    $('supplier-options').innerHTML = allSuppliers.filter(s => s.active)
+      .map(s => `<option value="${esc(s.name)}"></option>`).join('');
+  } catch {}
+}
+
+async function loadSuppliers() {
+  const tbody = $('suppliers-tbody');
+  tbody.innerHTML = `<tr><td colspan="7" class="no-data">${t('Loading...')}</td></tr>`;
+  try {
+    const res = await req('GET', '/suppliers');
+    allSuppliers = res.data || [];
+    tbody.innerHTML = allSuppliers.length ? allSuppliers.map(s => `
+      <tr class="${s.active ? '' : 'row-inactive'}">
+        <td><strong>${esc(s.name)}</strong></td>
+        <td class="td-m">${esc(s.taxNumber || '')}</td>
+        <td>${esc(s.phone || '')}</td>
+        <td class="td-p">${fmtLek(s.totalInvoiced)}</td>
+        <td class="td-p">${fmtLek(s.totalPaid)}</td>
+        <td class="td-p"><strong class="${parseFloat(s.balance) > 0 ? 'diff-minus' : ''}">${fmtLek(s.balance)}</strong></td>
+        <td class="td-a">
+          <button class="btn btn-secondary btn-sm" onclick="openSupplierDetail(${s.id})">${t('Details')}</button>
+          <button class="btn btn-secondary btn-sm" onclick="openSupplierModal(${s.id})">${t('Edit')}</button>
+        </td>
+      </tr>`).join('') : `<tr><td colspan="7" class="no-data">${t('No suppliers yet.')}</td></tr>`;
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="7" class="no-data" style="color:var(--red)">${esc(e.message)}</td></tr>`;
+  }
+}
+
+function openSupplierModal(id) {
+  const s = allSuppliers.find(x => x.id === id);
+  $('sm-title').textContent = s ? t('Edit supplier') : t('Add supplier');
+  $('sm-id').value = s?.id || '';
+  $('sm-name').value = s?.name || '';
+  $('sm-tax').value = s?.taxNumber || '';
+  $('sm-phone').value = s?.phone || '';
+  $('sm-email').value = s?.email || '';
+  $('sm-address').value = s?.address || '';
+  $('sm-notes').value = s?.notes || '';
+  openModal('modal-supplier');
+}
+
+async function submitSupplier() {
+  const id = $('sm-id').value;
+  const body = { name: $('sm-name').value.trim(), taxNumber: $('sm-tax').value, phone: $('sm-phone').value,
+    email: $('sm-email').value, address: $('sm-address').value, notes: $('sm-notes').value, active: true };
+  try {
+    if (id) await req('PUT', `/suppliers/${id}`, body);
+    else await req('POST', '/suppliers', body);
+    closeModal('modal-supplier');
+    toast(t('Supplier saved'), 'success');
+    loadSuppliers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function openSupplierDetail(id) {
+  currentSupplierId = id;
+  try {
+    const res = await req('GET', `/suppliers/${id}`);
+    const d = res.data;
+    const s = d.supplier;
+    $('sd-title').textContent = s.name;
+    $('sd-meta').textContent = [s.taxNumber && `NIPT ${s.taxNumber}`, s.phone, s.email, s.address].filter(Boolean).join(' | ');
+    $('sd-kpis').innerHTML = `
+      <div class="report-kpi"><span>${t('Invoiced')}</span><strong>${fmtLek(s.totalInvoiced)}</strong></div>
+      <div class="report-kpi"><span>${t('Paid')}</span><strong>${fmtLek(s.totalPaid)}</strong></div>
+      <div class="report-kpi"><span>${t('Owed')}</span><strong>${fmtLek(s.balance)}</strong></div>`;
+    $('sd-invoices').innerHTML = d.invoices.map(i => `
+      <tr><td class="td-m">${esc(i.invoiceNumber)}</td><td>${esc(i.invoiceDate)}</td><td class="td-p">${fmtLek(i.totalAmount)}</td></tr>`).join('')
+      || `<tr><td colspan="3" class="no-data">-</td></tr>`;
+    $('sd-payments').innerHTML = d.payments.map(p => `
+      <tr><td>${esc(p.paidOn)}</td><td>${esc(p.method === 'CASH' ? t('Cash') : t('Bank'))}</td><td class="td-p">${fmtLek(p.amount)}</td><td>${esc(p.note || '')}</td></tr>`).join('')
+      || `<tr><td colspan="4" class="no-data">-</td></tr>`;
+    $('sp-amount').value = '';
+    $('sp-note').value = '';
+    $('sp-date').value = new Date().toISOString().slice(0, 10);
+    openModal('modal-supplier-detail');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function addSupplierPayment() {
+  try {
+    await req('POST', `/suppliers/${currentSupplierId}/payments`, {
+      amount: parseFloat($('sp-amount').value || '0'), paidOn: $('sp-date').value || null,
+      method: $('sp-method').value, note: $('sp-note').value
+    });
+    toast(t('Payment saved'), 'success');
+    openSupplierDetail(currentSupplierId);
+    loadSuppliers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+/*  Inventory  */
+let currentInventoryTab = 'reorder';
+let currentCount = null;
+
+function showInventoryTab(tab) {
+  currentInventoryTab = tab;
+  document.querySelectorAll('.inv-tab').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  document.querySelectorAll('.inv-panel').forEach(p => p.classList.toggle('hidden', p.id !== 'inv-' + tab));
+  if (tab === 'reorder') loadReorder();
+  if (tab === 'expiring') loadExpiring();
+  if (tab === 'count') loadCount();
+}
+
+async function loadReorder() {
+  const box = $('reorder-groups');
+  box.innerHTML = `<p class="no-data">${t('Loading...')}</p>`;
+  try {
+    const res = await req('GET', '/inventory/reorder');
+    const groups = res.data || [];
+    box.innerHTML = groups.length ? groups.map(g => `
+      <div class="reorder-group">
+        <h3>${esc(g.supplierName || t('No supplier yet'))} — ${t('estimated {amount}', { amount: fmtLek(g.estimatedTotal) })}</h3>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>${t('Product')}</th><th>${t('Barcode')}</th><th>${t('Stock')}</th><th>${t('Minimum stock')}</th><th>${t('To order')}</th><th>${t('Last cost')}</th><th>${t('Total')}</th></tr></thead>
+          <tbody>${g.lines.map(l => `
+            <tr><td><strong>${esc(l.productName)}</strong></td><td class="td-m">${esc(l.barcode)}</td>
+              <td><span class="badge b-amber">${fmtQty(l.stock, l.unit)}</span></td><td class="td-m">${fmtQty(l.minStock, l.unit)}</td>
+              <td><strong>${fmtQty(l.suggestedQuantity, l.unit)} ${esc(unitLabel(l.unit))}</strong></td>
+              <td class="td-p">${fmtLek(l.lastPurchasePrice)}</td><td class="td-p">${fmtLek(l.estimatedCost)}</td></tr>`).join('')}
+          </tbody></table></div>
+      </div>`).join('') : `<p class="no-data">${t('Nothing to reorder: every product is above its minimum stock.')}</p>`;
+  } catch (e) { box.innerHTML = `<p class="no-data" style="color:var(--red)">${esc(e.message)}</p>`; }
+}
+
+async function loadExpiring() {
+  const tbody = $('expiring-tbody');
+  tbody.innerHTML = `<tr><td colspan="6" class="no-data">${t('Loading...')}</td></tr>`;
+  try {
+    const res = await req('GET', `/inventory/expiring?days=${$('expiry-days').value}`);
+    const lines = res.data || [];
+    tbody.innerHTML = lines.length ? lines.map(l => `
+      <tr>
+        <td><strong>${esc(l.productName)}</strong></td>
+        <td>${esc(l.expiryDate)}</td>
+        <td><span class="badge ${l.daysLeft < 0 ? 'b-red' : l.daysLeft <= 3 ? 'b-amber' : 'b-blue'}">${l.daysLeft < 0 ? t('Expired') : l.daysLeft}</span></td>
+        <td>${fmtQty(l.estimatedOnShelf, l.unit)} ${esc(unitLabel(l.unit))}</td>
+        <td>${esc(l.supplierName || '')}</td>
+        <td class="td-m">${esc(l.invoiceNumber)}</td>
+      </tr>`).join('') : `<tr><td colspan="6" class="no-data">${t('Nothing expires in this period.')}</td></tr>`;
+  } catch (e) { tbody.innerHTML = `<tr><td colspan="6" class="no-data" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+}
+
+async function loadCount() {
+  try {
+    const res = await req('GET', '/inventory/counts/current');
+    renderCount(res.data || null);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function renderCount(count) {
+  currentCount = count && count.status === 'OPEN' ? count : null;
+  const open = !!currentCount;
+  $('count-start').classList.toggle('hidden', open);
+  $('count-apply').classList.toggle('hidden', !open);
+  $('count-cancel').classList.toggle('hidden', !open);
+  $('count-entry').classList.toggle('hidden', !open);
+  $('count-status').textContent = open
+    ? t('Count started {date} by {name}: {lines} products counted, {diff} with a difference',
+        { date: formatDateTime(count.startedAt), name: count.startedByName, lines: count.lines.length, diff: count.linesWithDifference })
+    : t('No count in progress. Start one, scan each product and type how many are on the shelf.');
+  $('count-tbody').innerHTML = open ? count.lines.map(l => {
+    const diff = parseFloat(l.difference);
+    return `<tr>
+      <td><strong>${esc(l.productName)}</strong></td><td class="td-m">${esc(l.barcode)}</td>
+      <td>${fmtQty(l.countedQuantity, l.unit)}</td><td>${fmtQty(l.currentStock, l.unit)}</td>
+      <td class="${diff < 0 ? 'diff-minus' : diff > 0 ? 'diff-plus' : ''}">${diff > 0 ? '+' : ''}${fmtQty(diff, l.unit)}</td>
+    </tr>`;
+  }).join('') : '';
+  if (open) setTimeout(() => $('count-barcode').focus(), 50);
+}
+
+async function startCount() {
+  try {
+    const res = await req('POST', '/inventory/counts', {});
+    renderCount(res.data);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function saveCountLine() {
+  if (!currentCount) return;
+  const barcode = $('count-barcode').value.trim();
+  const qty = parseQuantity($('count-qty').value);
+  if (!barcode || Number.isNaN(qty)) { toast(t('Scan a product and enter the quantity'), 'error'); return; }
+  try {
+    const res = await req('PUT', `/inventory/counts/${currentCount.id}/lines`, { barcode, countedQuantity: qty });
+    $('count-barcode').value = '';
+    $('count-qty').value = '';
+    renderCount(res.data);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function applyCount() {
+  if (!currentCount || !confirm(t('Set the stock of the {count} counted products to what was found?', { count: currentCount.lines.length }))) return;
+  try {
+    const res = await req('POST', `/inventory/counts/${currentCount.id}/apply`);
+    toast(t('Stock count applied'), 'success');
+    renderCount(res.data);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function cancelCount() {
+  if (!currentCount || !confirm(t('Cancel this count? Nothing will change.'))) return;
+  try {
+    const res = await req('POST', `/inventory/counts/${currentCount.id}/cancel`);
+    renderCount(res.data);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+/* Stock adjustment from the product list */
+const ADJUST_REASONS = { DAMAGED: 'Damaged', EXPIRED: 'Expired', LOST: 'Lost / stolen', INTERNAL_USE: 'Internal use',
+  COUNT_CORRECTION: 'Stock count', OTHER: 'Other' };
+
+async function openAdjust(productId) {
+  const p = allProdTable.find(x => x.id === productId);
+  if (!p) return;
+  $('adj-product').value = productId;
+  $('adj-meta').textContent = `${p.name} — ${t('Stock')}: ${fmtQty(p.stock, p.unit)} ${unitLabel(p.unit)}`;
+  $('adj-qty').value = '';
+  $('adj-note').value = '';
+  $('adj-qty').step = p.unit === 'kg' ? '0.001' : '1';
+  $('adj-history').innerHTML = '';
+  openModal('modal-adjust');
+  try {
+    const res = await req('GET', `/inventory/adjustments?productId=${productId}`);
+    $('adj-history').innerHTML = (res.data || []).map(a => `
+      <tr><td class="td-m">${formatDateTime(a.createdAt)}</td>
+        <td class="${parseFloat(a.quantityChange) < 0 ? 'diff-minus' : 'diff-plus'}">${parseFloat(a.quantityChange) > 0 ? '+' : ''}${fmtQty(a.quantityChange, p.unit)}</td>
+        <td>${esc(t(ADJUST_REASONS[a.reason] || a.reason))}${a.note ? ' - ' + esc(a.note) : ''}</td>
+        <td>${fmtQty(a.stockAfter, p.unit)}</td><td>${esc(a.cashierName)}</td></tr>`).join('')
+      || `<tr><td colspan="5" class="no-data">-</td></tr>`;
+  } catch {}
+}
+
+async function submitAdjustment() {
+  const qty = parseQuantity($('adj-qty').value);
+  if (Number.isNaN(qty) || qty <= 0) { toast(t('Enter a valid quantity'), 'error'); return; }
+  try {
+    await req('POST', '/inventory/adjustments', {
+      productId: parseInt($('adj-product').value, 10),
+      quantityChange: qty * parseInt($('adj-direction').value, 10),
+      reason: $('adj-reason').value,
+      note: $('adj-note').value
+    });
+    closeModal('modal-adjust');
+    toast(t('Stock adjusted'), 'success');
+    loadProdsTable();
+    loadPosProducts();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+/* Products to and from Excel (CSV) */
+function exportProducts() {
+  const link = document.createElement('a');
+  link.href = '/products/export';
+  link.download = 'products.csv';
+  link.click();
+}
+
+async function importProducts(input) {
+  const file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  try {
+    const res = await fetch('/products/import', {
+      method: 'POST', body: await file.text(),
+      headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Accept-Language': currentLang }
+    });
+    const json = await res.json();
+    if (!res.ok || json.success === false) throw new Error(json.message || t('Import failed'));
+    const r = json.data;
+    const summary = t('{created} created, {updated} updated, {errors} lines with errors',
+      { created: r.created, updated: r.updated, errors: r.errors.length });
+    if (r.errors.length) {
+      alert(summary + '\n\n' + r.errors.map(e => `${t('Line')} ${e.line}${e.barcode ? ' (' + e.barcode + ')' : ''}: ${e.message}`).join('\n'));
+    }
+    toast(summary, r.errors.length ? 'info' : 'success');
+    loadProdsTable();
+    loadPosProducts();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 /*  Refunds  */
 let refundSale = null;
 
@@ -1871,7 +2173,10 @@ const AUDIT_LABELS = {
   CART_CLEARED: 'Cart cleared', REFUND: 'Refund', PRODUCT_CREATED: 'Product created', PRODUCT_UPDATED: 'Product changed',
   PRODUCT_DEACTIVATED: 'Product deactivated', PRODUCT_ACTIVATED: 'Product reactivated', PURCHASE_SAVED: 'Purchase invoice saved',
   EXCHANGE_RATE_UPDATED: 'Exchange rate changed', USER_CREATED: 'User created', USER_UPDATED: 'User changed',
-  SHIFT_OPENED: 'Shift opened', SHIFT_CLOSED: 'Shift closed', CASH_IN: 'Cash in', CASH_OUT: 'Cash out'
+  SHIFT_OPENED: 'Shift opened', SHIFT_CLOSED: 'Shift closed', CASH_IN: 'Cash in', CASH_OUT: 'Cash out',
+  SUPPLIER_CREATED: 'Supplier created', SUPPLIER_UPDATED: 'Supplier changed', SUPPLIER_PAYMENT: 'Supplier paid',
+  STOCK_ADJUSTED: 'Stock adjusted', COUNT_STARTED: 'Stock count started', COUNT_APPLIED: 'Stock count applied',
+  COUNT_CANCELLED: 'Stock count cancelled', PRODUCTS_IMPORTED: 'Products imported'
 };
 
 function auditActionLabel(action) {

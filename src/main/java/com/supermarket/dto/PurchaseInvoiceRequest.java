@@ -7,6 +7,7 @@ public class PurchaseInvoiceRequest {
 
     private String invoiceNumber;
     private String company;
+    private Long supplierId;
     private LocalDate invoiceDate;
     private List<PurchaseItemRequest> items;
 
@@ -40,5 +41,13 @@ public class PurchaseInvoiceRequest {
 
     public void setItems(List<PurchaseItemRequest> items) {
         this.items = items;
+    }
+
+    public Long getSupplierId() {
+        return supplierId;
+    }
+
+    public void setSupplierId(Long supplierId) {
+        this.supplierId = supplierId;
     }
 }

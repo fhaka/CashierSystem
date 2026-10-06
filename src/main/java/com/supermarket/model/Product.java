@@ -44,6 +44,14 @@ public class Product {
     @Column(nullable = false)
     private boolean active = true;
 
+    /** At or below this stock the product appears on the low-stock and reorder lists. Empty: never. */
+    @Column(precision = 12, scale = 3)
+    private BigDecimal minStock;
+
+    /** How much to order when it runs low. Empty: enough to reach twice the minimum. */
+    @Column(precision = 12, scale = 3)
+    private BigDecimal reorderQuantity;
+
     @Column(nullable = false)
     private String unit;
 
@@ -143,5 +151,25 @@ public class Product {
 
     public void setActive(boolean active) {
         this.active = active;
+    }
+
+    public BigDecimal getMinStock() {
+        return minStock;
+    }
+
+    public void setMinStock(BigDecimal minStock) {
+        this.minStock = minStock;
+    }
+
+    public BigDecimal getReorderQuantity() {
+        return reorderQuantity;
+    }
+
+    public void setReorderQuantity(BigDecimal reorderQuantity) {
+        this.reorderQuantity = reorderQuantity;
+    }
+
+    public boolean isLowStock() {
+        return minStock != null && stock.compareTo(minStock) <= 0;
     }
 }

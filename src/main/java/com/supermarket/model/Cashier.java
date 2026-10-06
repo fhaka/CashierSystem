@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -28,13 +30,21 @@ public class Cashier {
     @JsonIgnore
     private String passwordHash;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20, columnDefinition = "varchar(20) default 'SUPER_ADMIN'")
+    private CashierRole role = CashierRole.CASHIER;
+
+    @Column(nullable = false, columnDefinition = "boolean default true")
+    private boolean active = true;
+
     public Cashier() {
     }
 
-    public Cashier(String fullName, String username, String passwordHash) {
+    public Cashier(String fullName, String username, String passwordHash, CashierRole role) {
         this.fullName = fullName;
         this.username = username;
         this.passwordHash = passwordHash;
+        this.role = role;
     }
 
     public Long getId() {
@@ -63,5 +73,21 @@ public class Cashier {
 
     public void setPasswordHash(String passwordHash) {
         this.passwordHash = passwordHash;
+    }
+
+    public CashierRole getRole() {
+        return role;
+    }
+
+    public void setRole(CashierRole role) {
+        this.role = role;
+    }
+
+    public boolean isActive() {
+        return active;
+    }
+
+    public void setActive(boolean active) {
+        this.active = active;
     }
 }

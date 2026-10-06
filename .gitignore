@@ -4,3 +4,5 @@ target/
 *.log
 .DS_Store
 Thumbs.db
+src/main/resources/application-local.properties
+backups/

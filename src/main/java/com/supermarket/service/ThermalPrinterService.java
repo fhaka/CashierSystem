@@ -11,6 +11,13 @@ import javax.print.PrintServiceLookup;
 import javax.print.SimpleDoc;
 import javax.print.attribute.HashPrintRequestAttributeSet;
 import javax.print.attribute.PrintRequestAttributeSet;
+import java.awt.Font;
+import java.awt.FontMetrics;
+import java.awt.Graphics2D;
+import java.awt.print.PageFormat;
+import java.awt.print.Paper;
+import java.awt.print.PrinterException;
+import java.awt.print.PrinterJob;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.Charset;
 import java.util.Arrays;
@@ -26,11 +33,15 @@ public class ThermalPrinterService {
     }
 
     public void printReceipt(String receiptText) {
+        printReceipt(receiptText, null);
+    }
+
+    public void printReceipt(String receiptText, String printerName) {
         if (receiptText == null || receiptText.isBlank()) {
             throw new IllegalArgumentException("Receipt text is required");
         }
 
-        PrintService printService = resolvePrintService();
+        PrintService printService = resolvePrintService(printerName);
         printRawBytes(printService, buildEscPosReceipt(receiptText));
     }
 
@@ -54,17 +65,27 @@ public class ThermalPrinterService {
     }
 
     private PrintService resolvePrintService() {
+        return resolvePrintService(null);
+    }
+
+    private PrintService resolvePrintService(String requestedPrinterName) {
         PrintService[] printServices = PrintServiceLookup.lookupPrintServices(null, null);
         if (printServices.length == 0) {
             throw new IllegalStateException("No printers found on this computer");
         }
 
-        if (configuredPrinterName != null && !configuredPrinterName.isBlank()) {
+        String printerName = requestedPrinterName;
+        if (printerName == null || printerName.isBlank()) {
+            printerName = configuredPrinterName;
+        }
+
+        if (printerName != null && !printerName.isBlank()) {
+            String selectedPrinterName = printerName.trim();
             return Arrays.stream(printServices)
-                    .filter(service -> service.getName().equalsIgnoreCase(configuredPrinterName.trim())
-                            || service.getName().toLowerCase().contains(configuredPrinterName.trim().toLowerCase()))
+                    .filter(service -> service.getName().equalsIgnoreCase(selectedPrinterName)
+                            || service.getName().toLowerCase().contains(selectedPrinterName.toLowerCase()))
                     .findFirst()
-                    .orElseThrow(() -> new IllegalStateException("Configured printer not found: " + configuredPrinterName));
+                    .orElseThrow(() -> new IllegalStateException("Printer not found: " + selectedPrinterName));
         }
 
         PrintService defaultPrintService = PrintServiceLookup.lookupDefaultPrintService();
@@ -83,6 +104,49 @@ public class ThermalPrinterService {
         } catch (Exception exception) {
             throw new IllegalStateException("Could not print to " + printService.getName() + ": " + exception.getMessage(), exception);
         }
+    }
+
+    private void printWithWindowsDriver(PrintService printService, String receiptText) {
+        try {
+            String[] lines = receiptText.replace("\r\n", "\n").replace("\r", "\n").split("\n", -1);
+
+            double paperWidth = millimetersToPoints(80);
+            double paperHeight = Math.max(millimetersToPoints(90), lines.length * 11.0 + 42.0);
+
+            Paper paper = new Paper();
+            paper.setSize(paperWidth, paperHeight);
+            paper.setImageableArea(8, 8, paperWidth - 16, paperHeight - 16);
+
+            PageFormat pageFormat = new PageFormat();
+            pageFormat.setPaper(paper);
+
+            PrinterJob printerJob = PrinterJob.getPrinterJob();
+            printerJob.setPrintService(printService);
+            printerJob.setPrintable((graphics, format, pageIndex) -> {
+                if (pageIndex > 0) {
+                    return java.awt.print.Printable.NO_SUCH_PAGE;
+                }
+
+                Graphics2D graphics2D = (Graphics2D) graphics;
+                graphics2D.translate(format.getImageableX(), format.getImageableY());
+                graphics2D.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 8));
+
+                FontMetrics fontMetrics = graphics2D.getFontMetrics();
+                int y = fontMetrics.getAscent();
+                for (String line : lines) {
+                    graphics2D.drawString(line, 0, y);
+                    y += fontMetrics.getHeight();
+                }
+                return java.awt.print.Printable.PAGE_EXISTS;
+            }, pageFormat);
+            printerJob.print();
+        } catch (PrinterException exception) {
+            throw new IllegalStateException("Could not print to " + printService.getName() + ": " + exception.getMessage(), exception);
+        }
+    }
+
+    private double millimetersToPoints(double millimeters) {
+        return millimeters * 72.0 / 25.4;
     }
 
     private byte[] buildEscPosReceipt(String receiptText) {

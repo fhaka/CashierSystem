@@ -1,6 +1,5 @@
 package com.supermarket.service;
 
-import com.supermarket.dto.CheckoutRequest;
 import com.supermarket.dto.ReceiptItemResponse;
 import com.supermarket.dto.ReceiptResponse;
 import com.supermarket.dto.SaleLogRequest;
@@ -10,7 +9,6 @@ import com.supermarket.model.Cashier;
 import com.supermarket.model.Product;
 import com.supermarket.model.Sale;
 import com.supermarket.model.SaleItem;
-import com.supermarket.repository.CashierRepository;
 import com.supermarket.repository.JdbcLogRepository;
 import com.supermarket.repository.ProductRepository;
 import com.supermarket.repository.SaleRepository;
@@ -32,8 +30,8 @@ public class SaleService {
     private final ProductService productService;
     private final ProductRepository productRepository;
     private final SaleRepository saleRepository;
-    private final CashierRepository cashierRepository;
     private final JdbcLogRepository jdbcLogRepository;
+    private final ShiftService shiftService;
     private final List<PricingStrategy> pricingStrategies;
 
     public SaleService(
@@ -41,21 +39,25 @@ public class SaleService {
             ProductService productService,
             ProductRepository productRepository,
             SaleRepository saleRepository,
-            CashierRepository cashierRepository,
             JdbcLogRepository jdbcLogRepository,
+            ShiftService shiftService,
             List<PricingStrategy> pricingStrategies
     ) {
         this.cartService = cartService;
         this.productService = productService;
         this.productRepository = productRepository;
         this.saleRepository = saleRepository;
-        this.cashierRepository = cashierRepository;
         this.jdbcLogRepository = jdbcLogRepository;
+        this.shiftService = shiftService;
         this.pricingStrategies = pricingStrategies;
     }
 
     public List<Sale> findAll() {
-        return saleRepository.findAll();
+        return saleRepository.findAllByOrderByDateDesc();
+    }
+
+    public List<Sale> findForCashier(Long cashierId) {
+        return saleRepository.findByCashierIdOrderByDateDesc(cashierId);
     }
 
     public List<Map<String, Object>> findSaleLogs() {
@@ -84,8 +86,8 @@ public class SaleService {
     }
 
     @Transactional
-    public ReceiptResponse checkout(CheckoutRequest request) {
-        List<CartItem> cartItems = cartService.getCart();
+    public ReceiptResponse checkout(Cashier cashier) {
+        List<CartItem> cartItems = cartService.getCart(cashier.getId());
         if (cartItems.isEmpty()) {
             throw new IllegalArgumentException("Cart is empty");
         }
@@ -96,15 +98,13 @@ public class SaleService {
 
         cartItems.forEach(item -> validateStock(productsById.get(item.getProductId()), item));
 
-        BigDecimal subtotal = cartService.calculateSubtotal();
+        BigDecimal subtotal = cartService.calculateSubtotal(cashier.getId());
         BigDecimal finalTotal = applyPricingStrategies(cartItems, subtotal);
 
         Sale sale = new Sale(LocalDateTime.now(), finalTotal);
-        if (request != null && request.getCashierId() != null) {
-            Cashier cashier = cashierRepository.findById(request.getCashierId())
-                    .orElseThrow(() -> new IllegalArgumentException("Cashier not found with id: " + request.getCashierId()));
-            sale.setCashier(cashier);
-        }
+        shiftService.findOpenShift(cashier.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Open a shift before checkout"));
+        sale.setCashier(cashier);
         cartItems.forEach(item -> {
             Product product = productsById.get(item.getProductId());
             product.setStock(product.getStock() - item.getQuantity());
@@ -114,7 +114,7 @@ public class SaleService {
         productRepository.saveAll(productsById.values());
         Sale savedSale = saleRepository.save(sale);
         ReceiptResponse receipt = buildReceipt(savedSale, cartItems, subtotal);
-        cartService.clear();
+        cartService.clear(cashier.getId());
         String cashierName = savedSale.getCashier() == null ? "Unknown cashier" : savedSale.getCashier().getFullName();
         jdbcLogRepository.logSaleAsync(savedSale.getId(), "Sale completed by " + cashierName + " with total: " + savedSale.getTotalAmount());
         return receipt;

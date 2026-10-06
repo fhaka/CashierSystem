@@ -1,6 +1,6 @@
 'use strict';
 
-const API = 'http://localhost:8080';
+const API = window.location.origin;
 let currentUser  = null;
 let posProducts  = [];
 let cartItems    = [];
@@ -11,6 +11,8 @@ let purchaseItems = [];
 let lastReceipt  = '';
 let keypadBuffer = '';
 let lastCheckoutData = null;
+let activeShift = null;
+let allUsers = [];
 
 /*  Helpers  */
 const $ = id => document.getElementById(id);
@@ -70,9 +72,11 @@ function toast(msg, type = 'info') {
 
 async function req(method, path, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (currentUser?.token) opts.headers['X-Auth-Token'] = currentUser.token;
   if (body !== undefined) opts.body = JSON.stringify(body);
   const res  = await fetch(API + path, opts);
   const json = await res.json().catch(() => ({}));
+  if (res.status === 401 && currentUser) clearLocalSession();
   if (!res.ok) throw new Error(json.message || json.error || `Request failed with status ${res.status}`);
   if (json.success === false) throw new Error(json.message || 'Request failed');
   return json;
@@ -80,6 +84,29 @@ async function req(method, path, body) {
 
 function openModal(id)  { $(id).classList.remove('hidden'); }
 function closeModal(id) { $(id).classList.add('hidden'); }
+
+function isSuperAdmin() {
+  return currentUser?.role === 'SUPER_ADMIN';
+}
+
+function isOperationalManager() {
+  return isSuperAdmin() || currentUser?.role === 'SUPER_CASHIER';
+}
+
+function roleLabel(role) {
+  if (role === 'SUPER_ADMIN') return 'Super Admin';
+  if (role === 'SUPER_CASHIER') return 'Super Cashier';
+  return 'Cashier';
+}
+
+function clearLocalSession() {
+  currentUser = null;
+  cartItems = [];
+  activeShift = null;
+  localStorage.removeItem('cashier');
+  $('auth-screen').classList.remove('hidden');
+  $('app-screen').classList.add('hidden');
+}
 
 /*  Auth  */
 function switchTab(tab) {
@@ -112,14 +139,27 @@ async function doRegister() {
   } catch (e) { toast(e.message || 'Registration failed', 'error'); }
 }
 
+async function checkInitialSetup() {
+  try {
+    const res = await req('GET', '/auth/setup');
+    const available = res.data?.registrationAvailable === true;
+    $('tab-register').classList.toggle('hidden', !available);
+    if (!available && !$('form-register').classList.contains('hidden')) switchTab('login');
+  } catch {
+    $('tab-register').classList.add('hidden');
+  }
+}
+
 function bootUser(user) {
   currentUser = user;
   localStorage.setItem('cashier', JSON.stringify(user));
   $('user-name').textContent   = user.fullName;
   $('user-avatar').textContent = user.fullName.charAt(0).toUpperCase();
+  $('user-role').textContent = roleLabel(user.role);
   $('auth-screen').classList.add('hidden');
   $('app-screen').classList.remove('hidden');
   $('home-account-name').textContent = user.fullName;
+  applyRolePermissions();
   gotoView('home');
   setNextInvoiceNumber();
   loadPosProducts();
@@ -127,18 +167,42 @@ function bootUser(user) {
   loadHomeData();
 }
 
-function doLogout() {
-  currentUser = null;
-  cartItems   = [];
-  localStorage.removeItem('cashier');
-  $('auth-screen').classList.remove('hidden');
-  $('app-screen').classList.add('hidden');
+async function doLogout() {
+  try {
+    if (currentUser?.token) await req('POST', '/auth/logout');
+  } catch {}
+  clearLocalSession();
   $('l-user').value = '';
   $('l-pass').value = '';
 }
 
+function applyRolePermissions() {
+  const manager = isOperationalManager();
+  const superAdmin = isSuperAdmin();
+  document.querySelectorAll('.manager-only').forEach(element => element.classList.toggle('hidden', !manager));
+  document.querySelectorAll('.super-admin-only').forEach(element => element.classList.toggle('hidden', !superAdmin));
+  const salesSubtitle = document.querySelector('#view-sales .page-sub');
+  if (salesSubtitle) salesSubtitle.textContent = manager ? 'Transaction history for all cashiers' : 'Your transaction history';
+  if ($('home-description')) {
+    $('home-description').textContent = manager
+      ? 'Start a sale, manage products, and review daily activity from one clean workspace.'
+      : 'Start sales, review your transactions, and control your daily shift.';
+  }
+  if ($('operations-title')) {
+    $('operations-title').textContent = superAdmin ? 'Shifts & Backups' : manager ? 'All Shifts' : 'My Shift';
+  }
+}
+
 /*  Navigation  */
 function gotoView(view) {
+  if (['products', 'purchases', 'reports'].includes(view) && !isOperationalManager()) {
+    toast('Super Cashier or Super Admin access is required', 'error');
+    view = 'home';
+  }
+  if (view === 'users' && !isSuperAdmin()) {
+    toast('Super Admin access is required', 'error');
+    view = 'home';
+  }
   document.querySelectorAll('.view').forEach(v => v.classList.remove('on'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('on'));
   $('view-' + view).classList.add('on');
@@ -148,6 +212,8 @@ function gotoView(view) {
   if (view === 'purchases') initPurchasePage();
   if (view === 'sales')    loadSales();
   if (view === 'reports')  loadReports();
+  if (view === 'users') loadUsers();
+  if (view === 'operations') loadOperations();
 }
 
 async function loadHomeData() {
@@ -314,7 +380,8 @@ async function addByBarcode(barcode) {
     await refreshCart();
     toast('Item scanned & added', 'success');
   } catch (e) {
-    toast('Product is not registered or does not exist', 'error');
+    const message = e.message || '';
+    toast(message.includes('stock') ? message : 'Product is not registered or does not exist', 'error');
   }
 }
 
@@ -325,7 +392,11 @@ function renderInvoiceRows() {
     tbody.innerHTML = '<tr class="invoice-empty"><td colspan="11">Scan a barcode or use the keypad to add products to the invoice.</td></tr>';
     return;
   }
-  tbody.innerHTML = cartItems.map((item, index) => `
+  tbody.innerHTML = cartItems.map((item, index) => {
+    const priceCell = isOperationalManager()
+      ? `<input class="input pos-edit-cell" type="number" min="0.01" step="0.01" value="${Number(item.price || 0).toFixed(2)}" onchange="updateCartInline(${item.productId}, 'price', this.value)" />`
+      : `<span class="td-p">${fmt(item.price)}</span>`;
+    return `
     <tr>
       <td class="td-m">${String(index + 1).padStart(4, '0')}</td>
       <td class="invoice-code-cell">${esc(item.barcode || item.productId)}</td>
@@ -333,7 +404,7 @@ function renderInvoiceRows() {
       <td class="td-p">${fmt(item.unitPriceWithoutTax)}</td>
       <td class="td-m">${fmtTax(item.taxRate)}</td>
       <td class="td-p">${fmt(item.taxAmount)}</td>
-      <td><input class="input pos-edit-cell" type="number" min="0.01" step="0.01" value="${Number(item.price || 0).toFixed(2)}" onchange="updateCartInline(${item.productId}, 'price', this.value)" /></td>
+      <td>${priceCell}</td>
       <td><input class="input pos-edit-cell pos-qty-cell" type="number" min="1" step="1" value="${item.quantity}" onchange="updateCartInline(${item.productId}, 'quantity', this.value)" /></td>
       <td class="td-p">${fmt(item.lineTotal)}</td>
       <td class="td-m">${esc(item.unit || 'pcs')}</td>
@@ -343,7 +414,8 @@ function renderInvoiceRows() {
         <button class="btn btn-danger btn-sm btn-icon" title="Remove" onclick="removeItem(${item.productId})">x</button>
       </td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function updateKeypadDisplay() {
@@ -406,10 +478,7 @@ async function changeQty(productId, newQty) {
 async function updateCartInline(productId, field, value) {
   const item = cartItems.find(cartItem => cartItem.productId === productId);
   if (!item) return;
-  const body = {
-    quantity: item.quantity,
-    price: item.price
-  };
+  const body = { quantity: item.quantity };
   if (field === 'quantity') {
     const quantity = parseInt(value || '0', 10);
     if (Number.isNaN(quantity) || quantity < 1) {
@@ -420,6 +489,11 @@ async function updateCartInline(productId, field, value) {
     body.quantity = quantity;
   }
   if (field === 'price') {
+    if (!isOperationalManager()) {
+      toast('Cashiers cannot change product prices', 'error');
+      renderInvoiceRows();
+      return;
+    }
     const price = parseFloat(value || '0');
     if (Number.isNaN(price) || price <= 0) {
       toast('Price must be greater than zero', 'error');
@@ -479,6 +553,7 @@ async function doCheckout() {
     $('receipt-txt').textContent = lastReceipt;
     preparePayment(data);
     openModal('modal-receipt');
+    loadReceiptPrinters();
     cartItems = [];
     renderCart();
     $('invoice-no').value = String((data.saleId || 0) + 1).padStart(4, '0');
@@ -737,20 +812,34 @@ async function printReceipt() {
   const totalLek = parseFloat(lastCheckoutData?.totalAmount || 0);
   const paymentLines = lastCheckoutData ? `\n\nPAYMENT\nTotal: ${fmtLek(totalLek)}\nCustomer gave: ${paidAmount} ${paidCurrency}\nConverted: ${fmtLek(paidLek)}\nResto: ${fmtLek(paidLek - totalLek)}` : '';
   const receiptToPrint = lastReceipt + paymentLines;
+  const printerName = $('receipt-printer')?.value || '';
   try {
-    await req('POST', '/printer/receipt', { receiptText: receiptToPrint });
-    toast('Receipt sent to thermal printer', 'success');
-    return;
+    await req('POST', '/printer/receipt', { receiptText: receiptToPrint, printerName });
+    toast(printerName ? `Receipt sent to ${printerName}` : 'Receipt sent to default printer', 'success');
   } catch (e) {
-    toast('Thermal print failed: ' + (e.message || 'check printer settings'), 'error');
+    toast(e.message || 'Could not print receipt', 'error');
   }
-  const win = window.open('', '_blank', 'width=400,height=600');
-  win.document.write(`<!DOCTYPE html><html><head><title>Receipt</title>
-    <style>body{font-family:monospace;font-size:12px;padding:20px;white-space:pre;line-height:1.6;}</style>
-    </head><body>${receiptToPrint.replace(/</g,'&lt;')}</body></html>`);
-  win.document.close();
-  win.focus();
-  setTimeout(() => win.print(), 300);
+}
+
+async function loadReceiptPrinters() {
+  const select = $('receipt-printer');
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = '<option value="">Default Windows printer</option>';
+  try {
+    const res = await req('GET', '/printer/printers');
+    (res.data || []).forEach(name => {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      select.appendChild(option);
+    });
+    if ([...select.options].some(option => option.value === current)) {
+      select.value = current;
+    }
+  } catch (e) {
+    toast('Could not load printer list', 'error');
+  }
 }
 
 /*  Products Table  */
@@ -937,10 +1026,13 @@ function renderStats(sales) {
   const avgTx = total / sales.length;
   const totalItems = sales.reduce((s, sale) => s + (sale.items || []).reduce((q, item) => q + (item.quantity || 0), 0), 0);
   const profit = sales.reduce((sum, sale) => sum + getSaleProfit(sale), 0);
+  const profitCard = isOperationalManager()
+    ? `<div class="stat-card sc-green"><div class="sc-label">Profit</div><div class="sc-value">${fmt(profit)}</div></div>`
+    : '';
   grid.classList.remove('hidden');
   grid.innerHTML = `
     <div class="stat-card sc-amber"><div class="sc-label">Total Revenue</div><div class="sc-value">${fmt(total)}</div></div>
-    <div class="stat-card sc-green"><div class="sc-label">Profit</div><div class="sc-value">${fmt(profit)}</div></div>
+    ${profitCard}
     <div class="stat-card sc-green"><div class="sc-label">Transactions</div><div class="sc-value">${sales.length}</div></div>
     <div class="stat-card sc-blue"><div class="sc-label">Avg Sale</div><div class="sc-value">${fmt(avgTx)}</div></div>
     <div class="stat-card"><div class="sc-label">Total Items Sold</div><div class="sc-value" style="color:var(--text)">${totalItems}</div></div>
@@ -977,6 +1069,7 @@ function viewSale(saleId) {
     lastReceipt = sale.printableReceipt;
     $('receipt-txt').textContent = lastReceipt;
     openModal('modal-receipt');
+    loadReceiptPrinters();
     return;
   }
 
@@ -1046,7 +1139,7 @@ async function loadReports() {
   const tbody = $('report-tbody');
   if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="no-data">Loading reports...</td></tr>';
   try {
-    const res = await req('GET', '/sales');
+    const res = await req('GET', '/reports/sales');
     allSales = Array.isArray(res.data) ? res.data : [];
     applyReportFilters();
   } catch (e) {
@@ -1424,6 +1517,209 @@ function shortLabel(label, max = 10) {
   return text.length > max ? text.slice(0, max - 1) + '.' : text;
 }
 
+/*  User management  */
+async function loadUsers() {
+  if (!isSuperAdmin()) return;
+  const tbody = $('users-tbody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="no-data">Loading users...</td></tr>';
+  try {
+    const res = await req('GET', '/users');
+    allUsers = Array.isArray(res.data) ? res.data : [];
+    renderUsers(allUsers);
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="no-data" style="color:var(--red)">${esc(e.message)}</td></tr>`;
+  }
+}
+
+function filterUsers(query) {
+  const value = String(query || '').trim().toLowerCase();
+  renderUsers(allUsers.filter(user =>
+    user.fullName.toLowerCase().includes(value) ||
+    user.username.toLowerCase().includes(value) ||
+    user.role.toLowerCase().includes(value)
+  ));
+}
+
+function renderUsers(users) {
+  const tbody = $('users-tbody');
+  if (!tbody) return;
+  $('users-count').textContent = `${users.length} users`;
+  if (!users.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="no-data">No users found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = users.map(user => `
+    <tr>
+      <td class="td-m">#${user.id}</td>
+      <td><strong>${esc(user.fullName)}</strong></td>
+      <td class="td-m">${esc(user.username)}</td>
+      <td><span class="badge ${user.role === 'SUPER_ADMIN' ? 'b-blue' : user.role === 'SUPER_CASHIER' ? 'b-green' : 'b-muted'}">${esc(roleLabel(user.role))}</span></td>
+      <td><span class="badge ${user.active ? 'b-green' : 'b-red'}">${user.active ? 'Active' : 'Disabled'}</span></td>
+      <td><button class="btn btn-secondary btn-sm" onclick="openUserModal(${user.id})">Edit</button></td>
+    </tr>
+  `).join('');
+}
+
+function openUserModal(userId) {
+  if (!isSuperAdmin()) return;
+  const user = allUsers.find(item => item.id === userId);
+  $('um-title').textContent = user ? 'Edit User' : 'Add User';
+  $('um-submit').textContent = user ? 'Update User' : 'Save User';
+  $('um-id').value = user?.id || '';
+  $('um-name').value = user?.fullName || '';
+  $('um-username').value = user?.username || '';
+  $('um-password').value = '';
+  $('um-password').placeholder = user ? 'Leave empty to keep current password' : 'Minimum 4 characters';
+  $('um-role').value = user?.role || 'CASHIER';
+  $('um-active').value = String(user?.active ?? true);
+  openModal('modal-user');
+}
+
+async function submitUser() {
+  const id = $('um-id').value;
+  const body = {
+    fullName: $('um-name').value.trim(),
+    username: $('um-username').value.trim(),
+    password: $('um-password').value,
+    role: $('um-role').value,
+    active: $('um-active').value === 'true'
+  };
+  if (!body.fullName || !body.username || (!id && body.password.length < 4)) {
+    toast('Name, username, and a password of at least 4 characters are required', 'error');
+    return;
+  }
+  try {
+    if (id) await req('PUT', `/users/${id}`, body);
+    else await req('POST', '/users', body);
+    closeModal('modal-user');
+    toast(id ? 'User updated' : 'User created', 'success');
+    loadUsers();
+  } catch (e) {
+    toast(e.message || 'Could not save user', 'error');
+  }
+}
+
+/*  Shifts and backups  */
+async function loadOperations() {
+  if (!currentUser?.cashierId) return;
+  try {
+    const requests = [
+      req('GET', `/shifts/open?cashierId=${encodeURIComponent(currentUser.cashierId)}`),
+      req('GET', '/shifts')
+    ];
+    if (isSuperAdmin()) requests.push(req('GET', '/backups'));
+    const [openRes, shiftsRes, backupsRes] = await Promise.all(requests);
+    activeShift = openRes.data || null;
+    renderActiveShift(activeShift);
+    renderShiftRows(shiftsRes.data || []);
+    if (isSuperAdmin()) renderBackupRows(backupsRes?.data || []);
+  } catch (e) {
+    toast(e.message || 'Could not load operations', 'error');
+  }
+}
+
+async function openShift() {
+  const openingCash = parseFloat($('shift-opening-cash')?.value || '0');
+  if (!currentUser?.cashierId) {
+    toast('Login again before opening a shift', 'error');
+    return;
+  }
+  try {
+    const res = await req('POST', '/shifts/open', { cashierId: currentUser.cashierId, openingCash });
+    activeShift = res.data;
+    toast('Shift opened', 'success');
+    loadOperations();
+  } catch (e) {
+    toast(e.message || 'Could not open shift', 'error');
+  }
+}
+
+async function closeShift() {
+  if (!activeShift?.id) {
+    toast('No open shift to close', 'error');
+    return;
+  }
+  const closingCash = parseFloat($('shift-closing-cash')?.value || '0');
+  try {
+    const res = await req('POST', `/shifts/${activeShift.id}/close`, { closingCash });
+    activeShift = null;
+    renderClosedShiftSummary(res.data);
+    toast('Shift closed', 'success');
+    loadOperations();
+  } catch (e) {
+    toast(e.message || 'Could not close shift', 'error');
+  }
+}
+
+async function runBackup() {
+  try {
+    const res = await req('POST', '/backups/run');
+    toast(res.data?.status === 'SUCCESS' ? 'Backup created' : 'Backup failed', res.data?.status === 'SUCCESS' ? 'success' : 'error');
+    loadOperations();
+  } catch (e) {
+    toast(e.message || 'Could not run backup', 'error');
+  }
+}
+
+function renderActiveShift(shift) {
+  $('shift-status').textContent = shift ? 'OPEN' : 'No open shift';
+  $('shift-opened').textContent = shift ? fmtDate(shift.openedAt) : '-';
+  $('shift-opening').textContent = fmtLek(shift?.openingCash || 0);
+  $('shift-sales').textContent = fmtLek(shift?.totalSales || 0);
+  $('shift-expected').textContent = fmtLek(shift?.expectedCash || shift?.openingCash || 0);
+  $('shift-difference').textContent = fmtLek(shift?.difference || 0);
+}
+
+function renderClosedShiftSummary(shift) {
+  $('shift-sales').textContent = fmtLek(shift?.totalSales || 0);
+  $('shift-expected').textContent = fmtLek(shift?.expectedCash || 0);
+  $('shift-difference').textContent = fmtLek(shift?.difference || 0);
+}
+
+function renderShiftRows(shifts) {
+  const tbody = $('shifts-tbody');
+  if (!tbody) return;
+  if (!shifts.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="no-data">No shifts yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = shifts.map(shift => `
+    <tr>
+      <td>#${shift.id}</td>
+      <td>${esc(shift.cashier?.fullName || 'Cashier')}</td>
+      <td><span class="badge ${shift.status === 'OPEN' ? 'b-green' : 'b-blue'}">${esc(shift.status)}</span></td>
+      <td>${fmtDate(shift.openedAt)}</td>
+      <td>${shift.closedAt ? fmtDate(shift.closedAt) : '-'}</td>
+      <td>${fmtLek(shift.openingCash || 0)}</td>
+      <td>${fmtLek(shift.totalSales || 0)}</td>
+      <td>${fmtLek(shift.expectedCash || 0)}</td>
+      <td>${shift.closingCash === null || shift.closingCash === undefined ? '-' : fmtLek(shift.closingCash)}</td>
+      <td>${fmtLek(shift.difference || 0)}</td>
+    </tr>
+  `).join('');
+}
+
+function renderBackupRows(backups) {
+  const tbody = $('backups-tbody');
+  if (!tbody) return;
+  if (!backups.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="no-data">No backups yet.</td></tr>';
+    $('backup-status').textContent = 'No backup yet';
+    return;
+  }
+  const latest = backups[0];
+  $('backup-status').textContent = `${latest.status} - ${fmtDate(latest.createdAt)}`;
+  tbody.innerHTML = backups.map(backup => `
+    <tr>
+      <td>#${backup.id}</td>
+      <td>${fmtDate(backup.createdAt)}</td>
+      <td><span class="badge ${backup.status === 'SUCCESS' ? 'b-green' : 'b-red'}">${esc(backup.status)}</span></td>
+      <td class="td-m">${esc(backup.filePath || '')}</td>
+      <td>${esc(backup.message || '')}</td>
+    </tr>
+  `).join('');
+}
+
 /*  XSS escape  */
 function esc(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -1452,7 +1748,18 @@ document.querySelectorAll('.overlay').forEach(overlay => {
 });
 
 /*  Init  */
-(function init() {
-  localStorage.removeItem('cashier');
+(async function init() {
+  await checkInitialSetup();
+  const saved = localStorage.getItem('cashier');
+  if (!saved) return;
+  try {
+    const user = JSON.parse(saved);
+    if (!user?.token) throw new Error('Old session');
+    currentUser = user;
+    await req('GET', '/sales/cart');
+    bootUser(user);
+  } catch {
+    clearLocalSession();
+  }
 })();
 

@@ -1,6 +1,7 @@
 @echo off
 chcp 65001 >nul
 rem Starts the cash register program in the background and opens the till when it is ready.
+rem (Ready = its port accepts connections; the server opens it only after starting completely.)
 rem Nis programin e arkës dhe hap arkën kur të jetë gati.
 cd /d "%~dp0"
 
@@ -24,7 +25,7 @@ start "" "%~dp0HakaPOS\HakaPOS.exe"
 echo Duke nisur programin... / Starting...
 powershell -NoProfile -Command ^
   "$port = (Select-String -Path 'config\application.properties' -Pattern '^\s*server.port\s*=\s*(\d+)' | Select-Object -First 1).Matches.Groups[1].Value; if (-not $port) { $port = 8081 };" ^
-  "for ($i = 0; $i -lt 90; $i++) { try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 ('http://localhost:' + $port + '/auth/setup') | Out-Null; exit 0 } catch { Start-Sleep -Seconds 2 } }; exit 1"
+  "for ($i = 0; $i -lt 90; $i++) { $c = New-Object Net.Sockets.TcpClient; try { if ($c.ConnectAsync('127.0.0.1', [int]$port).Wait(2000) -and $c.Connected) { exit 0 } } catch {} finally { $c.Dispose() }; Start-Sleep -Seconds 2 }; exit 1"
 if errorlevel 1 (
     echo.
     echo Programi nuk u nis. Shikoni logs\haka-pos.log ose kontrolloni nëse MySQL është ndezur.

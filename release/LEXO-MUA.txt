@@ -1,0 +1,73 @@
+HAKA POS - PROGRAMI I ARKËS
+===========================
+
+(English below)
+
+KËRKESAT
+- Windows 10 ose 11.
+- MySQL 8 (Community Server) në këtë kompjuter ose në rrjetin e dyqanit.
+- Java NUK nevojitet: është brenda dosjes HakaPOS.
+
+INSTALIMI I PARË
+1. Instaloni MySQL 8. Mbani mend fjalëkalimin e "root".
+2. Hapni docs\mysql-setup.sql me Notepad, zëvendësoni CHANGE-ME me një fjalëkalim
+   dhe ekzekutojeni si root (p.sh. në MySQL Workbench: File > Open SQL Script, pastaj ⚡).
+   Kjo krijon databazën "cashier_system" dhe llogarinë "haka_pos".
+3. Shpaketoni këtë dosje p.sh. në C:\HakaPOS (jo në Desktop dhe jo në Downloads).
+4. Hapni start.bat. Herën e parë hapet config\application.properties:
+   vendosni fjalëkalimin e haka_pos te spring.datasource.password, ruajeni, hapni përsëri start.bat.
+5. Arka hapet vetë. Krijoni llogarinë e administratorit (vetëm herën e parë).
+6. Te "Cilësimet" plotësoni emrin e dyqanit, adresën, NIPT-in dhe printerin e kuponit.
+7. Hapni install-autostart.bat që programi të niset vetë çdo mëngjes dhe të keni ikonën "Arka" në desktop.
+
+PËRDORIMI ÇDO DITË
+- start.bat (ose ikona "Arka"): nis programin dhe hap arkën.
+- open-till.bat: hap edhe një dritare arke (p.sh. pasi e keni mbyllur).
+- stop.bat: ndal programin (përfundoni më parë shitjen në vazhdim).
+- Arka të tjera në rrjet: hapni në shfletues http://ADRESA-E-KËTIJ-KOMPJUTERI:8081
+- Ekrani i klientit: butoni "Ekrani i klientit" te arka; tërhiqeni te monitori i dytë, F11 për ekran të plotë.
+
+KOPJET REZERVË
+- Bëhen vetë çdo ditë në 23:00 te dosja backups (mbahen 30 të fundit) dhe para çdo përditësimi.
+- KOPJONI dosjen backups rregullisht në USB ose në një kompjuter tjetër: nëse prishet disku, kopjet në të njëjtin disk humbasin.
+- Rikthimi: tërhiqni skedarin .sql nga backups mbi restore-backup.bat dhe shkruani PO.
+  Të dhënat e tanishme ruhen më parë si backups\before-restore-....
+
+PËRDITËSIMI NË VERSION TË RI
+1. stop.bat
+2. Zëvendësoni dosjen HakaPOS dhe skedarët .bat me ato të versionit të ri.
+   MOS fshini config, backups dhe logs.
+3. start.bat. Programi bën vetë kopje rezervë para se të ndryshojë databazën (backups\before-update-...).
+
+PROBLEME
+- "Programi nuk u nis": shikoni logs\haka-pos.log; kontrolloni që shërbimi MySQL është ndezur
+  dhe fjalëkalimi te config\application.properties është i saktë.
+- Porta 8081 e zënë nga një program tjetër: ndryshoni server.port te config\application.properties.
+
+
+HAKA POS - CASH REGISTER (ENGLISH)
+=================================
+
+REQUIREMENTS: Windows 10/11 and MySQL 8. Java is included (HakaPOS folder).
+
+FIRST INSTALL
+1. Install MySQL 8.
+2. Edit docs\mysql-setup.sql (replace CHANGE-ME with a password) and run it as root. It creates the
+   "cashier_system" database and the "haka_pos" account.
+3. Unzip this folder to e.g. C:\HakaPOS.
+4. Run start.bat. The first time it opens config\application.properties: enter the haka_pos password in
+   spring.datasource.password, save, and run start.bat again.
+5. The till opens. Create the administrator account (first time only).
+6. In Settings, enter the shop name, address, tax number (NIPT) and receipt printer.
+7. Run install-autostart.bat to start the program at Windows sign-in and get an "Arka" desktop shortcut.
+
+DAILY USE: start.bat / open-till.bat / stop.bat. Other tills: http://THIS-COMPUTER:8081
+
+BACKUPS: daily at 23:00 into the backups folder (last 30 kept) and before every update. Copy the backups
+folder to a USB stick or another computer regularly. To restore, drag a .sql file onto restore-backup.bat
+and type PO; the current data is saved first as backups\before-restore-....
+
+UPDATING: stop.bat, replace the HakaPOS folder and the .bat files (keep config, backups and logs), start.bat.
+The program backs up the database before changing it (backups\before-update-...).
+
+PROBLEMS: see logs\haka-pos.log; check that MySQL is running and the password in config\application.properties.

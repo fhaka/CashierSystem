@@ -75,7 +75,7 @@
       <div class="sb-icon"></div>
       <div class="sb-brand-text">
         <span class="n" id="sb-shop-name">Supermarket</span>
-        <span class="s" data-i18n>POS System</span>
+        <span class="s" id="sb-version">POS</span>
       </div>
     </div>
 
@@ -1024,9 +1024,10 @@
             <div class="report-card-head">
               <div>
                 <h2 data-i18n>Backup History</h2>
-                <p data-i18n>Automatic backups run daily at 23:00</p>
+                <p data-i18n>Automatic backups run daily at 23:00, and before every update of the program</p>
               </div>
             </div>
+            <div class="backup-info" id="backup-info"></div>
             <div class="tbl-wrap report-table-wrap">
               <table>
                 <thead>
@@ -1035,6 +1036,7 @@
                 <tbody id="backups-tbody"></tbody>
               </table>
             </div>
+            <p class="backup-help" data-i18n>Copy the backup folder to a USB stick or another computer regularly. To restore a backup, close the program and run restore-backup.bat with the backup file.</p>
           </section>
         </div>
       </div>

@@ -5,4 +5,6 @@ target/
 .DS_Store
 Thumbs.db
 src/main/resources/application-local.properties
+config/
+logs/
 backups/

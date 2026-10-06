@@ -690,3 +690,8 @@ kbd {
 .check-row input { accent-color: var(--amber); }
 #settings-preview { white-space: pre; overflow-x: auto; font-size: .72rem; line-height: 1.45; }
 @media (max-width: 900px) { .settings-page { grid-template-columns: 1fr; } }
+
+/* Backups */
+.backup-info { margin-bottom: 12px; }
+.backup-info strong { overflow-wrap: anywhere; text-align: right; }
+.backup-help { color: var(--muted); font-size: .8rem; margin-top: 10px; }

@@ -28,7 +28,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Boots the whole application on an in-memory database built by the real Flyway migrations
  * and drives it through HTTP, the same way the cashier screen does.
  */
-@SpringBootTest
+// Only the settings inside the program: a config/application.properties of this computer (real MySQL) is ignored.
+@SpringBootTest(properties = "spring.config.location=classpath:/")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 public abstract class IntegrationTest {

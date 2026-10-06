@@ -212,6 +212,7 @@ function bootUser(user) {
   gotoView('home');
   setNextInvoiceNumber();
   loadShopSettings();
+  loadSystemInfo();
   refreshTillInfo();
   refreshCart();
   loadHomeData();
@@ -2627,7 +2628,10 @@ async function loadOperations() {
     activeShift = openRes.data || null;
     renderActiveShift(activeShift);
     renderShiftRows(shiftsRes.data || []);
-    if (isSuperAdmin()) renderBackupRows(backupsRes?.data || []);
+    if (isSuperAdmin()) {
+      renderBackupRows(backupsRes?.data || []);
+      loadSystemInfo();
+    }
     loadCashMovements();
     // Managers follow the open shift live; cashiers only see the summary after closing (blind close).
     if (activeShift && isOperationalManager()) loadShiftSummary(activeShift.id);
@@ -2813,6 +2817,19 @@ function renderBackupRows(backups) {
       <td>${esc(backup.message || '')}</td>
     </tr>
   `).join('');
+}
+
+/* Program and database version (sidebar), and where backups are saved (Operations). */
+async function loadSystemInfo() {
+  try {
+    const info = (await req('GET', '/system/info')).data;
+    $('sb-version').textContent = 'v' + info.version;
+    if ($('backup-info')) {
+      $('backup-info').innerHTML = `
+        <div class="balance-line"><span>${t('Backup folder')}</span><strong>${esc(info.backupFolder)}</strong></div>
+        <div class="balance-line"><span>${t('Version')}</span><strong>${esc(info.version)} (${esc(info.built)}) · ${t('database')} ${esc(info.databaseVersion)}</strong></div>`;
+    }
+  } catch {}
 }
 
 /*  Shop settings  */

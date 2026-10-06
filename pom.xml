@@ -13,7 +13,7 @@
 
     <groupId>com.supermarket</groupId>
     <artifactId>cashier-system</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.0.0</version>
     <name>Supermarket Cashier System</name>
     <description>Backend-focused supermarket cashier demo with Spring Boot, JPA, H2, JDBC, async, and strategy pattern.</description>
 
@@ -78,6 +78,14 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <!-- Version and build time for GET /system/info. -->
+                        <goals>
+                            <goal>build-info</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

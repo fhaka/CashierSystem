@@ -4,13 +4,27 @@ Supermarket cashier system: selling at the till with a barcode scanner, shifts a
 
 Built with Java 17+, Spring Boot 3, Spring Data JPA, MySQL and Flyway. The cashier screen is plain HTML/CSS/JS served by the same application.
 
-## Requirements
+## Installing in a shop
 
-- Java 17 or newer
-- Maven 3.9+
-- MySQL 8 (not needed for the demo mode below)
+Build the package once on a developer computer (needs JDK 17+ with `jpackage`, and Maven):
 
-## Quick try (no MySQL)
+```powershell
+powershell -ExecutionPolicy Bypass -File build-release.ps1
+```
+
+This gives `target/HakaPOS-<version>.zip`: the program with its own Java (the shop computer needs no Java), the
+scripts `start.bat`, `stop.bat`, `open-till.bat`, `restore-backup.bat`, `install-autostart.bat`, a settings
+template and the guide `LEXO-MUA.txt` (Albanian and English) with the installation, daily use, backups and updates.
+The shop's own settings (database password, port, printer) live in `config/application.properties` next to the
+program, never inside it, so an update only replaces the `HakaPOS` folder and the scripts.
+
+Version: `pom.xml` (`1.0.0`); shown in the sidebar and on the Operations screen with the database version.
+
+## Developing
+
+Requirements: Java 17 or newer, Maven 3.9+, MySQL 8 (not needed for the demo mode).
+
+### Quick try (no MySQL)
 
 Starts with an in-memory database and demo products. Everything is lost when it stops.
 
@@ -20,7 +34,7 @@ mvn spring-boot:run -Dspring-boot.run.profiles=h2
 
 Open `http://localhost:8081`. On first start, register the first account: it becomes the **Super Admin**.
 
-## Shop installation (MySQL)
+### With MySQL
 
 1. Create the database and a dedicated MySQL user. Edit the password in the script first:
 
@@ -28,14 +42,17 @@ Open `http://localhost:8081`. On first start, register the first account: it bec
    mysql -u root -p < docs/mysql-setup.sql
    ```
 
-2. Create `src/main/resources/application-local.properties` (it is git-ignored, never commit it):
+2. Create `config/application.properties` in the project folder (git-ignored, never commit it; the template is
+   `release/config/application.properties.example`):
 
    ```properties
    spring.datasource.username=haka_pos
    spring.datasource.password=the-password-from-step-1
    ```
 
-   Alternatively set the environment variables `MYSQL_USER`, `MYSQL_PASSWORD` and optionally `MYSQL_DATABASE`.
+   Spring Boot reads `config/application.properties` from the folder the program starts in. Settings must never go
+   into `src/main/resources`: everything there is packed into the program. Alternatively set the environment
+   variables `MYSQL_USER`, `MYSQL_PASSWORD` and optionally `MYSQL_DATABASE`. Tests ignore this file.
 
 3. Start the app:
 
@@ -152,17 +169,23 @@ The app is in **Albanian by default**. Each till can switch to English from the 
 
 ## Receipt printer
 
-Set the Windows printer name in `application.properties`:
+Choose the receipt printer on the Settings screen. Until one is chosen, the printer named in
+`config/application.properties` is used, and if that is empty too, the default Windows printer:
 
 ```properties
 receipt.printer.name=Ocom Printer
 ```
 
-If empty, the default Windows printer is used. The printer chosen on the Settings screen takes its place. Receipts are sent as raw ESC/POS with an automatic paper cut. The printer can also be chosen on each receipt.
+Receipts are sent as raw ESC/POS with an automatic paper cut. The printer can also be changed on each receipt.
 
 ## Backups
 
-A backup runs every day at 23:00 (Europe/Tirane) and can be started manually by a Super Admin. Files are written to `backups/` next to the app. They contain sales data and password hashes: keep them private. The folder is git-ignored.
+- **Complete and restorable:** every backup holds each table's definition and all rows (and the schema history), read in one consistent snapshot, so it can be taken during sales. A file only counts if it is complete: it is written under a temporary name first and has a closing marker.
+- **When:** every day at 23:00 (Europe/Tirane), on demand by a Super Admin (Operations screen), and **automatically before every database update** when a new version starts. If that backup fails, the update is not applied and the program does not start (`pos.backup.before-update`).
+- **Where and how many:** `pos.backup.dir` (default `backups/` next to the program); the newest `pos.backup.keep` (30) daily/manual backups are kept, backups made before an update or a restore are never deleted. Copy the folder to another disk regularly. Backups contain sales data and password hashes: keep them private.
+- **Restore:** stop the program and run `restore-backup.bat <file>` (or drag the file onto it). The current database is first saved as `before-restore-...`, every table is replaced by the backup, and the schema is then updated to the program's version. The same works with `--pos.restore.file=<file> --pos.restore.only=true`.
+- Backups from before version 1.0.0 contained only data without the table definitions and cannot be restored this way.
+- **Logs:** `logs/haka-pos.log` next to the program (10 MB per file, 30 files).
 
 ## Tests
 

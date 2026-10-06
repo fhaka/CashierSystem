@@ -732,6 +732,12 @@ const SQ = {
   'Shop settings changed': 'Cilësimet e dyqanit u ndryshuan',
   'Receipt reprinted': 'Kupon i riprintuar',
   'Allow pop-ups for this page to open the customer display': 'Lejoni dritaret pop-up për këtë faqe që të hapet ekrani i klientit',
+  // Phase 9: release
+  'Automatic backups run daily at 23:00, and before every update of the program': 'Kopjet automatike bëhen çdo ditë në orën 23:00 dhe para çdo përditësimi të programit',
+  'Copy the backup folder to a USB stick or another computer regularly. To restore a backup, close the program and run restore-backup.bat with the backup file.': 'Kopjoni rregullisht dosjen e kopjeve në një USB ose kompjuter tjetër. Për të rikthyer një kopje, mbyllni programin dhe hapni restore-backup.bat me skedarin e kopjes.',
+  'Backup folder': 'Dosja e kopjeve',
+  'Version': 'Versioni',
+  'database': 'databaza',
 };
 
 const SUPPORTED_LANGUAGES = ['sq', 'en'];

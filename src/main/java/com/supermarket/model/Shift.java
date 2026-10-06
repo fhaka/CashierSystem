@@ -60,6 +60,12 @@ public class Shift {
     @Column(precision = 12, scale = 2)
     private BigDecimal cashOut;
 
+    @Column(precision = 12, scale = 2)
+    private BigDecimal cashRefunds;
+
+    @Column(precision = 12, scale = 2)
+    private BigDecimal cardRefunds;
+
     @Column(nullable = false)
     private String status;
 
@@ -182,5 +188,21 @@ public class Shift {
 
     public void setCashOut(BigDecimal cashOut) {
         this.cashOut = cashOut;
+    }
+
+    public BigDecimal getCashRefunds() {
+        return cashRefunds;
+    }
+
+    public void setCashRefunds(BigDecimal cashRefunds) {
+        this.cashRefunds = cashRefunds;
+    }
+
+    public BigDecimal getCardRefunds() {
+        return cardRefunds;
+    }
+
+    public void setCardRefunds(BigDecimal cardRefunds) {
+        this.cardRefunds = cardRefunds;
     }
 }

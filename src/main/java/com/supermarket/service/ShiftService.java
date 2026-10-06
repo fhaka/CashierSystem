@@ -9,6 +9,7 @@ import com.supermarket.model.CashMovement;
 import com.supermarket.model.Cashier;
 import com.supermarket.model.Shift;
 import com.supermarket.repository.CashMovementRepository;
+import com.supermarket.repository.RefundRepository;
 import com.supermarket.repository.SaleRepository;
 import com.supermarket.repository.ShiftRepository;
 import org.springframework.stereotype.Service;
@@ -26,12 +27,17 @@ public class ShiftService {
     private final ShiftRepository shiftRepository;
     private final SaleRepository saleRepository;
     private final CashMovementRepository cashMovementRepository;
+    private final RefundRepository refundRepository;
+    private final AuditService auditService;
 
     public ShiftService(ShiftRepository shiftRepository, SaleRepository saleRepository,
-                        CashMovementRepository cashMovementRepository) {
+                        CashMovementRepository cashMovementRepository, RefundRepository refundRepository,
+                        AuditService auditService) {
         this.shiftRepository = shiftRepository;
         this.saleRepository = saleRepository;
         this.cashMovementRepository = cashMovementRepository;
+        this.refundRepository = refundRepository;
+        this.auditService = auditService;
     }
 
     public List<Shift> findAll() {
@@ -55,7 +61,9 @@ public class ShiftService {
         findOpenShift(cashier.getId()).ifPresent(shift -> {
             throw new ValidationException("shift.alreadyOpen");
         });
-        return shiftRepository.save(new Shift(cashier, LocalDateTime.now(), openingCash));
+        Shift opened = shiftRepository.save(new Shift(cashier, LocalDateTime.now(), openingCash));
+        auditService.record(cashier, "SHIFT_OPENED", "SHIFT", opened.getId(), "opening=" + openingCash);
+        return opened;
     }
 
     @Transactional
@@ -83,10 +91,15 @@ public class ShiftService {
         shift.setCardSales(totals.cardSales());
         shift.setCashIn(totals.cashIn());
         shift.setCashOut(totals.cashOut());
+        shift.setCashRefunds(totals.cashRefunds());
+        shift.setCardRefunds(totals.cardRefunds());
         shift.setExpectedCash(expectedCash);
         shift.setDifference(closingCash.subtract(expectedCash));
         shift.setStatus("CLOSED");
-        return shiftRepository.save(shift);
+        Shift closed = shiftRepository.save(shift);
+        auditService.record(cashier, "SHIFT_CLOSED", "SHIFT", closed.getId(),
+                "expected=" + closed.getExpectedCash() + ", counted=" + closed.getClosingCash() + ", difference=" + closed.getDifference());
+        return closed;
     }
 
     /** Money totals of the shift so far: its sales and its drawer movements. */
@@ -94,7 +107,8 @@ public class ShiftService {
     public CashTotals totals(Shift shift) {
         return CashTotals.of(
                 saleRepository.findByShiftIdOrderByDate(shift.getId()),
-                cashMovementRepository.findByShiftIdOrderByCreatedAt(shift.getId()));
+                cashMovementRepository.findByShiftIdOrderByCreatedAt(shift.getId()),
+                refundRepository.findForShift(shift.getId()));
     }
 
     public Shift findById(Long shiftId) {
@@ -123,8 +137,10 @@ public class ShiftService {
         if (request.reason() == null || request.reason().isBlank()) {
             throw new ValidationException("cash.reasonRequired");
         }
-        return cashMovementRepository.save(new CashMovement(shift, cashier, type,
+        CashMovement movement = cashMovementRepository.save(new CashMovement(shift, cashier, type,
                 request.amount().setScale(2, RoundingMode.HALF_UP), request.reason().trim(), LocalDateTime.now()));
+        auditService.record(cashier, "CASH_" + type.name(), "SHIFT", shift.getId(), movement.getAmount() + " LEK - " + movement.getReason());
+        return movement;
     }
 
     public List<CashMovement> findCashMovements(Long shiftId) {

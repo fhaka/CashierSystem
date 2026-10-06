@@ -2,6 +2,7 @@ package com.supermarket.service;
 
 import com.supermarket.dto.ExchangeRateRequest;
 import com.supermarket.exception.ValidationException;
+import com.supermarket.model.Cashier;
 import com.supermarket.model.ExchangeRate;
 import com.supermarket.repository.ExchangeRateRepository;
 import org.springframework.stereotype.Service;
@@ -18,9 +19,11 @@ public class ExchangeRateService {
     public static final String HOME_CURRENCY = "LEK";
 
     private final ExchangeRateRepository exchangeRateRepository;
+    private final AuditService auditService;
 
-    public ExchangeRateService(ExchangeRateRepository exchangeRateRepository) {
+    public ExchangeRateService(ExchangeRateRepository exchangeRateRepository, AuditService auditService) {
         this.exchangeRateRepository = exchangeRateRepository;
+        this.auditService = auditService;
     }
 
     public List<ExchangeRate> findAll() {
@@ -38,7 +41,7 @@ public class ExchangeRateService {
     }
 
     @Transactional
-    public List<ExchangeRate> update(List<ExchangeRateRequest> requests) {
+    public List<ExchangeRate> update(List<ExchangeRateRequest> requests, Cashier actor) {
         LocalDateTime now = LocalDateTime.now();
         for (ExchangeRateRequest request : requests == null ? List.<ExchangeRateRequest>of() : requests) {
             ExchangeRate rate = exchangeRateRepository.findById(normalize(request.currency()))
@@ -46,6 +49,11 @@ public class ExchangeRateService {
             if (request.buyRate() == null || request.buyRate().signum() <= 0
                     || request.sellRate() == null || request.sellRate().signum() <= 0) {
                 throw new ValidationException("rate.positive");
+            }
+            if (rate.getBuyRate().compareTo(request.buyRate()) != 0 || rate.getSellRate().compareTo(request.sellRate()) != 0) {
+                auditService.record(actor, "EXCHANGE_RATE_UPDATED", "CURRENCY", rate.getCurrency(),
+                        "buy " + rate.getBuyRate().stripTrailingZeros().toPlainString() + " -> " + request.buyRate().stripTrailingZeros().toPlainString()
+                                + ", sell " + rate.getSellRate().stripTrailingZeros().toPlainString() + " -> " + request.sellRate().stripTrailingZeros().toPlainString());
             }
             rate.update(request.buyRate(), request.sellRate(), now);
         }

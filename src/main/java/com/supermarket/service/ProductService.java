@@ -3,6 +3,7 @@ package com.supermarket.service;
 import com.supermarket.exception.ValidationException;
 import com.supermarket.dto.ProductRequest;
 import com.supermarket.exception.ProductNotFoundException;
+import com.supermarket.model.Cashier;
 import com.supermarket.model.Category;
 import com.supermarket.model.Product;
 import com.supermarket.repository.CategoryRepository;
@@ -26,9 +27,12 @@ public class ProductService {
     private final CategoryRepository categoryRepository;
     private final FilterUtil<Product> productFilter = new FilterUtil<>();
 
-    public ProductService(ProductRepository productRepository, CategoryRepository categoryRepository) {
+    private final AuditService auditService;
+
+    public ProductService(ProductRepository productRepository, CategoryRepository categoryRepository, AuditService auditService) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
+        this.auditService = auditService;
     }
 
     public List<Product> findAll() {
@@ -80,20 +84,24 @@ public class ProductService {
     }
 
     @Transactional
-    public Product create(ProductRequest request) {
+    public Product create(ProductRequest request, Cashier actor) {
         validateProductRequest(request);
         requireFreeBarcode(request.getBarcode().trim(), null);
         Category category = resolveCategory(request);
         String unit = normalizeUnit(request.getUnit());
         Product product = new Product(request.getName().trim(), request.getBarcode().trim(), request.getPrice(), request.getPurchasePrice(),
                 request.getTaxRate(), Quantities.requireStock(request.getStock(), unit), unit, category);
-        return productRepository.save(product);
+        Product saved = productRepository.save(product);
+        auditService.record(actor, "PRODUCT_CREATED", "PRODUCT", saved.getId(),
+                saved.getName() + ", price " + saved.getPrice() + ", stock " + saved.getStock().stripTrailingZeros().toPlainString());
+        return saved;
     }
 
     @Transactional
-    public Product update(Long id, ProductRequest request) {
+    public Product update(Long id, ProductRequest request, Cashier actor) {
         validateProductRequest(request);
         Product product = findById(id);
+        String before = summary(product);
         requireFreeBarcode(request.getBarcode().trim(), id);
         String unit = normalizeUnit(request.getUnit());
         product.setName(request.getName().trim());
@@ -104,7 +112,12 @@ public class ProductService {
         product.setStock(Quantities.requireStock(request.getStock(), unit));
         product.setUnit(unit);
         product.setCategory(resolveCategory(request));
-        return productRepository.save(product);
+        Product saved = productRepository.save(product);
+        String after = summary(saved);
+        if (!before.equals(after)) {
+            auditService.record(actor, "PRODUCT_UPDATED", "PRODUCT", saved.getId(), before + " -> " + after);
+        }
+        return saved;
     }
 
     /**
@@ -112,15 +125,25 @@ public class ProductService {
      * disappears from the till and can be reactivated later.
      */
     @Transactional
-    public void deactivate(Long id) {
-        findById(id).setActive(false);
+    public void deactivate(Long id, Cashier actor) {
+        Product product = findById(id);
+        product.setActive(false);
+        auditService.record(actor, "PRODUCT_DEACTIVATED", "PRODUCT", id, product.getName());
     }
 
     @Transactional
-    public Product activate(Long id) {
+    public Product activate(Long id, Cashier actor) {
         Product product = findById(id);
         product.setActive(true);
+        auditService.record(actor, "PRODUCT_ACTIVATED", "PRODUCT", id, product.getName());
         return product;
+    }
+
+    /** The fields worth auditing, in one line, to show what an edit changed. */
+    private static String summary(Product product) {
+        return product.getName() + " [" + product.getBarcode() + "] price " + product.getPrice()
+                + ", cost " + product.getPurchasePrice() + ", VAT " + product.getTaxRate().stripTrailingZeros().toPlainString()
+                + "%, stock " + product.getStock().stripTrailingZeros().toPlainString() + " " + product.getUnit();
     }
 
     private void requireFreeBarcode(String barcode, Long ownId) {

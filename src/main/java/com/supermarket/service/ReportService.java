@@ -4,11 +4,14 @@ import com.supermarket.dto.PeriodReport;
 import com.supermarket.dto.ReceiptResponse;
 import com.supermarket.model.CashMovement;
 import com.supermarket.model.PaymentMethod;
+import com.supermarket.model.Refund;
+import com.supermarket.model.RefundItem;
 import com.supermarket.model.Sale;
 import com.supermarket.model.SaleItem;
 import com.supermarket.model.SalePayment;
 import com.supermarket.model.Shift;
 import com.supermarket.repository.CashMovementRepository;
+import com.supermarket.repository.RefundRepository;
 import com.supermarket.repository.SaleRepository;
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
@@ -38,11 +41,14 @@ public class ReportService {
 
     private final SaleRepository saleRepository;
     private final CashMovementRepository cashMovementRepository;
+    private final RefundRepository refundRepository;
     private final MessageSource messageSource;
 
-    public ReportService(SaleRepository saleRepository, CashMovementRepository cashMovementRepository, MessageSource messageSource) {
+    public ReportService(SaleRepository saleRepository, CashMovementRepository cashMovementRepository,
+                         RefundRepository refundRepository, MessageSource messageSource) {
         this.saleRepository = saleRepository;
         this.cashMovementRepository = cashMovementRepository;
+        this.refundRepository = refundRepository;
         this.messageSource = messageSource;
     }
 
@@ -51,7 +57,7 @@ public class ReportService {
         List<Sale> sales = saleRepository.findByShiftIdOrderByDate(shift.getId());
         List<CashMovement> movements = cashMovementRepository.findByShiftIdOrderByCreatedAt(shift.getId());
         LocalDateTime to = shift.getClosedAt() == null ? LocalDateTime.now() : shift.getClosedAt();
-        return build("X", shift, shift.getOpenedAt(), to, sales, movements);
+        return build("X", shift, shift.getOpenedAt(), to, sales, movements, refundRepository.findForShift(shift.getId()));
     }
 
     @Transactional(readOnly = true)
@@ -60,12 +66,13 @@ public class ReportService {
         LocalDateTime to = day.atTime(LocalTime.MAX);
         return build("Z", null, from, to,
                 saleRepository.findByDateBetweenOrderByDate(from, to),
-                cashMovementRepository.findByCreatedAtBetweenOrderByCreatedAt(from, to));
+                cashMovementRepository.findByCreatedAtBetweenOrderByCreatedAt(from, to),
+                refundRepository.findByCreatedAtBetweenOrderByCreatedAt(from, to));
     }
 
     private PeriodReport build(String type, Shift shift, LocalDateTime from, LocalDateTime to,
-                               List<Sale> sales, List<CashMovement> movements) {
-        CashTotals totals = CashTotals.of(sales, movements);
+                               List<Sale> sales, List<CashMovement> movements, List<Refund> refunds) {
+        CashTotals totals = CashTotals.of(sales, movements, refunds);
         BigDecimal discounts = sales.stream().map(Sale::getDiscountAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
 
         Map<BigDecimal, BigDecimal[]> vatByRate = new TreeMap<>();
@@ -92,6 +99,16 @@ public class ReportService {
             line[1] = ((BigDecimal) line[1]).add(sale.getTotalAmount());
         }
 
+        // Refunds give VAT back: the VAT summary is net of them.
+        for (Refund refund : refunds) {
+            for (RefundItem item : refund.getItems()) {
+                BigDecimal[] vat = vatByRate.computeIfAbsent(item.getTaxRate().setScale(2, RoundingMode.HALF_UP),
+                        rate -> new BigDecimal[] {BigDecimal.ZERO, BigDecimal.ZERO});
+                vat[0] = vat[0].subtract(item.getAmount());
+                vat[1] = vat[1].subtract(item.getTaxAmount());
+            }
+        }
+
         List<ReceiptResponse.VatLine> vat = new ArrayList<>();
         vatByRate.forEach((rate, sums) -> vat.add(new ReceiptResponse.VatLine(rate, sums[0].subtract(sums[1]), sums[1], sums[0])));
         List<PeriodReport.CurrencyLine> currencies = new ArrayList<>();
@@ -104,7 +121,8 @@ public class ReportService {
         PeriodReport data = new PeriodReport(type, shift == null ? null : shift.getId(), from, to, sales.size(),
                 totals.totalSales().add(discounts), discounts, totals.totalSales(), vat, currencies,
                 totals.cashReceived(), totals.changeGiven(), totals.cashSales(), totals.cardSales(),
-                totals.cashIn(), totals.cashOut(), opening, expected, cashiers, null);
+                totals.cashIn(), totals.cashOut(), refunds.size(), totals.cashRefunds(), totals.cardRefunds(),
+                totals.totalSales().subtract(totals.totalRefunds()), opening, expected, cashiers, null);
         return withText(data, shift);
     }
 
@@ -127,6 +145,11 @@ public class ReportService {
         line(text, text("report.gross", locale), r.grossSales());
         line(text, text("report.discounts", locale), r.discounts().negate());
         line(text, text("receipt.total", locale), r.totalSales());
+        if (r.refundsCount() > 0) {
+            line(text, text("report.refunds", locale) + " (" + r.refundsCount() + ")",
+                    r.cashRefunds().add(r.cardRefunds()).negate());
+            line(text, text("report.netSales", locale), r.netSales());
+        }
         text.append(RULE);
         text.append(text("receipt.vatSummary", locale)).append("\n");
         for (ReceiptResponse.VatLine vat : r.vat()) {
@@ -149,6 +172,10 @@ public class ReportService {
         text.append(RULE);
         line(text, text("report.cashIn", locale), r.cashIn());
         line(text, text("report.cashOut", locale), r.cashOut().negate());
+        if (r.refundsCount() > 0) {
+            line(text, text("report.cashRefunds", locale), r.cashRefunds().negate());
+            line(text, text("report.cardRefunds", locale), r.cardRefunds().negate());
+        }
         if (r.openingCash() != null) {
             line(text, text("report.openingCash", locale), r.openingCash());
             line(text, text("report.expectedCash", locale), r.expectedCash());
@@ -164,7 +191,8 @@ public class ReportService {
         text.append(RULE);
         return new PeriodReport(r.type(), r.shiftId(), r.from(), r.to(), r.salesCount(), r.grossSales(), r.discounts(),
                 r.totalSales(), r.vat(), r.cashByCurrency(), r.cashReceived(), r.changeGiven(), r.cashSales(), r.cardSales(),
-                r.cashIn(), r.cashOut(), r.openingCash(), r.expectedCash(), r.byCashier(), text.toString());
+                r.cashIn(), r.cashOut(), r.refundsCount(), r.cashRefunds(), r.cardRefunds(), r.netSales(),
+                r.openingCash(), r.expectedCash(), r.byCashier(), text.toString());
     }
 
     private static void line(StringBuilder text, String label, Object value) {

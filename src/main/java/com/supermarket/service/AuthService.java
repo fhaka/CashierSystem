@@ -1,6 +1,7 @@
 package com.supermarket.service;
 
 import com.supermarket.exception.AccountLockedException;
+import com.supermarket.exception.AuthenticationRequiredException;
 import com.supermarket.exception.ValidationException;
 import com.supermarket.dto.AuthRequest;
 import com.supermarket.dto.AuthResponse;
@@ -24,17 +25,20 @@ public class AuthService {
 
     private final CashierRepository cashierRepository;
     private final SessionService sessionService;
+    private final AuditService auditService;
     private final int maxFailedLogins;
     private final Duration lockDuration;
 
     public AuthService(
             CashierRepository cashierRepository,
             SessionService sessionService,
+            AuditService auditService,
             @Value("${pos.login.max-attempts:5}") int maxFailedLogins,
             @Value("${pos.login.lock-duration:5m}") Duration lockDuration
     ) {
         this.cashierRepository = cashierRepository;
         this.sessionService = sessionService;
+        this.auditService = auditService;
         this.maxFailedLogins = maxFailedLogins;
         this.lockDuration = lockDuration;
     }
@@ -57,6 +61,8 @@ public class AuthService {
                 CashierRole.SUPER_ADMIN
         );
         Cashier savedCashier = cashierRepository.save(cashier);
+        auditService.record(savedCashier, "USER_CREATED", "USER", savedCashier.getId(),
+                savedCashier.getUsername() + ", SUPER_ADMIN (first account)");
         return toResponse(savedCashier, sessionService.createSession(savedCashier));
     }
 
@@ -71,6 +77,7 @@ public class AuthService {
         if (found.isEmpty()) {
             // Same BCrypt work as a real check, so response time does not reveal which usernames exist.
             PasswordUtil.matches(request.getPassword(), UNKNOWN_USER_HASH);
+            auditService.record(null, "LOGIN_FAILED", "USER", null, "unknown username: " + request.getUsername().trim());
             throw new ValidationException("auth.invalidCredentials");
         }
         Cashier cashier = found.get();
@@ -81,6 +88,7 @@ public class AuthService {
         }
 
         if (!PasswordUtil.matches(request.getPassword(), cashier.getPasswordHash())) {
+            auditService.record(cashier, "LOGIN_FAILED", "USER", cashier.getId(), "wrong password");
             registerFailedLogin(cashier, now);
             throw new ValidationException("auth.invalidCredentials");
         }
@@ -94,6 +102,7 @@ public class AuthService {
         if (PasswordUtil.needsUpgrade(cashier.getPasswordHash())) {
             cashier.setPasswordHash(PasswordUtil.hash(request.getPassword()));
         }
+        auditService.record(cashier, "LOGIN", "USER", cashier.getId(), null);
         return toResponse(cashier, sessionService.createSession(cashier));
     }
 
@@ -106,6 +115,7 @@ public class AuthService {
         if (failures >= maxFailedLogins) {
             cashier.setFailedLogins(0);
             cashier.setLockedUntil(now.plus(lockDuration));
+            auditService.record(cashier, "ACCOUNT_LOCKED", "USER", cashier.getId(), "after " + failures + " wrong passwords");
             throw new AccountLockedException(minutesUntil(now, cashier.getLockedUntil()));
         }
         cashier.setFailedLogins(failures);
@@ -119,7 +129,14 @@ public class AuthService {
         return cashierRepository.count() == 0;
     }
 
+    @Transactional
     public void logout(String token) {
+        try {
+            Cashier cashier = sessionService.requireUser(token);
+            auditService.record(cashier, "LOGOUT", "USER", cashier.getId(), null);
+        } catch (AuthenticationRequiredException alreadySignedOut) {
+            // Nothing to record: the session had already ended.
+        }
         sessionService.invalidate(token);
     }
 

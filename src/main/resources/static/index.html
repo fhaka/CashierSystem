@@ -124,6 +124,12 @@
         </svg>
         <span data-i18n>Users</span>
       </button>
+      <button class="nav-btn super-admin-only" data-v="audit" onclick="gotoView('audit')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>
+        </svg>
+        <span data-i18n>Audit log</span>
+      </button>
       <button class="nav-btn" data-v="operations" onclick="gotoView('operations')">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3"/><path d="M12 1v6"/><path d="M12 17v6"/><path d="M4.22 4.22l4.24 4.24"/><path d="M15.54 15.54l4.24 4.24"/><path d="M1 12h6"/><path d="M17 12h6"/><path d="M4.22 19.78l4.24-4.24"/><path d="M15.54 8.46l4.24-4.24"/>
@@ -512,6 +518,7 @@
             <option value="day" data-i18n>Today</option>
             <option value="month" data-i18n>This month</option>
           </select>
+          <button class="btn btn-primary" onclick="openRefund()" data-i18n>Refund</button>
           <input class="input manager-only" id="sales-cashier-filter" data-i18n-placeholder placeholder="Cashier name" oninput="applySalesFilters()" style="width:190px;" />
         <button class="btn btn-secondary" onclick="loadSales()">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -683,6 +690,29 @@
       </div>
     </div>
 
+    <div id="view-audit" class="view">
+      <div class="page-head" style="flex-shrink:0;">
+        <div>
+          <div class="page-title" data-i18n>Audit log</div>
+          <div class="page-sub" data-i18n>Who did what and when, and which manager approved it</div>
+        </div>
+        <div class="actions">
+          <input class="input" id="audit-from" type="date" />
+          <input class="input" id="audit-to" type="date" />
+          <select class="input" id="audit-action"></select>
+          <button class="btn btn-secondary" onclick="loadAudit()" data-i18n>Show</button>
+        </div>
+      </div>
+      <div class="users-page">
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th data-i18n>Date &amp; Time</th><th data-i18n>User</th><th data-i18n>Action</th><th data-i18n>Details</th><th data-i18n>Approved by</th></tr></thead>
+            <tbody id="audit-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <div id="view-operations" class="view">
       <header class="view-head">
         <div>
@@ -774,6 +804,7 @@
             <div class="balance-line"><span data-i18n>Card</span><strong id="sum-card">-</strong></div>
             <div class="balance-line"><span data-i18n>Cash in</span><strong id="sum-in">-</strong></div>
             <div class="balance-line"><span data-i18n>Cash out</span><strong id="sum-out">-</strong></div>
+            <div class="balance-line"><span data-i18n>Refunds</span><strong id="sum-refunds">-</strong></div>
             <div class="balance-line"><span data-i18n>Expected Cash</span><strong id="sum-expected">-</strong></div>
             <div class="balance-line"><span data-i18n>Closing cash counted</span><strong id="sum-closing">-</strong></div>
             <div class="balance-line"><span data-i18n>Difference</span><strong id="sum-difference">-</strong></div>
@@ -905,10 +936,14 @@
         <label class="input-label" data-i18n>Password</label>
         <input class="input" id="um-password" type="password" placeholder="Leave empty to keep current password" />
       </div>
+      <div class="input-group" id="um-pin-group">
+        <label class="input-label" data-i18n>Approval PIN (managers)</label>
+        <input class="input" id="um-pin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="8" />
+      </div>
       <div class="two-col">
         <div class="input-group">
           <label class="input-label" data-i18n>Role</label>
-          <select class="input" id="um-role">
+          <select class="input" id="um-role" onchange="updatePinField()">
             <option value="CASHIER" data-i18n>Cashier</option>
             <option value="SUPER_CASHIER" data-i18n>Super Cashier</option>
             <option value="SUPER_ADMIN" data-i18n>Super Admin</option>
@@ -972,6 +1007,65 @@
     <div class="receipt-acts">
       <button class="btn btn-secondary" onclick="closeModal('modal-payment')" data-i18n>Cancel</button>
       <button class="btn btn-primary" id="pay-confirm" onclick="confirmPayment()" disabled data-i18n>Complete payment</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="modal-pin" class="overlay hidden">
+  <div class="modal" style="max-width:340px;">
+    <div class="modal-head">
+      <div class="modal-title" data-i18n>Manager approval</div>
+    </div>
+    <p class="t-sm" id="pin-message" style="margin-bottom:12px;"></p>
+    <div class="input-group">
+      <label class="input-label" data-i18n>Manager PIN</label>
+      <input class="input" id="pin-input" type="password" inputmode="numeric" autocomplete="off" maxlength="8" />
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="answerPin(null)" data-i18n>Cancel</button>
+      <button class="btn btn-primary" onclick="answerPin($('pin-input').value)" data-i18n>Approve</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="modal-refund" class="overlay hidden">
+  <div class="modal sale-detail-modal">
+    <div class="modal-head">
+      <div class="modal-title" data-i18n>Refund</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-refund')">x</button>
+    </div>
+    <div class="refund-search">
+      <input class="input" id="refund-invoice" data-i18n-placeholder placeholder="Invoice number" onkeydown="if (event.key === 'Enter') findRefundSale()" />
+      <button class="btn btn-secondary" onclick="findRefundSale()" data-i18n>Find</button>
+    </div>
+    <div id="refund-body" class="hidden">
+      <div class="sale-detail-meta" id="refund-sale-meta"></div>
+      <div class="tbl-wrap" style="margin-bottom:12px;">
+        <table>
+          <thead><tr><th data-i18n>Product</th><th data-i18n>Sold</th><th data-i18n>Already refunded</th><th data-i18n>Price paid</th><th data-i18n>Refund qty</th></tr></thead>
+          <tbody id="refund-lines"></tbody>
+        </table>
+      </div>
+      <div class="two-col">
+        <div class="input-group">
+          <label class="input-label" data-i18n>Refund method</label>
+          <select class="input" id="refund-method">
+            <option value="CASH" data-i18n>Cash</option>
+            <option value="CARD" data-i18n>Card</option>
+          </select>
+        </div>
+        <div class="input-group">
+          <label class="input-label" data-i18n>Reason</label>
+          <input class="input" id="refund-reason" type="text" />
+        </div>
+      </div>
+      <div class="balance-line"><span data-i18n>To refund</span><strong id="refund-total">0.00 LEK</strong></div>
+      <div class="modal-foot">
+        <button class="btn btn-secondary" onclick="closeModal('modal-refund')" data-i18n>Cancel</button>
+        <button class="btn btn-danger" onclick="submitRefund()" data-i18n>Refund</button>
+      </div>
     </div>
   </div>
 </div>

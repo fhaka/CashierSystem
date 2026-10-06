@@ -2,6 +2,7 @@ package com.supermarket.service;
 
 import com.supermarket.model.CashMovement;
 import com.supermarket.model.PaymentMethod;
+import com.supermarket.model.Refund;
 import com.supermarket.model.Sale;
 import com.supermarket.model.SalePayment;
 
@@ -18,6 +19,8 @@ import java.util.Collection;
  * @param cardSales    paid by card
  * @param cashIn       money put into the drawer outside of sales
  * @param cashOut      money taken out of the drawer outside of sales
+ * @param cashRefunds  refunds paid back in cash from the drawer
+ * @param cardRefunds  refunds paid back to a card
  */
 public record CashTotals(
         BigDecimal totalSales,
@@ -25,10 +28,12 @@ public record CashTotals(
         BigDecimal changeGiven,
         BigDecimal cardSales,
         BigDecimal cashIn,
-        BigDecimal cashOut
+        BigDecimal cashOut,
+        BigDecimal cashRefunds,
+        BigDecimal cardRefunds
 ) {
 
-    public static CashTotals of(Collection<Sale> sales, Collection<CashMovement> movements) {
+    public static CashTotals of(Collection<Sale> sales, Collection<CashMovement> movements, Collection<Refund> refunds) {
         BigDecimal total = BigDecimal.ZERO;
         BigDecimal cash = BigDecimal.ZERO;
         BigDecimal change = BigDecimal.ZERO;
@@ -53,7 +58,16 @@ public record CashTotals(
                 out = out.add(movement.getAmount());
             }
         }
-        return new CashTotals(total, cash, change, card, in, out);
+        BigDecimal refundedCash = BigDecimal.ZERO;
+        BigDecimal refundedCard = BigDecimal.ZERO;
+        for (Refund refund : refunds) {
+            if (refund.getMethod() == PaymentMethod.CARD) {
+                refundedCard = refundedCard.add(refund.getTotalAmount());
+            } else {
+                refundedCash = refundedCash.add(refund.getTotalAmount());
+            }
+        }
+        return new CashTotals(total, cash, change, card, in, out, refundedCash, refundedCard);
     }
 
     /** Cash kept from sales: what customers handed over minus the change given back. */
@@ -61,8 +75,12 @@ public record CashTotals(
         return cashReceived.subtract(changeGiven);
     }
 
-    /** What should be in the drawer: opening float + cash from sales + cash in - cash out. */
+    /** What should be in the drawer: opening float + cash from sales + cash in - cash out - cash refunds. */
     public BigDecimal expectedCash(BigDecimal openingCash) {
-        return openingCash.add(cashSales()).add(cashIn).subtract(cashOut);
+        return openingCash.add(cashSales()).add(cashIn).subtract(cashOut).subtract(cashRefunds);
+    }
+
+    public BigDecimal totalRefunds() {
+        return cashRefunds.add(cardRefunds);
     }
 }

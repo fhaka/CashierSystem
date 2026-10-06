@@ -17,10 +17,15 @@ public class UserService {
 
     private final CashierRepository cashierRepository;
     private final SessionService sessionService;
+    private final ApprovalService approvalService;
+    private final AuditService auditService;
 
-    public UserService(CashierRepository cashierRepository, SessionService sessionService) {
+    public UserService(CashierRepository cashierRepository, SessionService sessionService,
+                       ApprovalService approvalService, AuditService auditService) {
         this.cashierRepository = cashierRepository;
         this.sessionService = sessionService;
+        this.approvalService = approvalService;
+        this.auditService = auditService;
     }
 
     public List<UserResponse> findAll() {
@@ -28,7 +33,7 @@ public class UserService {
     }
 
     @Transactional
-    public UserResponse create(UserRequest request) {
+    public UserResponse create(UserRequest request, Cashier actor) {
         validate(request, true);
         String username = request.getUsername().trim();
         if (cashierRepository.existsByUsernameIgnoreCase(username)) {
@@ -41,7 +46,11 @@ public class UserService {
                 parseRole(request.getRole())
         );
         cashier.setActive(request.getActive() == null || request.getActive());
-        return toResponse(cashierRepository.save(cashier));
+        Cashier saved = cashierRepository.save(cashier);
+        boolean pinSet = applyApprovalPin(saved, request.getApprovalPin());
+        auditService.record(actor, "USER_CREATED", "USER", saved.getId(),
+                saved.getUsername() + ", " + saved.getRole() + (pinSet ? ", approval PIN set" : ""));
+        return toResponse(saved);
     }
 
     @Transactional
@@ -67,6 +76,7 @@ public class UserService {
         }
 
         CashierRole previousRole = cashier.getRole();
+        boolean previousActive = cashier.isActive();
         cashier.setFullName(request.getFullName().trim());
         cashier.setUsername(request.getUsername().trim());
         cashier.setRole(newRole);
@@ -87,7 +97,29 @@ public class UserService {
         if ((accessChanged || passwordChanged) && !saved.getId().equals(currentSuperAdmin.getId())) {
             sessionService.invalidateUser(saved.getId());
         }
+        boolean pinChanged = applyApprovalPin(saved, request.getApprovalPin());
+        if (!saved.getRole().isOperationalManager() && saved.getApprovalPinHash() != null) {
+            saved.setApprovalPinHash(null);
+            pinChanged = true;
+        }
+        auditService.record(currentSuperAdmin, "USER_UPDATED", "USER", saved.getId(), saved.getUsername()
+                + (previousRole != saved.getRole() ? ", role " + previousRole + " -> " + saved.getRole() : "")
+                + (previousActive != saved.isActive() ? ", active " + previousActive + " -> " + saved.isActive() : "")
+                + (passwordChanged ? ", password changed" : "")
+                + (pinChanged ? ", approval PIN changed" : ""));
         return toResponse(saved);
+    }
+
+    /** Sets a manager's approval PIN when one is given. Cashiers cannot have one. */
+    private boolean applyApprovalPin(Cashier cashier, String pin) {
+        if (pin == null || pin.isBlank()) {
+            return false;
+        }
+        if (!cashier.getRole().isOperationalManager()) {
+            throw new ValidationException("approval.pinOnlyManagers");
+        }
+        cashier.setApprovalPinHash(approvalService.hashNewPin(cashier, pin));
+        return true;
     }
 
     private void validate(UserRequest request, boolean passwordRequired) {
@@ -117,7 +149,8 @@ public class UserService {
                 cashier.getFullName(),
                 cashier.getUsername(),
                 cashier.getRole().name(),
-                cashier.isActive()
+                cashier.isActive(),
+                cashier.getApprovalPinHash() != null
         );
     }
 }

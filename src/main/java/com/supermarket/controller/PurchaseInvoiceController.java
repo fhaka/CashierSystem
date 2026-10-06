@@ -2,6 +2,7 @@ package com.supermarket.controller;
 
 import com.supermarket.dto.ApiResponse;
 import com.supermarket.dto.PurchaseInvoiceRequest;
+import com.supermarket.model.Cashier;
 import com.supermarket.model.PurchaseInvoice;
 import com.supermarket.service.PurchaseInvoiceService;
 import com.supermarket.service.SessionService;
@@ -34,7 +35,7 @@ public class PurchaseInvoiceController {
 
     @PostMapping
     public ApiResponse<PurchaseInvoice> create(@RequestHeader(value = "X-Auth-Token", required = false) String token, @RequestBody PurchaseInvoiceRequest request) {
-        sessionService.requireOperationalManager(token);
-        return ApiResponse.ok("Purchase invoice saved", purchaseInvoiceService.create(request));
+        Cashier actor = sessionService.requireOperationalManager(token);
+        return ApiResponse.ok("Purchase invoice saved", purchaseInvoiceService.create(request, actor));
     }
 }

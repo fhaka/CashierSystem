@@ -42,8 +42,8 @@ public class UserController {
             @RequestHeader(value = "X-Auth-Token", required = false) String token,
             @RequestBody UserRequest request
     ) {
-        sessionService.requireSuperAdmin(token);
-        return ApiResponse.ok("User created", userService.create(request));
+        Cashier superAdmin = sessionService.requireSuperAdmin(token);
+        return ApiResponse.ok("User created", userService.create(request, superAdmin));
     }
 
     @PutMapping("/{id}")

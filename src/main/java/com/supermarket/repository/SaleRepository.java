@@ -32,4 +32,6 @@ public interface SaleRepository extends JpaRepository<Sale, Long> {
     List<Sale> findByShiftIdOrderByDate(@Param("shiftId") Long shiftId);
 
     List<Sale> findByDateBetweenOrderByDate(LocalDateTime from, LocalDateTime to);
+
+    java.util.Optional<Sale> findByInvoiceNumber(String invoiceNumber);
 }

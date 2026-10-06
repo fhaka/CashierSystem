@@ -82,6 +82,13 @@ Hibernate does not change tables (`ddl-auto=none`). The tests run with `ddl-auto
 - **Closing a shift** is blind: the cashier enters the counted cash before seeing what was expected. Expected cash = opening cash + cash received − change given + cash in − cash out. Card payments are not expected in the drawer.
 - **X report** (one shift) and **Z report** (one day, all tills): sales, discounts, VAT per rate, payments per method and currency, change, cash in/out and totals per cashier. Both can be printed on the receipt printer. Managers can print an X report while the shift is open; cashiers see their own after closing it.
 
+## Approvals, refunds and audit log
+
+- **Manager PIN:** each Super Cashier / Super Admin can have a personal approval PIN (4–8 digits, set in the Users screen; two managers cannot share one). When a cashier does something sensitive, the till asks for a manager's PIN; the server checks it and records who approved. Managers approve their own actions. After 5 wrong PINs, approvals on that till pause for 5 minutes.
+- **What needs approval for cashiers:** lowering a quantity, removing a line or clearing the cart (voids, `pos.approval.voids=true`), changing a price at the till, and refunds.
+- **Refunds:** *Sales Log → Refund* (or *Refund* in a sale's details) finds the sale by invoice number and shows what can still be returned. The customer gets back what they actually paid for those items, including their share of any discount. Stock goes back on the shelf, the money leaves the current shift (cash from the drawer, or recorded as a card refund), and a refund receipt `R000001` is printed. X and Z reports show refunds and net sales, with VAT corrected.
+- **Audit log** (Super Admin): sign-ins (also failed ones), locked accounts, wrong PINs, voids, price changes, refunds, product/user/exchange-rate changes, purchases, shifts and cash in/out, with who did it, who approved it and the details. Filter by date and action. Entries are never changed or deleted.
+
 ## Security
 
 - **Passwords** are stored with BCrypt. Accounts from older versions (SHA-256) keep working and are upgraded automatically at their next sign-in. The minimum length is 4 characters.

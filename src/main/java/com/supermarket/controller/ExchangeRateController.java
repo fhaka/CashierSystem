@@ -2,6 +2,7 @@ package com.supermarket.controller;
 
 import com.supermarket.dto.ApiResponse;
 import com.supermarket.dto.ExchangeRateRequest;
+import com.supermarket.model.Cashier;
 import com.supermarket.model.ExchangeRate;
 import com.supermarket.service.ExchangeRateService;
 import com.supermarket.service.SessionService;
@@ -37,7 +38,7 @@ public class ExchangeRateController {
             @RequestHeader(value = "X-Auth-Token", required = false) String token,
             @RequestBody List<ExchangeRateRequest> rates
     ) {
-        sessionService.requireOperationalManager(token);
-        return ApiResponse.ok("Exchange rates saved", exchangeRateService.update(rates));
+        Cashier actor = sessionService.requireOperationalManager(token);
+        return ApiResponse.ok("Exchange rates saved", exchangeRateService.update(rates, actor));
     }
 }

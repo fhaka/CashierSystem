@@ -7,6 +7,7 @@ public class UserRequest {
     private String password;
     private String role;
     private Boolean active;
+    private String approvalPin;
 
     public String getFullName() {
         return fullName;
@@ -46,5 +47,13 @@ public class UserRequest {
 
     public void setActive(Boolean active) {
         this.active = active;
+    }
+
+    public String getApprovalPin() {
+        return approvalPin;
+    }
+
+    public void setApprovalPin(String approvalPin) {
+        this.approvalPin = approvalPin;
     }
 }

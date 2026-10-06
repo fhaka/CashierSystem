@@ -70,11 +70,12 @@ public class SaleController {
     @PutMapping("/cart/{productId}")
     public ApiResponse<List<CartItem>> updateCartItem(
             @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Approval-Pin", required = false) String approvalPin,
             @PathVariable Long productId,
             @RequestBody CartItemRequest request
     ) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Cart item updated", cartService.updateCartItem(cashier, productId, request));
+        return ApiResponse.ok("Cart item updated", cartService.updateCartItem(cashier, productId, request, approvalPin));
     }
 
     @GetMapping("/cart/subtotal")
@@ -90,9 +91,12 @@ public class SaleController {
     }
 
     @DeleteMapping("/cart")
-    public ApiResponse<Void> clearCart(@RequestHeader(value = "X-Auth-Token", required = false) String token) {
+    public ApiResponse<Void> clearCart(
+            @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Approval-Pin", required = false) String approvalPin
+    ) {
         Cashier cashier = sessionService.requireUser(token);
-        cartService.clear(cashier);
+        cartService.clear(cashier, approvalPin);
         return ApiResponse.ok("Cart cleared", null);
     }
 

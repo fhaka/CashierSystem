@@ -48,6 +48,11 @@ public class GlobalExceptionHandler {
         return localized(HttpStatus.FORBIDDEN, exception);
     }
 
+    @ExceptionHandler(ApprovalRequiredException.class)
+    public ResponseEntity<ApiResponse<Void>> handleApprovalRequired(ApprovalRequiredException exception) {
+        return localized(HttpStatus.FORBIDDEN, exception);
+    }
+
     @ExceptionHandler(AccountLockedException.class)
     public ResponseEntity<ApiResponse<Void>> handleAccountLocked(AccountLockedException exception) {
         return localized(HttpStatus.TOO_MANY_REQUESTS, exception);
@@ -76,7 +81,7 @@ public class GlobalExceptionHandler {
     private ResponseEntity<ApiResponse<Void>> localized(HttpStatus status, LocalizedException exception) {
         String text = messageSource.getMessage(
                 exception.getCode(), exception.getArgs(), exception.getCode(), LocaleContextHolder.getLocale());
-        return ResponseEntity.status(status).body(ApiResponse.error(text));
+        return ResponseEntity.status(status).body(ApiResponse.error(exception.getCode(), text));
     }
 
     private String message(String code) {

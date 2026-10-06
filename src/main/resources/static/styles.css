@@ -686,3 +686,9 @@
     .cash-movements { margin-top: 12px; display: grid; gap: 6px; }
     .cash-movements .balance-line span { white-space: normal; }
     .rate-input:disabled { opacity: .75; }
+
+    /* Refund window and audit log */
+    .refund-search { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 12px; }
+    .refund-qty { width: 90px; }
+    #audit-tbody td { vertical-align: top; }
+    #audit-tbody .audit-details { white-space: normal; max-width: 520px; }

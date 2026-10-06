@@ -2,6 +2,7 @@ package com.supermarket.controller;
 
 import com.supermarket.dto.ApiResponse;
 import com.supermarket.dto.ProductRequest;
+import com.supermarket.model.Cashier;
 import com.supermarket.model.Product;
 import com.supermarket.service.ProductService;
 import com.supermarket.service.SessionService;
@@ -82,26 +83,26 @@ public class ProductController {
 
     @PostMapping
     public ApiResponse<Product> create(@RequestHeader(value = "X-Auth-Token", required = false) String token, @RequestBody ProductRequest request) {
-        sessionService.requireOperationalManager(token);
-        return ApiResponse.ok("Product created", productService.create(request));
+        Cashier actor = sessionService.requireOperationalManager(token);
+        return ApiResponse.ok("Product created", productService.create(request, actor));
     }
 
     @PutMapping("/{id}")
     public ApiResponse<Product> update(@RequestHeader(value = "X-Auth-Token", required = false) String token, @PathVariable Long id, @RequestBody ProductRequest request) {
-        sessionService.requireOperationalManager(token);
-        return ApiResponse.ok("Product updated", productService.update(id, request));
+        Cashier actor = sessionService.requireOperationalManager(token);
+        return ApiResponse.ok("Product updated", productService.update(id, request, actor));
     }
 
     @DeleteMapping("/{id}")
     public ApiResponse<Void> delete(@RequestHeader(value = "X-Auth-Token", required = false) String token, @PathVariable Long id) {
-        sessionService.requireOperationalManager(token);
-        productService.deactivate(id);
+        Cashier actor = sessionService.requireOperationalManager(token);
+        productService.deactivate(id, actor);
         return ApiResponse.ok("Product deactivated", null);
     }
 
     @PostMapping("/{id}/activate")
     public ApiResponse<Product> activate(@RequestHeader(value = "X-Auth-Token", required = false) String token, @PathVariable Long id) {
-        sessionService.requireOperationalManager(token);
-        return ApiResponse.ok("Product activated", productService.activate(id));
+        Cashier actor = sessionService.requireOperationalManager(token);
+        return ApiResponse.ok("Product activated", productService.activate(id, actor));
     }
 }

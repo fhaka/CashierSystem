@@ -6,6 +6,7 @@ import java.util.List;
 
 /**
  * X report (one shift, can be printed while it is open) or Z report (one day, all tills). Amounts in LEK.
+ * netSales is total sales minus refunds; VAT lines are already net of refunds.
  * openingCash and expectedCash are only filled for an X report.
  */
 public record PeriodReport(
@@ -25,6 +26,10 @@ public record PeriodReport(
         BigDecimal cardSales,
         BigDecimal cashIn,
         BigDecimal cashOut,
+        int refundsCount,
+        BigDecimal cashRefunds,
+        BigDecimal cardRefunds,
+        BigDecimal netSales,
         BigDecimal openingCash,
         BigDecimal expectedCash,
         List<CashierLine> byCashier,

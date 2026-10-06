@@ -3,6 +3,7 @@ package com.supermarket.service;
 import com.supermarket.exception.ValidationException;
 import com.supermarket.dto.PurchaseInvoiceRequest;
 import com.supermarket.dto.PurchaseItemRequest;
+import com.supermarket.model.Cashier;
 import com.supermarket.model.Product;
 import com.supermarket.model.PurchaseInvoice;
 import com.supermarket.model.PurchaseItem;
@@ -22,11 +23,14 @@ public class PurchaseInvoiceService {
     private final PurchaseInvoiceRepository purchaseInvoiceRepository;
     private final ProductRepository productRepository;
     private final ProductService productService;
+    private final AuditService auditService;
 
-    public PurchaseInvoiceService(PurchaseInvoiceRepository purchaseInvoiceRepository, ProductRepository productRepository, ProductService productService) {
+    public PurchaseInvoiceService(PurchaseInvoiceRepository purchaseInvoiceRepository, ProductRepository productRepository, ProductService productService,
+                                  AuditService auditService) {
         this.purchaseInvoiceRepository = purchaseInvoiceRepository;
         this.productRepository = productRepository;
         this.productService = productService;
+        this.auditService = auditService;
     }
 
     public List<PurchaseInvoice> findAll() {
@@ -34,7 +38,7 @@ public class PurchaseInvoiceService {
     }
 
     @Transactional
-    public PurchaseInvoice create(PurchaseInvoiceRequest request) {
+    public PurchaseInvoice create(PurchaseInvoiceRequest request, Cashier actor) {
         validateRequest(request);
         BigDecimal total = BigDecimal.ZERO;
         PurchaseInvoice invoice = new PurchaseInvoice(
@@ -71,7 +75,10 @@ public class PurchaseInvoiceService {
         }
 
         invoice.setTotalAmount(total);
-        return purchaseInvoiceRepository.save(invoice);
+        PurchaseInvoice saved = purchaseInvoiceRepository.save(invoice);
+        auditService.record(actor, "PURCHASE_SAVED", "PURCHASE_INVOICE", saved.getInvoiceNumber(),
+                saved.getCompany() + ", " + saved.getItems().size() + " lines, " + saved.getTotalAmount() + " LEK");
+        return saved;
     }
 
     private void validateRequest(PurchaseInvoiceRequest request) {

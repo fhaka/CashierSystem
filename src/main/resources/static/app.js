@@ -76,15 +76,57 @@ function toast(msg, type = 'info') {
   }, 3200);
 }
 
-async function req(method, path, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json', 'Accept-Language': currentLang } };
+async function req(method, path, body, extraHeaders) {
+  const opts = { method, headers: { 'Content-Type': 'application/json', 'Accept-Language': currentLang, ...(extraHeaders || {}) } };
   if (body !== undefined) opts.body = JSON.stringify(body);
   const res  = await fetch(API + path, opts);
   const json = await res.json().catch(() => ({}));
   if (res.status === 401 && currentUser) clearLocalSession();
-  if (!res.ok) throw new Error(json.message || json.error || t('Request failed with status {status}', { status: res.status }));
-  if (json.success === false) throw new Error(json.message || t('Request failed'));
+  if (!res.ok || json.success === false) {
+    const error = new Error(json.message || json.error || t('Request failed with status {status}', { status: res.status }));
+    error.code = json.code;
+    throw error;
+  }
   return json;
+}
+
+/*
+ * For actions a cashier may only do with a manager's approval (voids, price changes, refunds): if the server
+ * asks for approval, show the PIN prompt and send the request again with the PIN. Managers never see it.
+ */
+async function reqApproved(method, path, body) {
+  let pin = null;
+  for (;;) {
+    try {
+      return await req(method, path, body, pin ? { 'X-Approval-Pin': pin } : undefined);
+    } catch (e) {
+      if (e.code !== 'approval.required' && e.code !== 'approval.invalidPin') throw e;
+      pin = await askManagerPin(e.message);
+      if (pin === null) throw Object.assign(new Error(''), { cancelled: true });
+    }
+  }
+}
+
+let pinResolver = null;
+
+function askManagerPin(message) {
+  $('pin-message').textContent = message || '';
+  $('pin-input').value = '';
+  openModal('modal-pin');
+  setTimeout(() => $('pin-input').focus(), 50);
+  return new Promise(resolve => { pinResolver = resolve; });
+}
+
+function answerPin(pin) {
+  closeModal('modal-pin');
+  const resolve = pinResolver;
+  pinResolver = null;
+  if (resolve) resolve(pin === null || pin === '' ? null : pin);
+}
+
+/* A cancelled PIN prompt is not an error worth a message. */
+function reportError(e, fallback) {
+  if (!e?.cancelled) toast(e?.message || fallback, 'error');
 }
 
 function openModal(id)  { $(id).classList.remove('hidden'); }
@@ -205,7 +247,7 @@ function gotoView(view) {
     toast(t('Super Cashier or Super Admin access is required'), 'error');
     view = 'home';
   }
-  if (view === 'users' && !isSuperAdmin()) {
+  if ((view === 'users' || view === 'audit') && !isSuperAdmin()) {
     toast(t('Super Admin access is required'), 'error');
     view = 'home';
   }
@@ -220,6 +262,7 @@ function gotoView(view) {
   if (view === 'reports')  loadReports();
   if (view === 'users') loadUsers();
   if (view === 'operations') loadOperations();
+  if (view === 'audit') initAudit();
 }
 
 async function loadHomeData() {
@@ -432,7 +475,7 @@ function renderInvoiceRows() {
     return;
   }
   tbody.innerHTML = cartItems.map((item, index) => {
-    const priceCell = isOperationalManager()
+    const priceCell = true
       ? `<input class="input pos-edit-cell" type="number" min="0.01" step="0.01" value="${Number(item.price || 0).toFixed(2)}" onchange="updateCartInline(${item.productId}, 'price', this.value)" />`
       : `<span class="td-p">${fmt(item.price)}</span>`;
     return `
@@ -529,12 +572,12 @@ function stepQty(productId, direction) {
 async function setQuantity(productId, quantity) {
   const rounded = Math.max(0, Math.round(quantity * 1000) / 1000);
   try {
-    const res = await req('PUT', `/sales/cart/${productId}`, { quantity: rounded });
+    const res = await reqApproved('PUT', `/sales/cart/${productId}`, { quantity: rounded });
     cartItems = Array.isArray(res.data) ? res.data : [];
     renderCart();
     fetchSubtotal();
   } catch (e) {
-    toast(e.message || t('Could not update qty'), 'error');
+    reportError(e, t('Could not update qty'));
     refreshCart();
   }
 }
@@ -553,11 +596,6 @@ async function updateCartInline(productId, field, value) {
     body.quantity = quantity;
   }
   if (field === 'price') {
-    if (!isOperationalManager()) {
-      toast(t('Cashiers cannot change product prices'), 'error');
-      renderInvoiceRows();
-      return;
-    }
     const price = parseFloat(value || '0');
     if (Number.isNaN(price) || price <= 0) {
       toast(t('Price must be greater than zero'), 'error');
@@ -567,13 +605,13 @@ async function updateCartInline(productId, field, value) {
     body.price = price;
   }
   try {
-    const res = await req('PUT', `/sales/cart/${productId}`, body);
+    const res = await reqApproved('PUT', `/sales/cart/${productId}`, body);
     cartItems = Array.isArray(res.data) ? res.data : [];
     renderCart();
     fetchSubtotal();
     toast(t('Invoice line updated'), 'success');
   } catch (e) {
-    toast(e.message || t('Could not update invoice line'), 'error');
+    reportError(e, t('Could not update invoice line'));
     refreshCart();
   }
 }
@@ -629,11 +667,11 @@ async function resumeCart(cartId) {
 
 async function clearCart() {
   try {
-    await req('DELETE', '/sales/cart');
+    await reqApproved('DELETE', '/sales/cart');
     cartItems = [];
     renderCart();
     toast(t('Cart cleared'), 'info');
-  } catch (e) { toast(e.message || t('Could not clear cart'), 'error'); }
+  } catch (e) { reportError(e, t('Could not clear cart')); }
 }
 
 /*  Checkout  */
@@ -1251,6 +1289,7 @@ function viewSale(saleId) {
     ${parseFloat(sale.changeAmount) > 0 ? `<div class="balance-line"><span>${t('Change')}</span><strong>${fmtLek(sale.changeAmount)}</strong></div>` : ''}
     <div class="modal-foot" style="margin-top:18px;">
       <button class="btn btn-secondary" onclick="closeModal('modal-sale')">${t('Close')}</button>
+      <button class="btn btn-danger" onclick="closeModal('modal-sale'); openRefund('${esc(sale.invoiceNumber || '')}')">${t('Refund')}</button>
       <button class="btn btn-primary" onclick="printSale(${sale.id})">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="6 9 6 2 18 2 18 9"/>
@@ -1702,7 +1741,7 @@ function renderUsers(users) {
       <td><strong>${esc(user.fullName)}</strong></td>
       <td class="td-m">${esc(user.username)}</td>
       <td><span class="badge ${user.role === 'SUPER_ADMIN' ? 'b-blue' : user.role === 'SUPER_CASHIER' ? 'b-green' : 'b-muted'}">${esc(roleLabel(user.role))}</span></td>
-      <td><span class="badge ${user.active ? 'b-green' : 'b-red'}">${user.active ? t('Active') : t('Disabled')}</span></td>
+      <td><span class="badge ${user.active ? 'b-green' : 'b-red'}">${user.active ? t('Active') : t('Disabled')}</span>${user.hasApprovalPin ? ` <span class="badge b-blue">${t('PIN')}</span>` : ''}</td>
       <td><button class="btn btn-secondary btn-sm" onclick="openUserModal(${user.id})">${t('Edit')}</button></td>
     </tr>
   `).join('');
@@ -1720,7 +1759,15 @@ function openUserModal(userId) {
   $('um-password').placeholder = user ? t('Leave empty to keep current password') : t('Minimum 4 characters');
   $('um-role').value = user?.role || 'CASHIER';
   $('um-active').value = String(user?.active ?? true);
+  $('um-pin').value = '';
+  $('um-pin').placeholder = user?.hasApprovalPin ? t('Leave empty to keep the current PIN') : t('4 to 8 digits');
+  updatePinField();
   openModal('modal-user');
+}
+
+/* Only managers approve, so only they have a PIN. */
+function updatePinField() {
+  $('um-pin-group').classList.toggle('hidden', $('um-role').value === 'CASHIER');
 }
 
 async function submitUser() {
@@ -1730,7 +1777,8 @@ async function submitUser() {
     username: $('um-username').value.trim(),
     password: $('um-password').value,
     role: $('um-role').value,
-    active: $('um-active').value === 'true'
+    active: $('um-active').value === 'true',
+    approvalPin: $('um-role').value === 'CASHIER' ? '' : $('um-pin').value.trim()
   };
   if (!body.fullName || !body.username || (!id && body.password.length < 4)) {
     toast(t('Name, username, and a password of at least 4 characters are required'), 'error');
@@ -1744,6 +1792,122 @@ async function submitUser() {
     loadUsers();
   } catch (e) {
     toast(e.message || t('Could not save user'), 'error');
+  }
+}
+
+/*  Refunds  */
+let refundSale = null;
+
+function openRefund(invoiceNumber) {
+  refundSale = null;
+  $('refund-invoice').value = invoiceNumber || '';
+  $('refund-reason').value = '';
+  $('refund-method').value = 'CASH';
+  $('refund-body').classList.add('hidden');
+  openModal('modal-refund');
+  if (invoiceNumber) findRefundSale();
+  else setTimeout(() => $('refund-invoice').focus(), 50);
+}
+
+async function findRefundSale() {
+  const number = $('refund-invoice').value.trim();
+  if (!number) return;
+  try {
+    const res = await req('GET', `/sales/by-invoice/${encodeURIComponent(number)}`);
+    refundSale = res.data;
+    $('refund-sale-meta').innerHTML = `${t('Invoice {number}', { number: esc(refundSale.invoiceNumber) })} | ${fmtDate(refundSale.date)} | ${esc(refundSale.cashierName || '')} | <strong>${fmtLek(refundSale.totalAmount)}</strong>`;
+    $('refund-lines').innerHTML = refundSale.lines.map((line, index) => `
+      <tr>
+        <td>${esc(line.productName)}</td>
+        <td class="td-m">${fmtQty(line.soldQuantity, line.unit)} ${esc(unitLabel(line.unit))}</td>
+        <td class="td-m">${fmtQty(line.refundedQuantity, line.unit)}</td>
+        <td class="td-p">${fmtLek(line.unitPricePaid)}</td>
+        <td><input class="input refund-qty" type="number" min="0" max="${line.refundableQuantity}"
+             step="${line.unit === 'kg' ? '0.001' : '1'}" value="0" data-index="${index}"
+             ${parseFloat(line.refundableQuantity) > 0 ? '' : 'disabled'} oninput="updateRefundTotal()" /></td>
+      </tr>`).join('');
+    $('refund-body').classList.remove('hidden');
+    updateRefundTotal();
+  } catch (e) {
+    $('refund-body').classList.add('hidden');
+    toast(e.message, 'error');
+  }
+}
+
+/* Preview only: the server calculates the exact amount from what the customer paid for each line. */
+function updateRefundTotal() {
+  if (!refundSale) return;
+  const total = [...document.querySelectorAll('.refund-qty')].reduce((sum, input) => {
+    const line = refundSale.lines[input.dataset.index];
+    const qty = Math.min(parseQuantity(input.value) || 0, parseFloat(line.refundableQuantity));
+    return sum + (line.lineTotal * qty / line.soldQuantity);
+  }, 0);
+  $('refund-total').textContent = fmtLek(total);
+}
+
+async function submitRefund() {
+  if (!refundSale) return;
+  const lines = [...document.querySelectorAll('.refund-qty')]
+    .map(input => ({ saleItemId: refundSale.lines[input.dataset.index].saleItemId, quantity: parseQuantity(input.value) || 0 }))
+    .filter(line => line.quantity > 0);
+  try {
+    const res = await reqApproved('POST', `/sales/${refundSale.saleId}/refunds`, {
+      lines, method: $('refund-method').value, reason: $('refund-reason').value.trim()
+    });
+    closeModal('modal-refund');
+    lastReceipt = res.data.printableReceipt;
+    $('receipt-txt').textContent = lastReceipt;
+    openModal('modal-receipt');
+    loadReceiptPrinters();
+    toast(t('Refund {number} completed: {amount}', { number: res.data.refundNumber, amount: fmtLek(res.data.totalAmount) }), 'success');
+    if ($('view-sales')?.classList.contains('on')) loadSales();
+  } catch (e) { reportError(e, t('Refund failed')); }
+}
+
+/*  Audit log  */
+const AUDIT_LABELS = {
+  LOGIN: 'Signed in', LOGOUT: 'Signed out', LOGIN_FAILED: 'Failed sign-in', ACCOUNT_LOCKED: 'Account locked',
+  APPROVAL_FAILED: 'Wrong manager PIN', PRICE_OVERRIDE: 'Price changed at till', CART_LINE_VOID: 'Line voided',
+  CART_CLEARED: 'Cart cleared', REFUND: 'Refund', PRODUCT_CREATED: 'Product created', PRODUCT_UPDATED: 'Product changed',
+  PRODUCT_DEACTIVATED: 'Product deactivated', PRODUCT_ACTIVATED: 'Product reactivated', PURCHASE_SAVED: 'Purchase invoice saved',
+  EXCHANGE_RATE_UPDATED: 'Exchange rate changed', USER_CREATED: 'User created', USER_UPDATED: 'User changed',
+  SHIFT_OPENED: 'Shift opened', SHIFT_CLOSED: 'Shift closed', CASH_IN: 'Cash in', CASH_OUT: 'Cash out'
+};
+
+function auditActionLabel(action) {
+  return AUDIT_LABELS[action] ? t(AUDIT_LABELS[action]) : action;
+}
+
+function initAudit() {
+  const select = $('audit-action');
+  const current = select.value;
+  select.innerHTML = `<option value="">${t('All actions')}</option>` +
+    Object.keys(AUDIT_LABELS).map(a => `<option value="${a}">${esc(auditActionLabel(a))}</option>`).join('');
+  select.value = current;
+  const today = new Date().toISOString().slice(0, 10);
+  if (!$('audit-to').value) $('audit-to').value = today;
+  if (!$('audit-from').value) $('audit-from').value = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+  loadAudit();
+}
+
+async function loadAudit() {
+  const tbody = $('audit-tbody');
+  tbody.innerHTML = `<tr><td colspan="5" class="no-data">${t('Loading...')}</td></tr>`;
+  const params = new URLSearchParams({ from: $('audit-from').value, to: $('audit-to').value });
+  if ($('audit-action').value) params.set('action', $('audit-action').value);
+  try {
+    const res = await req('GET', `/audit?${params}`);
+    const events = res.data || [];
+    tbody.innerHTML = events.length ? events.map(e => `
+      <tr>
+        <td class="td-m">${formatDateTime(e.createdAt)}</td>
+        <td>${esc(e.cashierName || '-')}</td>
+        <td><span class="badge ${['LOGIN_FAILED', 'ACCOUNT_LOCKED', 'APPROVAL_FAILED'].includes(e.action) ? 'b-red' : 'b-blue'}">${esc(auditActionLabel(e.action))}</span></td>
+        <td class="audit-details">${esc(e.details || '')}</td>
+        <td>${esc(e.approvedByName || '')}</td>
+      </tr>`).join('') : `<tr><td colspan="5" class="no-data">${t('Nothing recorded in this period.')}</td></tr>`;
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" class="no-data" style="color:var(--red)">${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -1777,7 +1941,8 @@ async function loadShiftSummary(shiftId) {
     const res = await req('GET', `/shifts/${shiftId}/report`);
     const r = res.data;
     renderShiftSummary({ id: shiftId, totalSales: r.totalSales, cashSales: r.cashSales, cardSales: r.cardSales,
-      cashIn: r.cashIn, cashOut: r.cashOut, expectedCash: r.expectedCash, closingCash: null, difference: null });
+      cashIn: r.cashIn, cashOut: r.cashOut, cashRefunds: r.cashRefunds, cardRefunds: r.cardRefunds,
+      expectedCash: r.expectedCash, closingCash: null, difference: null });
   } catch {}
 }
 
@@ -1791,6 +1956,8 @@ function renderShiftSummary(shift) {
   $('sum-card').textContent = show(shift.cardSales);
   $('sum-in').textContent = show(shift.cashIn);
   $('sum-out').textContent = show(shift.cashOut);
+  $('sum-refunds').textContent = shift.cashRefunds == null && shift.cardRefunds == null
+    ? '-' : fmtLek(parseFloat(shift.cashRefunds || 0) + parseFloat(shift.cardRefunds || 0));
   $('sum-expected').textContent = show(shift.expectedCash);
   $('sum-closing').textContent = show(shift.closingCash);
   $('sum-difference').textContent = show(shift.difference);
@@ -1956,6 +2123,11 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     document.querySelectorAll('.overlay:not(.hidden)').forEach(m => m.classList.add('hidden'));
   }
+});
+
+$('pin-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') answerPin($('pin-input').value);
+  if (e.key === 'Escape') answerPin(null);
 });
 
 document.querySelectorAll('.pay-input').forEach(input => {

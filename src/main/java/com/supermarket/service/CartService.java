@@ -2,7 +2,6 @@ package com.supermarket.service;
 
 import com.supermarket.dto.CartItemRequest;
 import com.supermarket.exception.InsufficientStockException;
-import com.supermarket.exception.PermissionDeniedException;
 import com.supermarket.exception.ValidationException;
 import com.supermarket.model.Cart;
 import com.supermarket.model.CartItem;
@@ -10,6 +9,7 @@ import com.supermarket.model.Cashier;
 import com.supermarket.model.Product;
 import com.supermarket.repository.CartRepository;
 import com.supermarket.util.Quantities;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,10 +27,22 @@ public class CartService {
 
     private final CartRepository cartRepository;
     private final ProductService productService;
+    private final ApprovalService approvalService;
+    private final AuditService auditService;
+    private final boolean voidsNeedApproval;
 
-    public CartService(CartRepository cartRepository, ProductService productService) {
+    public CartService(
+            CartRepository cartRepository,
+            ProductService productService,
+            ApprovalService approvalService,
+            AuditService auditService,
+            @Value("${pos.approval.voids:true}") boolean voidsNeedApproval
+    ) {
         this.cartRepository = cartRepository;
         this.productService = productService;
+        this.approvalService = approvalService;
+        this.auditService = auditService;
+        this.voidsNeedApproval = voidsNeedApproval;
     }
 
     @Transactional(readOnly = true)
@@ -62,36 +74,69 @@ public class CartService {
         return touch(cart);
     }
 
-    /** Sets a line's quantity (zero or less removes the line) and, for managers, its price. */
+    /**
+     * Sets a line's quantity (zero or less removes the line) and its price. Lowering a quantity or removing a
+     * line is a void; a cashier needs a manager's PIN for voids (if pos.approval.voids) and for price changes.
+     */
     @Transactional
-    public List<CartItem> updateCartItem(Cashier cashier, Long productId, CartItemRequest request) {
+    public List<CartItem> updateCartItem(Cashier cashier, Long productId, CartItemRequest request, String approvalPin) {
         Cart cart = openCart(cashier).orElseThrow(() -> new ValidationException("cart.itemNotFound", productId));
         CartItem item = cart.findItem(productId).orElseThrow(() -> new ValidationException("cart.itemNotFound", productId));
 
+        BigDecimal oldQuantity = item.getQuantity();
+        BigDecimal newQuantity = oldQuantity;
         if (request.getQuantity() != null) {
-            if (request.getQuantity().signum() <= 0) {
-                cart.removeItem(item);
-                return touch(cart);
-            }
-            BigDecimal quantity = Quantities.requirePositive(request.getQuantity(), item.getUnit());
-            requireStock(productService.findById(productId), quantity);
-            item.setQuantity(quantity);
+            newQuantity = request.getQuantity().signum() <= 0
+                    ? BigDecimal.ZERO
+                    : Quantities.requirePositive(request.getQuantity(), item.getUnit());
         }
-        if (request.getPrice() != null && request.getPrice().compareTo(item.getPrice()) != 0) {
-            if (!cashier.getRole().isOperationalManager()) {
-                throw new PermissionDeniedException("cart.cannotChangePrice");
-            }
-            if (request.getPrice().signum() <= 0) {
-                throw new ValidationException("cart.pricePositive");
-            }
+        boolean isVoid = newQuantity.compareTo(oldQuantity) < 0;
+        boolean priceChange = request.getPrice() != null && request.getPrice().compareTo(item.getPrice()) != 0;
+        if (priceChange && request.getPrice().signum() <= 0) {
+            throw new ValidationException("cart.pricePositive");
+        }
+
+        Cashier approver = null;
+        if (priceChange) {
+            approver = approvalService.approve(cashier, approvalPin, "PRICE_OVERRIDE");
+        } else if (isVoid && voidsNeedApproval) {
+            approver = approvalService.approve(cashier, approvalPin, "CART_LINE_VOID");
+        }
+
+        if (isVoid) {
+            auditService.record(cashier, approver, "CART_LINE_VOID", "PRODUCT", productId,
+                    item.getProductName() + ": " + oldQuantity.stripTrailingZeros().toPlainString()
+                            + " -> " + newQuantity.stripTrailingZeros().toPlainString());
+        }
+        if (newQuantity.signum() == 0) {
+            cart.removeItem(item);
+            return touch(cart);
+        }
+        if (newQuantity.compareTo(oldQuantity) > 0) {
+            requireStock(productService.findById(productId), newQuantity);
+        }
+        item.setQuantity(newQuantity);
+        if (priceChange) {
+            auditService.record(cashier, approver, "PRICE_OVERRIDE", "PRODUCT", productId,
+                    item.getProductName() + ": " + item.getPrice() + " -> " + request.getPrice());
             item.setPrice(request.getPrice());
         }
         return touch(cart);
     }
 
+    /** Empties the till's cart. With items in it this is a void of the whole cart. */
     @Transactional
-    public void clear(Cashier cashier) {
-        openCart(cashier).ifPresent(cartRepository::delete);
+    public void clear(Cashier cashier, String approvalPin) {
+        Optional<Cart> cart = openCart(cashier);
+        if (cart.isEmpty()) {
+            return;
+        }
+        if (!cart.get().getItems().isEmpty()) {
+            Cashier approver = voidsNeedApproval ? approvalService.approve(cashier, approvalPin, "CART_CLEARED") : null;
+            auditService.record(cashier, approver, "CART_CLEARED", "CART", cart.get().getId(),
+                    cart.get().getItems().size() + " lines, " + cart.get().getSubtotal() + " LEK");
+        }
+        cartRepository.delete(cart.get());
     }
 
     /** Puts the cart on screen aside so the till can serve the next customer. */

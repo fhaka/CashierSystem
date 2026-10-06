@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 public abstract class IntegrationTest {
 
     private static final List<String> TABLES_CHILD_FIRST = List.of(
-            "cart_items", "carts", "sale_logs", "sale_items", "sale_payments", "sales", "cash_movements", "shifts",
+            "audit_events", "refund_items", "refunds", "cart_items", "carts", "sale_logs", "sale_items", "sale_payments", "sales", "cash_movements", "shifts",
             "purchase_items", "purchase_invoices", "products", "auth_sessions", "cashiers", "backup_logs"
     );
 

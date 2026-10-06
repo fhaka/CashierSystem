@@ -46,6 +46,11 @@ public class Cashier {
     @JsonIgnore
     private LocalDateTime lockedUntil;
 
+    /** Managers approve voids, refunds and price changes at a till with this PIN (BCrypt hash). */
+    @Column(length = 100)
+    @JsonIgnore
+    private String approvalPinHash;
+
     public Cashier() {
     }
 
@@ -114,5 +119,13 @@ public class Cashier {
 
     public void setLockedUntil(LocalDateTime lockedUntil) {
         this.lockedUntil = lockedUntil;
+    }
+
+    public String getApprovalPinHash() {
+        return approvalPinHash;
+    }
+
+    public void setApprovalPinHash(String approvalPinHash) {
+        this.approvalPinHash = approvalPinHash;
     }
 }

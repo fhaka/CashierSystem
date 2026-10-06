@@ -6,6 +6,7 @@ import com.supermarket.exception.ValidationException;
 import com.supermarket.model.Cart;
 import com.supermarket.model.CartItem;
 import com.supermarket.model.Cashier;
+import com.supermarket.model.Customer;
 import com.supermarket.model.Product;
 import com.supermarket.repository.CartRepository;
 import com.supermarket.util.Quantities;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -30,7 +32,9 @@ public class CartService {
     private final ApprovalService approvalService;
     private final AuditService auditService;
     private final ScaleBarcodes scaleBarcodes;
+    private final CustomerService customerService;
     private final boolean voidsNeedApproval;
+    private final BigDecimal cashierDiscountLimit;
 
     public CartService(
             CartRepository cartRepository,
@@ -38,14 +42,18 @@ public class CartService {
             ApprovalService approvalService,
             AuditService auditService,
             ScaleBarcodes scaleBarcodes,
-            @Value("${pos.approval.voids:true}") boolean voidsNeedApproval
+            CustomerService customerService,
+            @Value("${pos.approval.voids:true}") boolean voidsNeedApproval,
+            @Value("${pos.discount.cashier-limit-percent:0}") BigDecimal cashierDiscountLimit
     ) {
         this.cartRepository = cartRepository;
         this.productService = productService;
         this.approvalService = approvalService;
         this.auditService = auditService;
         this.scaleBarcodes = scaleBarcodes;
+        this.customerService = customerService;
         this.voidsNeedApproval = voidsNeedApproval;
+        this.cashierDiscountLimit = cashierDiscountLimit;
     }
 
     @Transactional(readOnly = true)
@@ -153,6 +161,50 @@ public class CartService {
                     cart.get().getItems().size() + " lines, " + cart.get().getSubtotal() + " LEK");
         }
         cartRepository.delete(cart.get());
+    }
+
+    /** Attaches a customer (by id or loyalty card number) to the cart on screen; null removes them. */
+    @Transactional
+    public Cart setCustomer(Cashier cashier, Long customerId, String cardNumber) {
+        Cart cart = openCartOrCreate(cashier);
+        if (customerId == null && (cardNumber == null || cardNumber.isBlank())) {
+            cart.setCustomer(null);
+        } else {
+            Customer customer = customerId != null ? customerService.find(customerId) : customerService.findByCard(cardNumber);
+            if (!customer.isActive()) {
+                throw new ValidationException("customer.inactive", customer.getFullName());
+            }
+            cart.setCustomer(customer);
+        }
+        touch(cart);
+        return cart;
+    }
+
+    /**
+     * A percentage off the whole cart. Up to pos.discount.cashier-limit-percent a cashier gives it alone;
+     * above that a manager's PIN is needed. 0 removes the discount.
+     */
+    @Transactional
+    public Cart setManualDiscount(Cashier cashier, BigDecimal percent, String approvalPin) {
+        if (percent == null || percent.signum() < 0 || percent.compareTo(BigDecimal.valueOf(100)) > 0) {
+            throw new ValidationException("discount.invalidPercent");
+        }
+        Cart cart = openCart(cashier)
+                .filter(open -> !open.getItems().isEmpty())
+                .orElseThrow(() -> new ValidationException("cart.empty"));
+        if (percent.signum() == 0) {
+            cart.setManualDiscountPercent(null);
+            touch(cart);
+            return cart;
+        }
+        Cashier approver = percent.compareTo(cashierDiscountLimit) > 0
+                ? approvalService.approve(cashier, approvalPin, "MANUAL_DISCOUNT")
+                : null;
+        cart.setManualDiscountPercent(percent.setScale(2, RoundingMode.HALF_UP));
+        auditService.record(cashier, approver, "MANUAL_DISCOUNT", "CART", cart.getId(),
+                percent.stripTrailingZeros().toPlainString() + "% on " + cart.getSubtotal() + " LEK");
+        touch(cart);
+        return cart;
     }
 
     /** Puts the cart on screen aside so the till can serve the next customer. */

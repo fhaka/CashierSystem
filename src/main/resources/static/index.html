@@ -118,6 +118,18 @@
         </svg>
         <span data-i18n>Inventory</span>
       </button>
+      <button class="nav-btn" data-v="customers" onclick="gotoView('customers')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        </svg>
+        <span data-i18n>Customers</span>
+      </button>
+      <button class="nav-btn manager-only" data-v="promotions" onclick="gotoView('promotions')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>
+        </svg>
+        <span data-i18n>Promotions</span>
+      </button>
       <button class="nav-btn" data-v="sales" onclick="gotoView('sales')">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
@@ -342,13 +354,17 @@
           </div>
         </div>
         <div class="compact-summary">
-          <div class="subtotal-row"><span class="sub-label" data-i18n>Subtotal</span><span class="sub-amount" id="cart-subtotal">0.00 LEK</span></div>
+          <div class="subtotal-row"><span class="sub-label" data-i18n>Total</span><span class="sub-amount" id="cart-subtotal">0.00 LEK</span></div>
           <button class="btn btn-primary btn-checkout" id="btn-checkout" disabled onclick="doCheckout()"><span data-i18n>Checkout</span></button>
           <button class="btn btn-secondary btn-clear btn-sm" id="btn-clear" disabled onclick="clearCart()"><span data-i18n>Clear Invoice</span></button>
           <div class="park-actions">
             <button class="btn btn-secondary btn-sm" onclick="parkCart()"><span data-i18n>Park cart</span></button>
             <button class="btn btn-secondary btn-sm" onclick="openParkedCarts()"><span data-i18n>Parked carts</span></button>
+            <button class="btn btn-secondary btn-sm" onclick="openCustomerPicker()"><span data-i18n>Customer</span></button>
+            <button class="btn btn-secondary btn-sm" onclick="askManualDiscount()"><span data-i18n>Discount %</span></button>
           </div>
+          <div id="cart-customer" class="cart-customer hidden"></div>
+          <div id="cart-breakdown" class="cart-breakdown"></div>
         </div>
       </div>
 
@@ -408,7 +424,7 @@
 
         <div class="cart-foot">
           <div class="subtotal-row">
-            <span class="sub-label" data-i18n>Subtotal</span>
+            <span class="sub-label" data-i18n>Total</span>
             <span class="sub-amount" id="cart-subtotal">0.00 LEK</span>
           </div>
           <button class="btn btn-primary btn-checkout" id="btn-checkout" disabled onclick="doCheckout()">
@@ -609,6 +625,45 @@
             </table>
           </div>
         </section>
+      </div>
+    </div>
+
+    <div id="view-customers" class="view">
+      <div class="page-head" style="flex-shrink:0;">
+        <div>
+          <div class="page-title" data-i18n>Customers</div>
+          <div class="page-sub" data-i18n>Loyalty cards, points and accounts for buying on credit</div>
+        </div>
+        <div class="actions">
+          <input class="input" id="customer-filter" data-i18n-placeholder placeholder="Name, phone or card" oninput="loadCustomers()" />
+          <button class="btn btn-primary" onclick="openCustomerModal()" data-i18n>Add customer</button>
+        </div>
+      </div>
+      <div class="users-page">
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th data-i18n>Card</th><th data-i18n>Name</th><th data-i18n>Phone</th><th data-i18n>Points</th><th data-i18n>Debt</th><th data-i18n>Credit limit</th><th data-i18n>Actions</th></tr></thead>
+            <tbody id="customers-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="view-promotions" class="view">
+      <div class="page-head" style="flex-shrink:0;">
+        <div>
+          <div class="page-title" data-i18n>Promotions</div>
+          <div class="page-sub" data-i18n>Applied automatically at the till; the best one for each product wins</div>
+        </div>
+        <button class="btn btn-primary" onclick="openPromotionModal()" data-i18n>Add promotion</button>
+      </div>
+      <div class="users-page">
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th data-i18n>Name</th><th data-i18n>Offer</th><th data-i18n>On</th><th data-i18n>When</th><th data-i18n>Status</th><th data-i18n>Actions</th></tr></thead>
+            <tbody id="promotions-tbody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -910,6 +965,7 @@
             <div class="balance-line"><span data-i18n>Card</span><strong id="sum-card">-</strong></div>
             <div class="balance-line"><span data-i18n>Cash in</span><strong id="sum-in">-</strong></div>
             <div class="balance-line"><span data-i18n>Cash out</span><strong id="sum-out">-</strong></div>
+            <div class="balance-line"><span data-i18n>On account</span><strong id="sum-credit">-</strong></div>
             <div class="balance-line"><span data-i18n>Refunds</span><strong id="sum-refunds">-</strong></div>
             <div class="balance-line"><span data-i18n>Expected Cash</span><strong id="sum-expected">-</strong></div>
             <div class="balance-line"><span data-i18n>Closing cash counted</span><strong id="sum-closing">-</strong></div>
@@ -1118,6 +1174,16 @@
       <label class="input-label" data-i18n>Card (LEK)</label>
       <input class="input pay-input" id="pay-card" type="number" min="0" step="0.01" oninput="updatePaymentSummary()" />
     </div>
+    <div class="two-col hidden" id="pay-customer-fields">
+      <div class="input-group">
+        <label class="input-label"><span data-i18n>Points (LEK)</span> <small id="pay-points-available"></small></label>
+        <input class="input pay-input" id="pay-points" type="number" min="0" step="1" oninput="updatePaymentSummary()" />
+      </div>
+      <div class="input-group">
+        <label class="input-label"><span data-i18n>On account (LEK)</span> <small id="pay-credit-available"></small></label>
+        <input class="input pay-input" id="pay-credit" type="number" min="0" step="0.01" oninput="updatePaymentSummary()" />
+      </div>
+    </div>
     <div class="balance-line"><span data-i18n>Paid</span><strong id="pay-paid">0.00 LEK</strong></div>
     <div class="balance-line"><span id="pay-rest-label" data-i18n>Still to pay</span><strong id="pay-rest">0.00 LEK</strong></div>
     <div class="receipt-acts">
@@ -1226,6 +1292,130 @@
 </div>
 
 
+<div id="modal-customer-picker" class="overlay hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" data-i18n>Customer</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-customer-picker')">x</button>
+    </div>
+    <div class="refund-search">
+      <input class="input" id="picker-query" data-i18n-placeholder placeholder="Scan the card or type a name or phone" oninput="searchPickerCustomers()" onkeydown="if (event.key === 'Enter') pickByCard()" />
+      <button class="btn btn-secondary" onclick="setCartCustomer(null)" data-i18n>No customer</button>
+    </div>
+    <div class="tbl-wrap"><table><tbody id="picker-results"></tbody></table></div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal('modal-customer-picker'); openCustomerModal(null, true)" data-i18n>New customer</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="modal-customer" class="overlay hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="cm-title">Add customer</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-customer')">x</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="cm-id" />
+      <input type="hidden" id="cm-attach" />
+      <div class="input-group"><label class="input-label" data-i18n>Name</label><input class="input" id="cm-name" /></div>
+      <div class="two-col">
+        <div class="input-group"><label class="input-label" data-i18n>Phone</label><input class="input" id="cm-phone" /></div>
+        <div class="input-group"><label class="input-label" data-i18n>Card number</label><input class="input" id="cm-card" data-i18n-placeholder placeholder="Empty: generated" /></div>
+      </div>
+      <div class="input-group"><label class="input-label" data-i18n>Email</label><input class="input" id="cm-email" type="email" /></div>
+      <div class="input-group"><label class="input-label" data-i18n>Notes</label><input class="input" id="cm-notes" /></div>
+      <div class="input-group manager-only"><label class="input-label" data-i18n>Credit limit (LEK)</label><input class="input" id="cm-limit" type="number" min="0" step="0.01" data-i18n-placeholder placeholder="Empty or 0: no buying on credit" /></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal('modal-customer')" data-i18n>Cancel</button>
+      <button class="btn btn-primary" onclick="submitCustomer()" data-i18n>Save</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="modal-customer-detail" class="overlay hidden">
+  <div class="modal sale-detail-modal">
+    <div class="modal-head">
+      <div class="modal-title" id="cd-title"></div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-customer-detail')">x</button>
+    </div>
+    <div class="sale-detail-meta" id="cd-meta"></div>
+    <div class="report-kpis" id="cd-kpis"></div>
+    <h3 class="section-title" data-i18n>Receive a debt payment</h3>
+    <div class="supplier-payment-form">
+      <input class="input" id="cp-amount" type="number" min="0" step="0.01" data-i18n-placeholder placeholder="Amount (LEK)" />
+      <select class="input" id="cp-method"><option value="CASH" data-i18n>Cash</option><option value="CARD" data-i18n>Card</option></select>
+      <input class="input" id="cp-note" data-i18n-placeholder placeholder="Note" />
+      <button class="btn btn-primary" onclick="receiveCustomerPayment()" data-i18n>Save</button>
+    </div>
+    <h3 class="section-title" data-i18n>History</h3>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th data-i18n>Date</th><th data-i18n>Type</th><th data-i18n>Invoice</th><th data-i18n>Points</th><th data-i18n>Debt</th><th data-i18n>Note</th><th data-i18n>User</th></tr></thead>
+      <tbody id="cd-transactions"></tbody>
+    </table></div>
+  </div>
+</div>
+
+
+<div id="modal-promotion" class="overlay hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="pr-title">Add promotion</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-promotion')">x</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="pr-id" />
+      <div class="input-group"><label class="input-label" data-i18n>Name</label><input class="input" id="pr-name" data-i18n-placeholder placeholder="e.g. Weekend drinks -15%" /></div>
+      <div class="two-col">
+        <div class="input-group">
+          <label class="input-label" data-i18n>Type</label>
+          <select class="input" id="pr-type" onchange="updatePromotionFields()">
+            <option value="PERCENT" data-i18n>Percentage off</option>
+            <option value="BUY_X_GET_Y" data-i18n>Buy X, get Y free</option>
+          </select>
+        </div>
+        <div class="input-group" id="pr-percent-group"><label class="input-label" data-i18n>Discount %</label><input class="input" id="pr-percent" type="number" min="0" max="100" step="0.01" /></div>
+        <div class="two-col hidden" id="pr-buy-group">
+          <div class="input-group"><label class="input-label" data-i18n>Buy</label><input class="input" id="pr-buy" type="number" min="1" step="1" /></div>
+          <div class="input-group"><label class="input-label" data-i18n>Free</label><input class="input" id="pr-free" type="number" min="1" step="1" /></div>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="input-group">
+          <label class="input-label" data-i18n>Applies to</label>
+          <select class="input" id="pr-scope" onchange="updatePromotionFields()">
+            <option value="product" data-i18n>One product (barcode)</option>
+            <option value="category" data-i18n>A whole category</option>
+          </select>
+        </div>
+        <div class="input-group" id="pr-barcode-group"><label class="input-label" data-i18n>Barcode</label><input class="input" id="pr-barcode" /></div>
+        <div class="input-group hidden" id="pr-category-group"><label class="input-label" data-i18n>Category</label><select class="input" id="pr-category"></select></div>
+      </div>
+      <div class="two-col">
+        <div class="input-group"><label class="input-label" data-i18n>From date</label><input class="input" id="pr-starts" type="date" /></div>
+        <div class="input-group"><label class="input-label" data-i18n>To date</label><input class="input" id="pr-ends" type="date" /></div>
+      </div>
+      <div class="input-group">
+        <label class="input-label" data-i18n>Days (empty: every day)</label>
+        <div class="day-picks" id="pr-days"></div>
+      </div>
+      <div class="two-col">
+        <div class="input-group"><label class="input-label" data-i18n>From hour</label><input class="input" id="pr-start-time" type="time" /></div>
+        <div class="input-group"><label class="input-label" data-i18n>To hour</label><input class="input" id="pr-end-time" type="time" /></div>
+      </div>
+      <label class="check-line"><input type="checkbox" id="pr-active" checked /> <span data-i18n>Active</span></label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal('modal-promotion')" data-i18n>Cancel</button>
+      <button class="btn btn-primary" onclick="submitPromotion()" data-i18n>Save</button>
+    </div>
+  </div>
+</div>
+
+
 <div id="modal-pin" class="overlay hidden">
   <div class="modal" style="max-width:340px;">
     <div class="modal-head">
@@ -1268,6 +1458,7 @@
           <select class="input" id="refund-method">
             <option value="CASH" data-i18n>Cash</option>
             <option value="CARD" data-i18n>Card</option>
+            <option value="CREDIT" data-i18n>To the customer's account</option>
           </select>
         </div>
         <div class="input-group">

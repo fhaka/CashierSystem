@@ -30,6 +30,8 @@ public record PeriodReport(
         BigDecimal cashRefunds,
         BigDecimal cardRefunds,
         BigDecimal netSales,
+        BigDecimal creditSales,
+        BigDecimal pointsUsed,
         BigDecimal openingCash,
         BigDecimal expectedCash,
         List<CashierLine> byCashier,

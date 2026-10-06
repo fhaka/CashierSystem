@@ -62,6 +62,15 @@ public class SaleItem {
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal lineTotal;
 
+    /** The promotion that applied to this line, if any, and the part of the discount it gave. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "promotion_id")
+    @JsonIgnore
+    private Promotion promotion;
+
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal promotionDiscount = BigDecimal.ZERO;
+
     public SaleItem() {
     }
 
@@ -169,5 +178,25 @@ public class SaleItem {
 
     public void setLineTotal(BigDecimal lineTotal) {
         this.lineTotal = lineTotal;
+    }
+
+    public Promotion getPromotion() {
+        return promotion;
+    }
+
+    public void setPromotion(Promotion promotion) {
+        this.promotion = promotion;
+    }
+
+    public String getPromotionName() {
+        return promotion == null ? null : promotion.getName();
+    }
+
+    public BigDecimal getPromotionDiscount() {
+        return promotionDiscount;
+    }
+
+    public void setPromotionDiscount(BigDecimal promotionDiscount) {
+        this.promotionDiscount = promotionDiscount;
     }
 }

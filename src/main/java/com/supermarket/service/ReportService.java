@@ -122,7 +122,8 @@ public class ReportService {
                 totals.totalSales().add(discounts), discounts, totals.totalSales(), vat, currencies,
                 totals.cashReceived(), totals.changeGiven(), totals.cashSales(), totals.cardSales(),
                 totals.cashIn(), totals.cashOut(), refunds.size(), totals.cashRefunds(), totals.cardRefunds(),
-                totals.totalSales().subtract(totals.totalRefunds()), opening, expected, cashiers, null);
+                totals.totalSales().subtract(totals.totalRefunds()), totals.creditSales(), totals.pointsUsed(),
+                opening, expected, cashiers, null);
         return withText(data, shift);
     }
 
@@ -147,7 +148,7 @@ public class ReportService {
         line(text, text("receipt.total", locale), r.totalSales());
         if (r.refundsCount() > 0) {
             line(text, text("report.refunds", locale) + " (" + r.refundsCount() + ")",
-                    r.cashRefunds().add(r.cardRefunds()).negate());
+                    r.totalSales().subtract(r.netSales()).negate());
             line(text, text("report.netSales", locale), r.netSales());
         }
         text.append(RULE);
@@ -169,6 +170,12 @@ public class ReportService {
         line(text, text("report.changeGiven", locale), r.changeGiven().negate());
         line(text, text("report.cashNet", locale), r.cashSales());
         line(text, text("payment.card", locale), r.cardSales());
+        if (r.creditSales().signum() > 0) {
+            line(text, text("payment.credit", locale), r.creditSales());
+        }
+        if (r.pointsUsed().signum() > 0) {
+            line(text, text("payment.points", locale), r.pointsUsed());
+        }
         text.append(RULE);
         line(text, text("report.cashIn", locale), r.cashIn());
         line(text, text("report.cashOut", locale), r.cashOut().negate());
@@ -192,7 +199,7 @@ public class ReportService {
         return new PeriodReport(r.type(), r.shiftId(), r.from(), r.to(), r.salesCount(), r.grossSales(), r.discounts(),
                 r.totalSales(), r.vat(), r.cashByCurrency(), r.cashReceived(), r.changeGiven(), r.cashSales(), r.cardSales(),
                 r.cashIn(), r.cashOut(), r.refundsCount(), r.cashRefunds(), r.cardRefunds(), r.netSales(),
-                r.openingCash(), r.expectedCash(), r.byCashier(), text.toString());
+                r.creditSales(), r.pointsUsed(), r.openingCash(), r.expectedCash(), r.byCashier(), text.toString());
     }
 
     private static void line(StringBuilder text, String label, Object value) {

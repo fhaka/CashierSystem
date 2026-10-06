@@ -10,6 +10,7 @@ import com.supermarket.exception.ValidationException;
 import com.supermarket.model.Cart;
 import com.supermarket.model.CartItem;
 import com.supermarket.model.Cashier;
+import com.supermarket.model.Customer;
 import com.supermarket.model.NumberSequence;
 import com.supermarket.model.PaymentMethod;
 import com.supermarket.model.Product;
@@ -21,7 +22,6 @@ import com.supermarket.repository.JdbcLogRepository;
 import com.supermarket.repository.NumberSequenceRepository;
 import com.supermarket.repository.ProductRepository;
 import com.supermarket.repository.SaleRepository;
-import com.supermarket.strategy.PricingStrategy;
 import com.supermarket.util.Quantities;
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -53,7 +54,8 @@ public class SaleService {
     private final NumberSequenceRepository numberSequenceRepository;
     private final JdbcLogRepository jdbcLogRepository;
     private final ShiftService shiftService;
-    private final List<PricingStrategy> pricingStrategies;
+    private final PricingService pricingService;
+    private final CustomerService customerService;
     private final MessageSource messageSource;
     private final ExchangeRateService exchangeRateService;
 
@@ -64,7 +66,8 @@ public class SaleService {
             NumberSequenceRepository numberSequenceRepository,
             JdbcLogRepository jdbcLogRepository,
             ShiftService shiftService,
-            List<PricingStrategy> pricingStrategies,
+            PricingService pricingService,
+            CustomerService customerService,
             MessageSource messageSource,
             ExchangeRateService exchangeRateService
     ) {
@@ -74,7 +77,8 @@ public class SaleService {
         this.numberSequenceRepository = numberSequenceRepository;
         this.jdbcLogRepository = jdbcLogRepository;
         this.shiftService = shiftService;
-        this.pricingStrategies = pricingStrategies;
+        this.pricingService = pricingService;
+        this.customerService = customerService;
         this.messageSource = messageSource;
         this.exchangeRateService = exchangeRateService;
     }
@@ -87,13 +91,22 @@ public class SaleService {
         return saleRepository.findByCashierIdOrderByDateDesc(cashierId);
     }
 
-    /** Total of the cart on screen, using the same pricing rules as checkout, for the payment window. */
+    /** Total of the cart on screen, with the same discounts as checkout, for the screen and the payment window. */
     @Transactional(readOnly = true)
     public CartSummary cartSummary(Cashier cashier) {
-        List<CartItem> items = cartService.getCart(cashier);
-        BigDecimal subtotal = cartService.calculateSubtotal(cashier);
-        BigDecimal total = applyPricingStrategies(items, subtotal);
-        return new CartSummary(subtotal, subtotal.subtract(total), total);
+        Optional<Cart> cart = cartService.openCart(cashier);
+        List<CartItem> items = cart.map(c -> List.copyOf(c.getItems())).orElse(List.of());
+        PricingService.CartPrice price = pricingService.price(items, cart.map(Cart::getManualDiscountPercent).orElse(null),
+                LocalDateTime.now());
+        List<CartSummary.LinePromotion> promotions = price.lines().stream()
+                .filter(line -> line.promotion() != null)
+                .map(line -> new CartSummary.LinePromotion(line.item().getProductId(), line.item().getProductName(),
+                        line.promotion().getName(), line.promotionDiscount()))
+                .toList();
+        Customer customer = cart.map(Cart::getCustomer).orElse(null);
+        return new CartSummary(price.subtotal(), price.promotionDiscount(), price.manualDiscountPercent(), price.manualDiscount(),
+                price.otherDiscount(), price.discount(), price.total(), promotions, customer,
+                customer == null ? null : customerService.pointValue().multiply(BigDecimal.valueOf(customer.getPoints())));
     }
 
     /** The number the next sale will most likely get. Only a preview: another till may take it first. */
@@ -141,56 +154,70 @@ public class SaleService {
                 .orElseThrow(() -> new ValidationException("sale.shiftRequired"));
         List<CartItem> cartItems = List.copyOf(cart.getItems());
 
+        // Lock first, then price: prices, promotions and stock are all read under the lock.
         Map<Long, Product> productsById = productRepository
                 .findAllForUpdate(cartItems.stream().map(CartItem::getProductId).toList())
                 .stream()
                 .collect(Collectors.toMap(Product::getId, Function.identity()));
         cartItems.forEach(item -> validateStock(productsById.get(item.getProductId()), item));
 
-        BigDecimal subtotal = cart.getSubtotal();
-        BigDecimal finalTotal = applyPricingStrategies(cartItems, subtotal);
-        List<BigDecimal> lineDiscounts = splitDiscount(cartItems, subtotal, subtotal.subtract(finalTotal));
+        LocalDateTime now = LocalDateTime.now();
+        PricingService.CartPrice price = pricingService.price(cartItems, cart.getManualDiscountPercent(), now);
+        Customer customer = cart.getCustomer();
 
-        Sale sale = new Sale(LocalDateTime.now(), finalTotal);
+        Sale sale = new Sale(now, price.total());
         sale.setCashier(cashier);
         sale.setShift(shift);
-        sale.setDiscountAmount(subtotal.subtract(finalTotal));
-        applyPayments(sale, request);
+        sale.setCustomer(customer);
+        sale.setDiscountAmount(price.discount());
+        PaidWith paidWith = applyPayments(sale, request, customer);
         sale.setInvoiceNumber(nextInvoiceNumber());
-        for (int i = 0; i < cartItems.size(); i++) {
-            CartItem item = cartItems.get(i);
-            Product product = productsById.get(item.getProductId());
-            product.setStock(product.getStock().subtract(item.getQuantity()));
-            sale.addItem(toSaleItem(item, product, lineDiscounts.get(i)));
+        for (PricingService.LinePrice line : price.lines()) {
+            Product product = productsById.get(line.item().getProductId());
+            product.setStock(product.getStock().subtract(line.item().getQuantity()));
+            sale.addItem(toSaleItem(line, product));
+        }
+        if (customer != null) {
+            sale.setPointsEarned(customerService.pointsEarnedFor(price.total().subtract(paidWith.pointsLek())));
         }
 
         Sale savedSale = saleRepository.save(sale);
+        if (customer != null) {
+            customerService.recordSale(customer, cashier, savedSale, savedSale.getPointsEarned(), paidWith.points(), paidWith.credit());
+        }
         cartService.delete(cart);
-        ReceiptResponse receipt = buildReceipt(savedSale, subtotal);
+        ReceiptResponse receipt = buildReceipt(savedSale, price);
         jdbcLogRepository.logSaleAsync(savedSale.getId(),
                 "Sale " + savedSale.getInvoiceNumber() + " completed by " + cashier.getFullName()
                         + " with total: " + savedSale.getTotalAmount());
         return receipt;
     }
 
+    /** Points used (and their LEK value) and the amount charged to the customer's account. */
+    private record PaidWith(int points, BigDecimal pointsLek, BigDecimal credit) {
+    }
+
     /**
-     * Records how the customer paid. Card is always in LEK and cannot exceed the total (no change on cards);
-     * foreign cash is converted with the server's buy rate; change is given in LEK cash.
+     * Records how the customer paid. Card, credit and points are in LEK and together cannot exceed the total
+     * (no change is given on them); foreign cash is converted with the server's buy rate; change is LEK cash.
+     * Credit needs a customer with enough credit left; points need a customer with enough points.
      */
-    private void applyPayments(Sale sale, CheckoutRequest request) {
+    private PaidWith applyPayments(Sale sale, CheckoutRequest request, Customer customer) {
         BigDecimal total = sale.getTotalAmount();
         List<CheckoutRequest.PaymentRequest> requested = request == null || request.payments() == null || request.payments().isEmpty()
                 ? List.of(new CheckoutRequest.PaymentRequest(PaymentMethod.CASH.name(), ExchangeRateService.HOME_CURRENCY, total))
                 : request.payments();
         BigDecimal paid = BigDecimal.ZERO;
         BigDecimal card = BigDecimal.ZERO;
+        BigDecimal credit = BigDecimal.ZERO;
+        BigDecimal pointsLek = BigDecimal.ZERO;
         for (CheckoutRequest.PaymentRequest payment : requested) {
             PaymentMethod method = parseMethod(payment.method());
             String currency = ExchangeRateService.normalize(payment.currency());
             if (payment.amount() == null || payment.amount().signum() <= 0) {
                 throw new ValidationException("payment.amountPositive");
             }
-            if (method == PaymentMethod.CARD && !ExchangeRateService.HOME_CURRENCY.equals(currency)) {
+            if (method != PaymentMethod.CASH && !ExchangeRateService.HOME_CURRENCY.equals(currency)) {
                 throw new ValidationException("payment.cardCurrency");
             }
             BigDecimal amount = payment.amount().setScale(2, RoundingMode.HALF_UP);
@@ -198,18 +225,50 @@ public class SaleService {
             BigDecimal amountLek = amount.multiply(rate).setScale(2, RoundingMode.HALF_UP);
             sale.addPayment(new SalePayment(method, currency, amount, rate, amountLek));
             paid = paid.add(amountLek);
-            if (method == PaymentMethod.CARD) {
-                card = card.add(amountLek);
+            switch (method) {
+                case CARD -> card = card.add(amountLek);
+                case CREDIT -> credit = credit.add(amountLek);
+                case POINTS -> pointsLek = pointsLek.add(amountLek);
+                default -> { }
             }
         }
         if (card.compareTo(total) > 0) {
             throw new ValidationException("payment.cardTooMuch");
         }
+        if (card.add(credit).add(pointsLek).compareTo(total) > 0) {
+            throw new ValidationException("payment.nonCashTooMuch");
+        }
         if (paid.compareTo(total) < 0) {
             throw new ValidationException("payment.insufficient", total.subtract(paid));
         }
+        int points = 0;
+        if (pointsLek.signum() > 0) {
+            if (customer == null) {
+                throw new ValidationException("payment.customerRequired");
+            }
+            BigDecimal pointsNeeded = pointsLek.divide(customerService.pointValue(), 6, RoundingMode.HALF_UP);
+            if (pointsNeeded.stripTrailingZeros().scale() > 0) {
+                throw new ValidationException("payment.pointsWhole", customerService.pointValue().stripTrailingZeros().toPlainString());
+            }
+            points = pointsNeeded.intValueExact();
+            if (points > customer.getPoints()) {
+                throw new ValidationException("payment.notEnoughPoints", customer.getPoints());
+            }
+        }
+        if (credit.signum() > 0) {
+            if (customer == null) {
+                throw new ValidationException("payment.customerRequired");
+            }
+            if (customer.getCreditAvailable() == null) {
+                throw new ValidationException("payment.creditNotAllowed", customer.getFullName());
+            }
+            if (credit.compareTo(customer.getCreditAvailable()) > 0) {
+                throw new ValidationException("payment.creditLimit", customer.getCreditAvailable());
+            }
+        }
         sale.setPaidAmount(paid);
         sale.setChangeAmount(paid.subtract(total));
+        return new PaidWith(points, pointsLek, credit);
     }
 
     private static PaymentMethod parseMethod(String method) {
@@ -220,37 +279,19 @@ public class SaleService {
         }
     }
 
-    private SaleItem toSaleItem(CartItem item, Product product, BigDecimal discount) {
-        BigDecimal lineTotal = item.getLineTotal().subtract(discount);
+    private SaleItem toSaleItem(PricingService.LinePrice line, Product product) {
+        CartItem item = line.item();
+        BigDecimal discount = line.discount();
+        BigDecimal lineTotal = line.total();
         BigDecimal taxAmount = lineTotal.subtract(CartItem.withoutTax(lineTotal, item.getTaxRate()));
         SaleItem saleItem = new SaleItem(product, item.getQuantity(), item.getPrice(), item.getUnitPriceWithoutTax(),
                 item.getTaxRate(), taxAmount, item.getUnit());
         saleItem.setDiscountAmount(discount);
         saleItem.setLineTotal(lineTotal);
         saleItem.setPurchasePrice(product.getPurchasePrice());
+        saleItem.setPromotion(line.promotion());
+        saleItem.setPromotionDiscount(line.promotionDiscount());
         return saleItem;
-    }
-
-    /**
-     * Spreads the sale discount over the lines in proportion to their amount, so the VAT of every line is
-     * calculated on what the customer actually paid. The last line takes the rounding remainder.
-     */
-    static List<BigDecimal> splitDiscount(List<CartItem> items, BigDecimal subtotal, BigDecimal discount) {
-        List<BigDecimal> shares = new ArrayList<>();
-        BigDecimal assigned = BigDecimal.ZERO;
-        for (int i = 0; i < items.size(); i++) {
-            BigDecimal share;
-            if (discount.signum() == 0 || subtotal.signum() == 0) {
-                share = BigDecimal.ZERO.setScale(2);
-            } else if (i == items.size() - 1) {
-                share = discount.subtract(assigned);
-            } else {
-                share = discount.multiply(items.get(i).getLineTotal()).divide(subtotal, 2, RoundingMode.HALF_UP);
-            }
-            assigned = assigned.add(share);
-            shares.add(share);
-        }
-        return shares;
     }
 
     private String nextInvoiceNumber() {
@@ -261,14 +302,6 @@ public class SaleService {
 
     private static String formatInvoiceNumber(long number) {
         return String.format("%06d", number);
-    }
-
-    private BigDecimal applyPricingStrategies(List<CartItem> cartItems, BigDecimal subtotal) {
-        BigDecimal total = subtotal;
-        for (PricingStrategy pricingStrategy : pricingStrategies) {
-            total = pricingStrategy.apply(cartItems, total);
-        }
-        return total.setScale(2, RoundingMode.HALF_UP);
     }
 
     private void validateStock(Product product, CartItem item) {
@@ -289,7 +322,8 @@ public class SaleService {
         }
     }
 
-    private ReceiptResponse buildReceipt(Sale sale, BigDecimal subtotal) {
+    private ReceiptResponse buildReceipt(Sale sale, PricingService.CartPrice price) {
+        BigDecimal subtotal = price.subtotal();
         List<ReceiptItemResponse> receiptItems = sale.getItems().stream()
                 .map(item -> new ReceiptItemResponse(
                         item.getProduct().getName(),
@@ -323,10 +357,24 @@ public class SaleService {
                     .append(" = ").append(item.unitPrice().multiply(item.quantity()).setScale(2, RoundingMode.HALF_UP))
                     .append("\n");
         }
+        for (SaleItem item : sale.getItems()) {
+            if (item.getPromotion() != null && item.getPromotionDiscount().signum() > 0) {
+                text.append("  ").append(text("receipt.promotion", locale)).append(" ").append(item.getPromotion().getName())
+                        .append(" (").append(item.getProduct().getName()).append("): -").append(item.getPromotionDiscount()).append("\n");
+            }
+        }
         text.append(RULE);
         text.append(text("receipt.subtotal", locale)).append(": ").append(subtotal).append("\n");
-        if (sale.getDiscountAmount().signum() > 0) {
-            text.append(text("receipt.discount", locale)).append(": -").append(sale.getDiscountAmount()).append("\n");
+        if (price.promotionDiscount().signum() > 0) {
+            text.append(text("receipt.promotions", locale)).append(": -").append(price.promotionDiscount()).append("\n");
+        }
+        if (price.manualDiscount().signum() > 0) {
+            text.append(text("receipt.manualDiscount", locale)).append(" (")
+                    .append(price.manualDiscountPercent().stripTrailingZeros().toPlainString()).append("%): -")
+                    .append(price.manualDiscount()).append("\n");
+        }
+        if (price.otherDiscount().signum() > 0) {
+            text.append(text("receipt.discount", locale)).append(": -").append(price.otherDiscount()).append("\n");
         }
         text.append(text("receipt.total", locale)).append(": ").append(sale.getTotalAmount()).append("\n");
         for (SalePayment payment : sale.getPayments()) {
@@ -341,6 +389,17 @@ public class SaleService {
         if (sale.getChangeAmount().signum() > 0) {
             text.append(text("receipt.change", locale)).append(": ").append(sale.getChangeAmount()).append(" LEK\n");
         }
+        Customer customer = sale.getCustomer();
+        if (customer != null) {
+            text.append(RULE);
+            text.append(text("receipt.customer", locale)).append(": ").append(customer.getFullName())
+                    .append(" (").append(customer.getCardNumber()).append(")\n");
+            text.append(text("receipt.pointsEarned", locale)).append(": ").append(sale.getPointsEarned())
+                    .append(", ").append(text("receipt.pointsTotal", locale)).append(": ").append(customer.getPoints()).append("\n");
+            if (customer.getBalance().signum() != 0) {
+                text.append(text("receipt.accountBalance", locale)).append(": ").append(customer.getBalance()).append(" LEK\n");
+            }
+        }
         text.append(RULE);
         text.append(text("receipt.vatSummary", locale)).append("\n");
         for (ReceiptResponse.VatLine vat : vatSummary) {
@@ -353,7 +412,9 @@ public class SaleService {
 
         return new ReceiptResponse(sale.getId(), sale.getInvoiceNumber(), sale.getDate(), subtotal,
                 sale.getDiscountAmount(), sale.getTotalAmount(), sale.getPaidAmount(), sale.getChangeAmount(),
-                receiptItems, vatSummary, List.copyOf(sale.getPayments()), text.toString());
+                receiptItems, vatSummary, List.copyOf(sale.getPayments()),
+                customer == null ? null : customer.getFullName(), sale.getPointsEarned(),
+                customer == null ? null : customer.getPoints(), customer == null ? null : customer.getBalance(), text.toString());
     }
 
     private static List<ReceiptResponse.VatLine> vatSummary(List<SaleItem> items) {

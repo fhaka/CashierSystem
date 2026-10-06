@@ -18,6 +18,10 @@ public record ReceiptResponse(
         List<ReceiptItemResponse> items,
         List<VatLine> vatSummary,
         List<SalePayment> payments,
+        String customerName,
+        int pointsEarned,
+        Integer customerPoints,
+        BigDecimal customerBalance,
         String printableReceipt
 ) {
 

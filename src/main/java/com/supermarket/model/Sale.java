@@ -55,6 +55,13 @@ public class Sale {
     @JsonIgnore
     private Shift shift;
 
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "customer_id")
+    private Customer customer;
+
+    @Column(nullable = false)
+    private int pointsEarned;
+
     @OneToMany(mappedBy = "sale", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("id")
     private List<SalePayment> payments = new ArrayList<>();
@@ -170,5 +177,21 @@ public class Sale {
 
     public Long getShiftId() {
         return shift == null ? null : shift.getId();
+    }
+
+    public Customer getCustomer() {
+        return customer;
+    }
+
+    public void setCustomer(Customer customer) {
+        this.customer = customer;
+    }
+
+    public int getPointsEarned() {
+        return pointsEarned;
+    }
+
+    public void setPointsEarned(int pointsEarned) {
+        this.pointsEarned = pointsEarned;
     }
 }

@@ -243,7 +243,7 @@ function applyRolePermissions() {
 
 /*  Navigation  */
 function gotoView(view) {
-  if (['products', 'purchases', 'reports', 'suppliers', 'inventory'].includes(view) && !isOperationalManager()) {
+  if (['products', 'purchases', 'reports', 'suppliers', 'inventory', 'promotions'].includes(view) && !isOperationalManager()) {
     toast(t('Super Cashier or Super Admin access is required'), 'error');
     view = 'home';
   }
@@ -259,6 +259,8 @@ function gotoView(view) {
   if (view === 'products') { loadCategories(); loadProdsTable(); }
   if (view === 'purchases') initPurchasePage();
   if (view === 'suppliers') loadSuppliers();
+  if (view === 'customers') loadCustomers();
+  if (view === 'promotions') loadPromotions();
   if (view === 'inventory') showInventoryTab(currentInventoryTab);
   if (view === 'sales')    loadSales();
   if (view === 'reports')  loadReports();
@@ -399,12 +401,93 @@ function renderCart() {
   `).join('');
 }
 
+/* The till's summary: total after promotions and discounts, and the customer of the sale. */
+let cartSummary = null;
+
 async function fetchSubtotal() {
   try {
-    const res = await req('GET', '/sales/cart/subtotal');
-    const sub = res.data?.subtotal ?? res.data ?? 0;
-    $('cart-subtotal').textContent = fmt(sub);
+    const res = await req('GET', '/sales/cart/summary');
+    renderCartSummary(res.data);
   } catch {}
+}
+
+function renderCartSummary(summary) {
+  cartSummary = summary;
+  if (!summary) return;
+  $('cart-subtotal').textContent = fmt(summary.totalAmount);
+  const lines = [];
+  if (parseFloat(summary.discountAmount) > 0) {
+    lines.push(`<div class="balance-line"><span>${t('Subtotal')}</span><strong>${fmt(summary.subtotal)}</strong></div>`);
+  }
+  (summary.promotions || []).forEach(p => lines.push(
+    `<div class="balance-line promo"><span>${esc(p.promotionName)}</span><strong>-${fmt(p.discount)}</strong></div>`));
+  if (parseFloat(summary.manualDiscount) > 0) {
+    lines.push(`<div class="balance-line promo"><span>${t('Manual discount')} ${parseFloat(summary.manualDiscountPercent)}%</span><strong>-${fmt(summary.manualDiscount)}</strong></div>`);
+  }
+  if (parseFloat(summary.otherDiscount) > 0) {
+    lines.push(`<div class="balance-line promo"><span>${t('Discount')}</span><strong>-${fmt(summary.otherDiscount)}</strong></div>`);
+  }
+  $('cart-breakdown').innerHTML = lines.join('');
+  const c = summary.customer;
+  $('cart-customer').classList.toggle('hidden', !c);
+  $('cart-customer').innerHTML = c ? `<span><strong>${esc(c.fullName)}</strong> · ${t('{points} points', { points: c.points })}${
+    parseFloat(c.balance) !== 0 ? ' · ' + t('Debt') + ' ' + fmtLek(c.balance) : ''}</span>
+    <button class="btn btn-ghost btn-sm" onclick="setCartCustomer(null)">x</button>` : '';
+}
+
+async function askManualDiscount() {
+  if (!cartItems.length) { toast(t('Cart is empty'), 'error'); return; }
+  const value = prompt(t('Discount on the whole cart (%). 0 removes it.'), cartSummary?.manualDiscountPercent || '');
+  if (value === null) return;
+  const percent = parseFloat(String(value).replace(',', '.'));
+  if (Number.isNaN(percent)) { toast(t('Enter a valid number'), 'error'); return; }
+  try {
+    const res = await reqApproved('PUT', '/sales/cart/discount', { percent });
+    renderCartSummary(res.data);
+  } catch (e) { reportError(e, t('Save failed')); }
+}
+
+/* Customer of the sale: scan the loyalty card, or search by name or phone. */
+let pickerTimer;
+
+function openCustomerPicker() {
+  $('picker-query').value = '';
+  $('picker-results').innerHTML = '';
+  openModal('modal-customer-picker');
+  setTimeout(() => $('picker-query').focus(), 50);
+}
+
+function searchPickerCustomers() {
+  clearTimeout(pickerTimer);
+  pickerTimer = setTimeout(async () => {
+    const query = $('picker-query').value.trim();
+    if (query.length < 2) { $('picker-results').innerHTML = ''; return; }
+    try {
+      const res = await req('GET', `/customers?query=${encodeURIComponent(query)}`);
+      $('picker-results').innerHTML = (res.data || []).filter(c => c.active).slice(0, 10).map(c => `
+        <tr onclick="setCartCustomer(${c.id})"><td><strong>${esc(c.fullName)}</strong></td><td class="td-m">${esc(c.cardNumber)}</td>
+          <td>${esc(c.phone || '')}</td><td>${t('{points} points', { points: c.points })}</td></tr>`).join('')
+        || `<tr><td class="no-data">${t('No customer found.')}</td></tr>`;
+    } catch {}
+  }, 250);
+}
+
+async function pickByCard() {
+  const card = $('picker-query').value.trim();
+  if (!card) return;
+  try {
+    const res = await req('PUT', '/sales/cart/customer', { cardNumber: card });
+    renderCartSummary(res.data);
+    closeModal('modal-customer-picker');
+  } catch (e) { searchPickerCustomers(); toast(e.message, 'error'); }
+}
+
+async function setCartCustomer(customerId) {
+  try {
+    const res = await req('PUT', '/sales/cart/customer', customerId ? { customerId: String(customerId) } : {});
+    renderCartSummary(res.data);
+    closeModal('modal-customer-picker');
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 /* Exchange rates live on the server. Managers change them here; cashiers only see them. */
@@ -672,6 +755,7 @@ async function clearCart() {
     await reqApproved('DELETE', '/sales/cart');
     cartItems = [];
     renderCart();
+    fetchSubtotal();
     toast(t('Cart cleared'), 'info');
   } catch (e) { reportError(e, t('Could not clear cart')); }
 }
@@ -684,13 +768,22 @@ async function doCheckout() {
   if (!cartItems.length) { toast(t('Cart is empty'), 'error'); return; }
   try {
     const res = await req('GET', '/sales/cart/summary');
+    renderCartSummary(res.data);
     paymentTotal = parseFloat(res.data?.totalAmount || 0);
+    const customer = res.data?.customer;
+    $('pay-customer-fields').classList.toggle('hidden', !customer);
+    if (customer) {
+      $('pay-points-available').textContent = `(${t('max {amount}', { amount: fmtLek(res.data.pointsValue || 0) })})`;
+      $('pay-credit-available').textContent = customer.creditAvailable == null
+        ? `(${t('not allowed')})` : `(${t('max {amount}', { amount: fmtLek(customer.creditAvailable) })})`;
+      $('pay-credit').disabled = customer.creditAvailable == null;
+    }
     const discount = parseFloat(res.data?.discountAmount || 0);
     $('pay-total').textContent = fmtLek(paymentTotal);
     const foreign = ['EUR', 'USD'].filter(c => exchangeRates[c])
       .map(c => `${(paymentTotal / exchangeRates[c].buyRate).toFixed(2)} ${c}`).join(' / ');
     $('pay-total-foreign').textContent = (discount > 0 ? t('Discount') + ': ' + fmtLek(discount) + ' | ' : '') + foreign;
-    ['pay-cash-lek', 'pay-cash-foreign', 'pay-card'].forEach(id => { $(id).value = ''; });
+    ['pay-cash-lek', 'pay-cash-foreign', 'pay-card', 'pay-points', 'pay-credit'].forEach(id => { $(id).value = ''; });
     updatePaymentSummary();
     openModal('modal-payment');
     setTimeout(() => $('pay-cash-lek').focus(), 50);
@@ -704,7 +797,13 @@ function readPayments() {
   if (amount('pay-cash-lek') > 0) payments.push({ method: 'CASH', currency: 'LEK', amount: amount('pay-cash-lek') });
   if (amount('pay-cash-foreign') > 0) payments.push({ method: 'CASH', currency, amount: amount('pay-cash-foreign') });
   if (amount('pay-card') > 0) payments.push({ method: 'CARD', currency: 'LEK', amount: amount('pay-card') });
+  if (amount('pay-points') > 0) payments.push({ method: 'POINTS', currency: 'LEK', amount: amount('pay-points') });
+  if (amount('pay-credit') > 0) payments.push({ method: 'CREDIT', currency: 'LEK', amount: amount('pay-credit') });
   return payments;
+}
+
+function paymentLabel(method) {
+  return t({ CARD: 'Card', CREDIT: 'On account', POINTS: 'Points' }[method] || 'Cash');
 }
 
 /* Same conversion as the server: foreign cash at the buy rate, rounded to cents. */
@@ -716,7 +815,7 @@ function paymentInLek(payment) {
 function updatePaymentSummary() {
   const payments = readPayments();
   const paid = payments.reduce((sum, p) => sum + paymentInLek(p), 0);
-  const card = payments.filter(p => p.method === 'CARD').reduce((sum, p) => sum + p.amount, 0);
+  const card = payments.filter(p => p.method !== 'CASH').reduce((sum, p) => sum + p.amount, 0);
   const rest = Math.round((paymentTotal - paid) * 100) / 100;
   $('pay-paid').textContent = fmtLek(paid);
   const restEl = $('pay-rest');
@@ -728,6 +827,7 @@ function updatePaymentSummary() {
 }
 
 function payExactCash() {
+  ['pay-points', 'pay-credit'].forEach(id => { $(id).value = ''; });
   $('pay-cash-lek').value = paymentTotal.toFixed(2);
   $('pay-cash-foreign').value = '';
   $('pay-card').value = '';
@@ -735,6 +835,7 @@ function payExactCash() {
 }
 
 function payAllByCard() {
+  ['pay-points', 'pay-credit'].forEach(id => { $(id).value = ''; });
   $('pay-card').value = paymentTotal.toFixed(2);
   $('pay-cash-lek').value = '';
   $('pay-cash-foreign').value = '';
@@ -756,6 +857,7 @@ async function confirmPayment() {
     loadReceiptPrinters();
     cartItems = [];
     renderCart();
+    fetchSubtotal();
     setNextInvoiceNumber();
     toast(parseFloat(data.changeAmount) > 0
       ? t('Sale completed. Change: {amount}', { amount: fmtLek(data.changeAmount) })
@@ -977,7 +1079,7 @@ function buildFallbackReceipt(data) {
   lines.push(`${t('Subtotal')}: ${fmt(data.subtotal ?? data.totalAmount)}`);
   lines.push(`${t('TOTAL')}: ${fmt(data.totalAmount)}`);
   (data.payments || []).forEach(p => {
-    lines.push(`${p.method === 'CARD' ? t('Card') : t('Cash')}: ${parseFloat(p.amount).toFixed(2)} ${p.currency}`);
+    lines.push(`${paymentLabel(p.method)}: ${parseFloat(p.amount).toFixed(2)} ${p.currency}`);
   });
   if (parseFloat(data.changeAmount) > 0) lines.push(`${t('Change')}: ${fmtLek(data.changeAmount)}`);
   lines.push('='.repeat(32));
@@ -1296,7 +1398,7 @@ function viewSale(saleId) {
       <span class="lbl">${t('Total Amount')}</span>
       <span class="amt">${fmt(sale.totalAmount)}</span>
     </div>
-    ${(sale.payments || []).map(p => `<div class="balance-line"><span>${p.method === 'CARD' ? t('Card') : t('Cash')}</span><strong>${parseFloat(p.amount).toFixed(2)} ${esc(p.currency)}${p.currency !== 'LEK' ? ` (${fmtLek(p.amountLek)})` : ''}</strong></div>`).join('')}
+    ${(sale.payments || []).map(p => `<div class="balance-line"><span>${paymentLabel(p.method)}</span><strong>${parseFloat(p.amount).toFixed(2)} ${esc(p.currency)}${p.currency !== 'LEK' ? ` (${fmtLek(p.amountLek)})` : ''}</strong></div>`).join('')}
     ${parseFloat(sale.changeAmount) > 0 ? `<div class="balance-line"><span>${t('Change')}</span><strong>${fmtLek(sale.changeAmount)}</strong></div>` : ''}
     <div class="modal-foot" style="margin-top:18px;">
       <button class="btn btn-secondary" onclick="closeModal('modal-sale')">${t('Close')}</button>
@@ -2097,6 +2199,187 @@ async function importProducts(input) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+/*  Customers  */
+let allCustomers = [];
+let currentCustomerId = null;
+let customerFilterTimer;
+
+function loadCustomers() {
+  clearTimeout(customerFilterTimer);
+  customerFilterTimer = setTimeout(async () => {
+    const tbody = $('customers-tbody');
+    const query = $('customer-filter').value.trim();
+    try {
+      const res = await req('GET', `/customers${query ? '?query=' + encodeURIComponent(query) : ''}`);
+      allCustomers = res.data || [];
+      tbody.innerHTML = allCustomers.length ? allCustomers.map(c => `
+        <tr class="${c.active ? '' : 'row-inactive'}">
+          <td class="td-m">${esc(c.cardNumber)}</td><td><strong>${esc(c.fullName)}</strong></td><td>${esc(c.phone || '')}</td>
+          <td>${c.points}</td>
+          <td class="td-p"><strong class="${parseFloat(c.balance) > 0 ? 'diff-minus' : ''}">${fmtLek(c.balance)}</strong></td>
+          <td class="td-p">${c.creditLimit == null ? '-' : fmtLek(c.creditLimit)}</td>
+          <td class="td-a">
+            <button class="btn btn-secondary btn-sm" onclick="openCustomerDetail(${c.id})">${t('Details')}</button>
+            <button class="btn btn-secondary btn-sm" onclick="openCustomerModal(${c.id})">${t('Edit')}</button>
+          </td>
+        </tr>`).join('') : `<tr><td colspan="7" class="no-data">${t('No customer found.')}</td></tr>`;
+    } catch (e) { tbody.innerHTML = `<tr><td colspan="7" class="no-data" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+  }, 200);
+}
+
+/* attach: after saving a new customer from the till, put them on the sale. */
+function openCustomerModal(id, attach) {
+  const c = allCustomers.find(x => x.id === id);
+  $('cm-title').textContent = c ? t('Edit customer') : t('Add customer');
+  $('cm-id').value = c?.id || '';
+  $('cm-attach').value = attach ? '1' : '';
+  $('cm-name').value = c?.fullName || '';
+  $('cm-phone').value = c?.phone || '';
+  $('cm-card').value = c?.cardNumber || '';
+  $('cm-email').value = c?.email || '';
+  $('cm-notes').value = c?.notes || '';
+  $('cm-limit').value = c?.creditLimit ?? '';
+  openModal('modal-customer');
+}
+
+async function submitCustomer() {
+  const id = $('cm-id').value;
+  const body = { fullName: $('cm-name').value.trim(), phone: $('cm-phone').value, cardNumber: $('cm-card').value,
+    email: $('cm-email').value, notes: $('cm-notes').value, active: true };
+  if (isOperationalManager()) body.creditLimit = $('cm-limit').value === '' ? 0 : parseFloat($('cm-limit').value);
+  try {
+    const res = id ? await req('PUT', `/customers/${id}`, body) : await req('POST', '/customers', body);
+    closeModal('modal-customer');
+    toast(t('Customer saved'), 'success');
+    if ($('cm-attach').value) await setCartCustomer(res.data.id);
+    if ($('view-customers')?.classList.contains('on')) loadCustomers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+const CUSTOMER_TX_LABELS = { SALE: 'Sale', REFUND: 'Refund', PAYMENT: 'Payment' };
+
+async function openCustomerDetail(id) {
+  currentCustomerId = id;
+  try {
+    const res = await req('GET', `/customers/${id}`);
+    const c = res.data.customer;
+    $('cd-title').textContent = c.fullName;
+    $('cd-meta').textContent = [t('Card') + ' ' + c.cardNumber, c.phone, c.email].filter(Boolean).join(' | ');
+    $('cd-kpis').innerHTML = `
+      <div class="report-kpi"><span>${t('Points')}</span><strong>${c.points}</strong></div>
+      <div class="report-kpi"><span>${t('Debt')}</span><strong>${fmtLek(c.balance)}</strong></div>
+      <div class="report-kpi"><span>${t('Credit limit')}</span><strong>${c.creditLimit == null ? '-' : fmtLek(c.creditLimit)}</strong></div>`;
+    $('cd-transactions').innerHTML = (res.data.transactions || []).map(tx => `
+      <tr><td class="td-m">${formatDateTime(tx.createdAt)}</td><td>${esc(t(CUSTOMER_TX_LABELS[tx.type] || tx.type))}</td>
+        <td class="td-m">${esc(tx.invoiceNumber || tx.refundNumber || '')}</td>
+        <td>${tx.pointsChange > 0 ? '+' : ''}${tx.pointsChange}</td>
+        <td class="${parseFloat(tx.balanceChange) > 0 ? 'diff-minus' : parseFloat(tx.balanceChange) < 0 ? 'diff-plus' : ''}">${fmtLek(tx.balanceChange)}</td>
+        <td>${esc(tx.note || '')}</td><td>${esc(tx.cashierName)}</td></tr>`).join('')
+      || `<tr><td colspan="7" class="no-data">-</td></tr>`;
+    $('cp-amount').value = '';
+    $('cp-note').value = '';
+    openModal('modal-customer-detail');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function receiveCustomerPayment() {
+  try {
+    await req('POST', `/customers/${currentCustomerId}/payments`, {
+      amount: parseFloat($('cp-amount').value || '0'), method: $('cp-method').value, note: $('cp-note').value
+    });
+    toast(t('Payment saved'), 'success');
+    openCustomerDetail(currentCustomerId);
+    loadCustomers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+/*  Promotions  */
+let allPromotions = [];
+const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+async function loadPromotions() {
+  const tbody = $('promotions-tbody');
+  try {
+    const res = await req('GET', '/promotions');
+    allPromotions = res.data || [];
+    tbody.innerHTML = allPromotions.length ? allPromotions.map(p => {
+      const offer = p.type === 'PERCENT' ? `-${parseFloat(p.discountPercent)}%` : t('Buy {buy}, get {free} free', { buy: p.buyQuantity, free: p.freeQuantity });
+      const when = [
+        p.startsOn || p.endsOn ? `${p.startsOn || '…'} → ${p.endsOn || '…'}` : '',
+        p.daysOfWeek ? p.daysOfWeek.split(',').map(d => t(DAY_NAMES[d - 1])).join(', ') : '',
+        p.startTime || p.endTime ? `${(p.startTime || '00:00').slice(0, 5)}-${(p.endTime || '24:00').slice(0, 5)}` : ''
+      ].filter(Boolean).join(' | ') || t('Always');
+      return `<tr class="${p.active ? '' : 'row-inactive'}">
+        <td><strong>${esc(p.name)}</strong></td><td>${esc(offer)}</td>
+        <td>${esc(p.productName || (t('Category') + ': ' + (p.categoryName || '')))}</td><td>${esc(when)}</td>
+        <td><span class="badge ${p.active ? 'b-green' : 'b-muted'}">${p.active ? t('Active') : t('Inactive')}</span></td>
+        <td class="td-a"><button class="btn btn-secondary btn-sm" onclick="openPromotionModal(${p.id})">${t('Edit')}</button></td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="6" class="no-data">${t('No promotions yet.')}</td></tr>`;
+  } catch (e) { tbody.innerHTML = `<tr><td colspan="6" class="no-data" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+}
+
+async function openPromotionModal(id) {
+  const p = allPromotions.find(x => x.id === id);
+  await loadCategories();
+  $('pr-category').innerHTML = allCategories.filter(c => c.id).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  $('pr-days').innerHTML = DAY_NAMES.map((d, i) => `<label><input type="checkbox" value="${i + 1}"
+      ${p?.daysOfWeek?.split(',').includes(String(i + 1)) ? 'checked' : ''} /> ${esc(t(d))}</label>`).join('');
+  $('pr-title').textContent = p ? t('Edit promotion') : t('Add promotion');
+  $('pr-id').value = p?.id || '';
+  $('pr-name').value = p?.name || '';
+  $('pr-type').value = p?.type || 'PERCENT';
+  $('pr-percent').value = p?.discountPercent ?? '';
+  $('pr-buy').value = p?.buyQuantity ?? 2;
+  $('pr-free').value = p?.freeQuantity ?? 1;
+  $('pr-scope').value = p?.categoryId ? 'category' : 'product';
+  $('pr-barcode').value = p?.productId ? (allProdTable.find(x => x.id === p.productId)?.barcode || '') : '';
+  if (p?.categoryId) $('pr-category').value = p.categoryId;
+  $('pr-starts').value = p?.startsOn || '';
+  $('pr-ends').value = p?.endsOn || '';
+  $('pr-start-time').value = (p?.startTime || '').slice(0, 5);
+  $('pr-end-time').value = (p?.endTime || '').slice(0, 5);
+  $('pr-active').checked = p ? p.active : true;
+  $('pr-barcode').dataset.productId = p?.productId || '';
+  updatePromotionFields();
+  openModal('modal-promotion');
+}
+
+function updatePromotionFields() {
+  const percent = $('pr-type').value === 'PERCENT';
+  $('pr-percent-group').classList.toggle('hidden', !percent);
+  $('pr-buy-group').classList.toggle('hidden', percent);
+  const product = $('pr-scope').value === 'product';
+  $('pr-barcode-group').classList.toggle('hidden', !product);
+  $('pr-category-group').classList.toggle('hidden', product);
+}
+
+async function submitPromotion() {
+  const id = $('pr-id').value;
+  const product = $('pr-scope').value === 'product';
+  const barcode = $('pr-barcode').value.trim();
+  const keptProductId = $('pr-barcode').dataset.productId;
+  const body = {
+    name: $('pr-name').value.trim(), type: $('pr-type').value,
+    discountPercent: $('pr-percent').value === '' ? null : parseFloat($('pr-percent').value),
+    buyQuantity: parseInt($('pr-buy').value, 10) || null, freeQuantity: parseInt($('pr-free').value, 10) || null,
+    barcode: product && barcode ? barcode : null,
+    productId: product && !barcode && keptProductId ? parseInt(keptProductId, 10) : null,
+    categoryId: product ? null : parseInt($('pr-category').value, 10),
+    startsOn: $('pr-starts').value || null, endsOn: $('pr-ends').value || null,
+    daysOfWeek: [...document.querySelectorAll('#pr-days input:checked')].map(i => i.value).join(',') || null,
+    startTime: $('pr-start-time').value || null, endTime: $('pr-end-time').value || null,
+    active: $('pr-active').checked
+  };
+  try {
+    if (id) await req('PUT', `/promotions/${id}`, body);
+    else await req('POST', '/promotions', body);
+    closeModal('modal-promotion');
+    toast(t('Promotion saved'), 'success');
+    loadPromotions();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 /*  Refunds  */
 let refundSale = null;
 
@@ -2176,7 +2459,9 @@ const AUDIT_LABELS = {
   SHIFT_OPENED: 'Shift opened', SHIFT_CLOSED: 'Shift closed', CASH_IN: 'Cash in', CASH_OUT: 'Cash out',
   SUPPLIER_CREATED: 'Supplier created', SUPPLIER_UPDATED: 'Supplier changed', SUPPLIER_PAYMENT: 'Supplier paid',
   STOCK_ADJUSTED: 'Stock adjusted', COUNT_STARTED: 'Stock count started', COUNT_APPLIED: 'Stock count applied',
-  COUNT_CANCELLED: 'Stock count cancelled', PRODUCTS_IMPORTED: 'Products imported'
+  COUNT_CANCELLED: 'Stock count cancelled', PRODUCTS_IMPORTED: 'Products imported',
+  PROMOTION_CREATED: 'Promotion created', PROMOTION_UPDATED: 'Promotion changed', MANUAL_DISCOUNT: 'Manual discount',
+  CUSTOMER_CREATED: 'Customer created', CUSTOMER_CREDIT_LIMIT: 'Credit limit changed', CUSTOMER_PAYMENT: 'Debt payment'
 };
 
 function auditActionLabel(action) {
@@ -2246,7 +2531,7 @@ async function loadShiftSummary(shiftId) {
     const res = await req('GET', `/shifts/${shiftId}/report`);
     const r = res.data;
     renderShiftSummary({ id: shiftId, totalSales: r.totalSales, cashSales: r.cashSales, cardSales: r.cardSales,
-      cashIn: r.cashIn, cashOut: r.cashOut, cashRefunds: r.cashRefunds, cardRefunds: r.cardRefunds,
+      cashIn: r.cashIn, cashOut: r.cashOut, cashRefunds: r.cashRefunds, cardRefunds: r.cardRefunds, creditSales: r.creditSales,
       expectedCash: r.expectedCash, closingCash: null, difference: null });
   } catch {}
 }
@@ -2261,6 +2546,7 @@ function renderShiftSummary(shift) {
   $('sum-card').textContent = show(shift.cardSales);
   $('sum-in').textContent = show(shift.cashIn);
   $('sum-out').textContent = show(shift.cashOut);
+  $('sum-credit').textContent = show(shift.creditSales);
   $('sum-refunds').textContent = shift.cashRefunds == null && shift.cardRefunds == null
     ? '-' : fmtLek(parseFloat(shift.cashRefunds || 0) + parseFloat(shift.cardRefunds || 0));
   $('sum-expected').textContent = show(shift.expectedCash);

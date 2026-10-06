@@ -93,6 +93,7 @@ public class ShiftService {
         shift.setCashOut(totals.cashOut());
         shift.setCashRefunds(totals.cashRefunds());
         shift.setCardRefunds(totals.cardRefunds());
+        shift.setCreditSales(totals.creditSales());
         shift.setExpectedCash(expectedCash);
         shift.setDifference(closingCash.subtract(expectedCash));
         shift.setStatus("CLOSED");

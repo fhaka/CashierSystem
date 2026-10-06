@@ -1,7 +1,6 @@
 package com.supermarket.service;
 
 import com.supermarket.model.CashMovement;
-import com.supermarket.model.PaymentMethod;
 import com.supermarket.model.Refund;
 import com.supermarket.model.Sale;
 import com.supermarket.model.SalePayment;
@@ -21,6 +20,9 @@ import java.util.Collection;
  * @param cashOut      money taken out of the drawer outside of sales
  * @param cashRefunds  refunds paid back in cash from the drawer
  * @param cardRefunds  refunds paid back to a card
+ * @param creditSales  charged to customers' accounts ("në borxh")
+ * @param pointsUsed   paid with loyalty points (LEK value)
+ * @param creditRefunds refunds put back on a customer's account
  */
 public record CashTotals(
         BigDecimal totalSales,
@@ -30,7 +32,10 @@ public record CashTotals(
         BigDecimal cashIn,
         BigDecimal cashOut,
         BigDecimal cashRefunds,
-        BigDecimal cardRefunds
+        BigDecimal cardRefunds,
+        BigDecimal creditSales,
+        BigDecimal pointsUsed,
+        BigDecimal creditRefunds
 ) {
 
     public static CashTotals of(Collection<Sale> sales, Collection<CashMovement> movements, Collection<Refund> refunds) {
@@ -38,14 +43,17 @@ public record CashTotals(
         BigDecimal cash = BigDecimal.ZERO;
         BigDecimal change = BigDecimal.ZERO;
         BigDecimal card = BigDecimal.ZERO;
+        BigDecimal credit = BigDecimal.ZERO;
+        BigDecimal points = BigDecimal.ZERO;
         for (Sale sale : sales) {
             total = total.add(sale.getTotalAmount());
             change = change.add(sale.getChangeAmount());
             for (SalePayment payment : sale.getPayments()) {
-                if (payment.getMethod() == PaymentMethod.CARD) {
-                    card = card.add(payment.getAmountLek());
-                } else {
-                    cash = cash.add(payment.getAmountLek());
+                switch (payment.getMethod()) {
+                    case CARD -> card = card.add(payment.getAmountLek());
+                    case CREDIT -> credit = credit.add(payment.getAmountLek());
+                    case POINTS -> points = points.add(payment.getAmountLek());
+                    default -> cash = cash.add(payment.getAmountLek());
                 }
             }
         }
@@ -60,14 +68,15 @@ public record CashTotals(
         }
         BigDecimal refundedCash = BigDecimal.ZERO;
         BigDecimal refundedCard = BigDecimal.ZERO;
+        BigDecimal refundedCredit = BigDecimal.ZERO;
         for (Refund refund : refunds) {
-            if (refund.getMethod() == PaymentMethod.CARD) {
-                refundedCard = refundedCard.add(refund.getTotalAmount());
-            } else {
-                refundedCash = refundedCash.add(refund.getTotalAmount());
+            switch (refund.getMethod()) {
+                case CARD -> refundedCard = refundedCard.add(refund.getTotalAmount());
+                case CREDIT -> refundedCredit = refundedCredit.add(refund.getTotalAmount());
+                default -> refundedCash = refundedCash.add(refund.getTotalAmount());
             }
         }
-        return new CashTotals(total, cash, change, card, in, out, refundedCash, refundedCard);
+        return new CashTotals(total, cash, change, card, in, out, refundedCash, refundedCard, credit, points, refundedCredit);
     }
 
     /** Cash kept from sales: what customers handed over minus the change given back. */
@@ -81,6 +90,6 @@ public record CashTotals(
     }
 
     public BigDecimal totalRefunds() {
-        return cashRefunds.add(cardRefunds);
+        return cashRefunds.add(cardRefunds).add(creditRefunds);
     }
 }

@@ -66,6 +66,9 @@ public class Shift {
     @Column(precision = 12, scale = 2)
     private BigDecimal cardRefunds;
 
+    @Column(precision = 12, scale = 2)
+    private BigDecimal creditSales;
+
     @Column(nullable = false)
     private String status;
 
@@ -204,5 +207,13 @@ public class Shift {
 
     public void setCardRefunds(BigDecimal cardRefunds) {
         this.cardRefunds = cardRefunds;
+    }
+
+    public BigDecimal getCreditSales() {
+        return creditSales;
+    }
+
+    public void setCreditSales(BigDecimal creditSales) {
+        this.creditSales = creditSales;
     }
 }

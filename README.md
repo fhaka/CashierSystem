@@ -82,6 +82,16 @@ Hibernate does not change tables (`ddl-auto=none`). The tests run with `ddl-auto
 - **Closing a shift** is blind: the cashier enters the counted cash before seeing what was expected. Expected cash = opening cash + cash received − change given + cash in − cash out. Card payments are not expected in the drawer.
 - **X report** (one shift) and **Z report** (one day, all tills): sales, discounts, VAT per rate, payments per method and currency, change, cash in/out and totals per cashier. Both can be printed on the receipt printer. Managers can print an X report while the shift is open; cashiers see their own after closing it.
 
+## Promotions and customers
+
+- **Promotions** (*Promocionet*, managers): a percentage off, or *buy X get Y free* (pieces only), for one product or a whole category, optionally limited to dates, days of the week and hours (happy hour). The till applies them by itself; when several match a line, the best one wins. They show on screen and on the receipt.
+- **Discount order:** promotions on each line, then the manual discount on the whole cart, then the automatic large-purchase discount. Every discount is attached to a line, so VAT is calculated on what was paid.
+- **Manual discount** (*Zbritje %* at the till): a percentage off the whole cart. Cashiers need a manager's PIN above `pos.discount.cashier-limit-percent` (default 0, so always).
+- **Customers** (*Klientët*): loyalty card number (scannable; generated if left empty), name, phone, email, notes. Attach the customer to the sale with *Klienti* (scan the card or search by name or phone).
+- **Loyalty points:** one point per `pos.loyalty.lek-per-point` LEK paid (default 100); points pay part of a sale at `pos.loyalty.point-value` LEK each (default 1). A refund takes back the points it earned.
+- **Buying on credit ("në borxh"):** customers with a credit limit (set by managers) can pay all or part of a sale *on account*, within the limit. Debt payments are taken in the customer's screen; cash goes into the current shift's drawer. Refunds of such sales can go back onto the account. Each customer has a full history of points and debt.
+- Shift closing and X/Z reports show sales on account and points used; neither counts as cash in the drawer.
+
 ## Inventory and suppliers
 
 - **Suppliers** (*Furnitorët*): name, NIPT, phone, email, address, notes. A purchase invoice is linked to its supplier (type the name; a new name creates the supplier). Payments to suppliers are recorded, and each supplier shows invoiced, paid and **owed**.

@@ -90,6 +90,30 @@ public class SaleController {
         return ApiResponse.ok("Cart summary", saleService.cartSummary(cashier));
     }
 
+    /** Attaches a customer to the cart on screen: {"customerId": 5} or {"cardNumber": "..."}; {} removes them. */
+    @PutMapping("/cart/customer")
+    public ApiResponse<CartSummary> setCustomer(
+            @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestBody Map<String, String> body
+    ) {
+        Cashier cashier = sessionService.requireUser(token);
+        String customerId = body.get("customerId");
+        cartService.setCustomer(cashier, customerId == null || customerId.isBlank() ? null : Long.valueOf(customerId), body.get("cardNumber"));
+        return ApiResponse.ok("Customer set", saleService.cartSummary(cashier));
+    }
+
+    /** Percentage off the whole cart: {"percent": 10}. Above the cashier limit it needs a manager PIN. */
+    @PutMapping("/cart/discount")
+    public ApiResponse<CartSummary> setDiscount(
+            @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Approval-Pin", required = false) String approvalPin,
+            @RequestBody Map<String, BigDecimal> body
+    ) {
+        Cashier cashier = sessionService.requireUser(token);
+        cartService.setManualDiscount(cashier, body.get("percent"), approvalPin);
+        return ApiResponse.ok("Discount set", saleService.cartSummary(cashier));
+    }
+
     @DeleteMapping("/cart")
     public ApiResponse<Void> clearCart(
             @RequestHeader(value = "X-Auth-Token", required = false) String token,

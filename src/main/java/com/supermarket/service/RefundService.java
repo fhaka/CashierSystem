@@ -54,11 +54,13 @@ public class RefundService {
     private final ShiftService shiftService;
     private final ApprovalService approvalService;
     private final AuditService auditService;
+    private final CustomerService customerService;
     private final MessageSource messageSource;
 
     public RefundService(SaleRepository saleRepository, RefundRepository refundRepository, ProductRepository productRepository,
                          NumberSequenceRepository numberSequenceRepository, ShiftService shiftService,
-                         ApprovalService approvalService, AuditService auditService, MessageSource messageSource) {
+                         ApprovalService approvalService, AuditService auditService, CustomerService customerService,
+                         MessageSource messageSource) {
         this.saleRepository = saleRepository;
         this.refundRepository = refundRepository;
         this.productRepository = productRepository;
@@ -66,6 +68,7 @@ public class RefundService {
         this.shiftService = shiftService;
         this.approvalService = approvalService;
         this.auditService = auditService;
+        this.customerService = customerService;
         this.messageSource = messageSource;
     }
 
@@ -89,6 +92,12 @@ public class RefundService {
         Sale sale = saleRepository.findById(saleId).orElseThrow(() -> new ValidationException("refund.saleNotFound", saleId));
         Shift shift = shiftService.findOpenShift(cashier.getId()).orElseThrow(() -> new ValidationException("refund.shiftRequired"));
         PaymentMethod method = parseMethod(request.method());
+        if (method == PaymentMethod.POINTS) {
+            throw new ValidationException("payment.invalidMethod");
+        }
+        if (method == PaymentMethod.CREDIT && sale.getCustomer() == null) {
+            throw new ValidationException("refund.creditNeedsCustomer");
+        }
         if (request.reason() == null || request.reason().isBlank()) {
             throw new ValidationException("refund.reasonRequired");
         }
@@ -131,6 +140,13 @@ public class RefundService {
                 .orElseThrow(() -> new IllegalStateException("Refund number sequence is missing"));
         refund.setRefundNumber(String.format("R%06d", sequence.next()));
         Refund saved = refundRepository.save(refund);
+        if (sale.getCustomer() != null) {
+            // Points earned on the sale go back in proportion to what is refunded.
+            int pointsBack = sale.getTotalAmount().signum() == 0 ? 0 : BigDecimal.valueOf(sale.getPointsEarned())
+                    .multiply(saved.getTotalAmount()).divide(sale.getTotalAmount(), 0, RoundingMode.DOWN).intValue();
+            customerService.recordRefund(sale.getCustomer(), cashier, saved, pointsBack,
+                    method == PaymentMethod.CREDIT ? saved.getTotalAmount() : BigDecimal.ZERO);
+        }
         auditService.record(cashier, approver, "REFUND", "SALE", sale.getInvoiceNumber(),
                 saved.getRefundNumber() + ": " + saved.getTotalAmount() + " LEK " + method + " - " + saved.getReason());
         return toResponse(saved);

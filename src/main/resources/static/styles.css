@@ -709,3 +709,17 @@
     /* Pages stack their header above their content */
     #view-audit, #view-suppliers, #view-inventory, #view-operations { flex-direction: column; overflow: hidden; }
     #view-audit .users-page, #view-suppliers .users-page, #view-inventory .reports-page, #view-operations .reports-page { overflow-y: auto; }
+
+    /* Customers and promotions */
+    #view-customers, #view-promotions { flex-direction: column; overflow: hidden; }
+    #view-customers .users-page, #view-promotions .users-page { overflow-y: auto; }
+    .park-actions { grid-template-columns: 1fr 1fr; }
+    .cart-customer { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(37,99,235,.08); font-size: .82rem;
+      display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    .cart-breakdown { margin-top: 6px; font-size: .8rem; }
+    .cart-breakdown .balance-line { padding: 2px 0; }
+    .cart-breakdown .promo { color: var(--green); }
+    .day-picks { display: flex; flex-wrap: wrap; gap: 6px; }
+    .day-picks label, .check-line { display: inline-flex; align-items: center; gap: 4px; font-size: .85rem; }
+    #picker-results tr { cursor: pointer; }
+    #picker-results tr:hover { background: rgba(37,99,235,.06); }

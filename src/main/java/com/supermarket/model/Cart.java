@@ -46,6 +46,14 @@ public class Cart {
     @Column(length = 100)
     private String label;
 
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "customer_id")
+    private Customer customer;
+
+    /** Discount on the whole cart, given by hand (a cashier needs a manager's approval above a limit). */
+    @Column(precision = 5, scale = 2)
+    private BigDecimal manualDiscountPercent;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
@@ -128,5 +136,21 @@ public class Cart {
 
     public List<CartItem> getItems() {
         return items;
+    }
+
+    public Customer getCustomer() {
+        return customer;
+    }
+
+    public void setCustomer(Customer customer) {
+        this.customer = customer;
+    }
+
+    public BigDecimal getManualDiscountPercent() {
+        return manualDiscountPercent;
+    }
+
+    public void setManualDiscountPercent(BigDecimal manualDiscountPercent) {
+        this.manualDiscountPercent = manualDiscountPercent;
     }
 }

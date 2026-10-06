@@ -63,6 +63,15 @@ Hibernate does not change tables (`ddl-auto=none`). The tests run with `ddl-auto
 | Super Cashier | Everything a cashier can, plus products, purchase invoices, reports, change prices at the till |
 | Super Admin | Everything, plus users and backups |
 
+## Security
+
+- **Passwords** are stored with BCrypt. Accounts from older versions (SHA-256) keep working and are upgraded automatically at their next sign-in. The minimum length is 4 characters.
+- **Sessions** are stored in the database (only a hash of the token), so restarting the server does not sign the tills out. A till is signed out after `pos.session.idle-timeout` (default 12 h) without activity.
+- **The browser** keeps the session in an `HttpOnly`, `SameSite=Strict` cookie that page scripts cannot read. API clients can still send the token in the `X-Auth-Token` header.
+- **Wrong passwords:** after `pos.login.max-attempts` (default 5) the account is locked for `pos.login.lock-duration` (default 5 minutes). A Super Admin can unlock it at once by saving the user in the Users screen.
+- **Access changes:** changing a user's password or role, or disabling them, signs that user out on every till.
+- **CORS** is off by default (the screen is served by the app). Other front-ends must be listed in `pos.cors.allowed-origins`.
+
 ## Language
 
 The app is in **Albanian by default**. Each till can switch to English from the login screen or the sidebar; the choice is remembered on that computer. The server answers in the same language (the browser sends it in `Accept-Language`), including error messages and the printed receipt.

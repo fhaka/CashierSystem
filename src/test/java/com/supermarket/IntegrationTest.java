@@ -34,7 +34,7 @@ public abstract class IntegrationTest {
 
     private static final List<String> TABLES_CHILD_FIRST = List.of(
             "sale_logs", "sale_items", "sales", "shifts",
-            "purchase_items", "purchase_invoices", "products", "cashiers", "backup_logs"
+            "purchase_items", "purchase_invoices", "products", "auth_sessions", "cashiers", "backup_logs"
     );
 
     @Autowired

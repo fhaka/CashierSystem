@@ -11,6 +11,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Table(name = "cashiers")
 @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
@@ -31,11 +33,18 @@ public class Cashier {
     private String passwordHash;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20, columnDefinition = "varchar(20) default 'SUPER_ADMIN'")
+    @Column(nullable = false, length = 20)
     private CashierRole role = CashierRole.CASHIER;
 
     @Column(nullable = false, columnDefinition = "boolean default true")
     private boolean active = true;
+
+    @Column(nullable = false)
+    @JsonIgnore
+    private int failedLogins;
+
+    @JsonIgnore
+    private LocalDateTime lockedUntil;
 
     public Cashier() {
     }
@@ -89,5 +98,21 @@ public class Cashier {
 
     public void setActive(boolean active) {
         this.active = active;
+    }
+
+    public int getFailedLogins() {
+        return failedLogins;
+    }
+
+    public void setFailedLogins(int failedLogins) {
+        this.failedLogins = failedLogins;
+    }
+
+    public LocalDateTime getLockedUntil() {
+        return lockedUntil;
+    }
+
+    public void setLockedUntil(LocalDateTime lockedUntil) {
+        this.lockedUntil = lockedUntil;
     }
 }

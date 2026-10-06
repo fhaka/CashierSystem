@@ -62,7 +62,13 @@ function toast(msg, type = 'info') {
   el.className = `toast t-${type}`;
   const icon = { success: 'OK', error: 'X', info: 'i' }[type] || 'i';
   const col  = { success: 'var(--green)', error: 'var(--red)', info: 'var(--blue)' }[type];
-  el.innerHTML = `<span style="color:${col};font-weight:700;">${icon}</span><span>${msg}</span>`;
+  const iconEl = document.createElement('span');
+  iconEl.style.color = col;
+  iconEl.style.fontWeight = '700';
+  iconEl.textContent = icon;
+  const textEl = document.createElement('span');
+  textEl.textContent = msg;
+  el.append(iconEl, textEl);
   wrap.appendChild(el);
   setTimeout(() => {
     el.classList.add('leaving');
@@ -72,7 +78,6 @@ function toast(msg, type = 'info') {
 
 async function req(method, path, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json', 'Accept-Language': currentLang } };
-  if (currentUser?.token) opts.headers['X-Auth-Token'] = currentUser.token;
   if (body !== undefined) opts.body = JSON.stringify(body);
   const res  = await fetch(API + path, opts);
   const json = await res.json().catch(() => ({}));
@@ -103,7 +108,7 @@ function clearLocalSession() {
   currentUser = null;
   cartItems = [];
   activeShift = null;
-  localStorage.removeItem('cashier');
+  try { localStorage.removeItem('cashier'); } catch {}
   $('auth-screen').classList.remove('hidden');
   $('app-screen').classList.add('hidden');
 }
@@ -152,7 +157,6 @@ async function checkInitialSetup() {
 
 function bootUser(user) {
   currentUser = user;
-  localStorage.setItem('cashier', JSON.stringify(user));
   $('user-name').textContent   = user.fullName;
   $('user-avatar').textContent = user.fullName.charAt(0).toUpperCase();
   $('user-role').textContent = roleLabel(user.role);
@@ -169,7 +173,7 @@ function bootUser(user) {
 
 async function doLogout() {
   try {
-    if (currentUser?.token) await req('POST', '/auth/logout');
+    if (currentUser) await req('POST', '/auth/logout');
   } catch {}
   clearLocalSession();
   $('l-user').value = '';
@@ -260,7 +264,7 @@ async function loadPosProducts(query) {
     renderGrid(posProducts);
   } catch (e) {
     toast(t('Could not load products: ') + e.message, 'error');
-    $('prod-grid').innerHTML = `<div class="prod-empty"><span class="em-icon"></span><strong>${t('Failed to load')}</strong><br><span class="t-sm t-muted">${e.message}</span></div>`;
+    $('prod-grid').innerHTML = `<div class="prod-empty"><span class="em-icon"></span><strong>${t('Failed to load')}</strong><br><span class="t-sm t-muted">${esc(e.message)}</span></div>`;
   }
 }
 
@@ -287,9 +291,9 @@ function renderGrid(products) {
     const sc = p.stock === 0 ? 'sk-oos' : p.stock < 5 ? 'sk-low' : 'sk-ok';
     const sl = p.stock === 0 ? t('Out of Stock') : t('{count} left', { count: p.stock });
     return `<div class="prod-card${p.stock === 0 ? ' oos' : ''}" onclick="addById(${p.id})">
-      <div class="pc-cat">${p.category?.name || 'General'}</div>
+      <div class="pc-cat">${esc(p.category?.name || t('None'))}</div>
       <div class="pc-name">${esc(p.name)}</div>
-      <div class="pc-bc">${p.barcode || ''}</div>
+      <div class="pc-bc">${esc(p.barcode)}</div>
       <div class="pc-foot">
         <span class="pc-price">${fmt(p.price)}</span>
         <span class="pc-stock ${sc}">${sl}</span>
@@ -876,11 +880,10 @@ function renderProdsTable(products) {
   }
   tbody.innerHTML = products.map(p => {
     const sc = p.stock === 0 ? 'b-red' : p.stock < 5 ? 'b-amber' : 'b-green';
-    const pj = JSON.stringify(p).replace(/"/g, '&quot;');
     return `<tr>
       <td class="td-m t-muted">#${p.id}</td>
       <td><strong>${esc(p.name)}</strong></td>
-      <td class="td-m">${p.barcode || ''}</td>
+      <td class="td-m">${esc(p.barcode)}</td>
       <td><span class="badge b-blue">${esc(p.category?.name || t('None'))}</span></td>
       <td><span class="badge b-muted">${esc(unitLabel(p.unit))}</span></td>
       <td class="td-p">${fmt(p.purchasePrice)}</td>
@@ -888,13 +891,13 @@ function renderProdsTable(products) {
       <td class="td-p">${fmt(p.price)}</td>
       <td><span class="badge ${sc}">${p.stock}</span></td>
       <td class="td-a">
-        <button class="btn btn-secondary btn-sm btn-icon" title="${t('Edit')}" onclick="openProdModal(${pj})">
+        <button class="btn btn-secondary btn-sm btn-icon" title="${t('Edit')}" onclick="openProdModalById(${p.id})">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
           </svg>
         </button>
-        <button class="btn btn-danger btn-sm btn-icon" title="${t('Delete')}" onclick="confirmDelete(${p.id},'${esc(p.name)}')">
+        <button class="btn btn-danger btn-sm btn-icon" title="${t('Delete')}" onclick="confirmDelete(${p.id})">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
@@ -967,7 +970,8 @@ async function submitProd() {
   } catch (e) { toast(e.message || t('Save failed'), 'error'); }
 }
 
-function confirmDelete(id, name) {
+function confirmDelete(id) {
+  const name = allProdTable.find(product => product.id === id)?.name || '';
   $('confirm-msg').textContent = t('Delete "{name}"? This cannot be undone.', { name });
   $('confirm-ok').onclick = () => deleteProd(id);
   openModal('modal-confirm');
@@ -1716,7 +1720,7 @@ function renderBackupRows(backups) {
 
 /*  XSS escape  */
 function esc(str) {
-  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 /*  Keyboard shortcuts  */
@@ -1756,14 +1760,10 @@ function onLanguageChanged() {
 (async function init() {
   applyLanguage();
   await checkInitialSetup();
-  const saved = localStorage.getItem('cashier');
-  if (!saved) return;
   try {
-    const user = JSON.parse(saved);
-    if (!user?.token) throw new Error('Old session');
-    currentUser = user;
-    await req('GET', '/sales/cart');
-    bootUser(user);
+    // The session cookie is invisible to this script: ask the server who is signed in on this till.
+    const res = await req('GET', '/auth/me');
+    bootUser(res.data);
   } catch {
     clearLocalSession();
   }

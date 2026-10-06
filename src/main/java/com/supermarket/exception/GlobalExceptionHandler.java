@@ -48,6 +48,11 @@ public class GlobalExceptionHandler {
         return localized(HttpStatus.FORBIDDEN, exception);
     }
 
+    @ExceptionHandler(AccountLockedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAccountLocked(AccountLockedException exception) {
+        return localized(HttpStatus.TOO_MANY_REQUESTS, exception);
+    }
+
     @ExceptionHandler(ReceiptPrinterException.class)
     public ResponseEntity<ApiResponse<Void>> handlePrinter(ReceiptPrinterException exception) {
         return localized(HttpStatus.SERVICE_UNAVAILABLE, exception);

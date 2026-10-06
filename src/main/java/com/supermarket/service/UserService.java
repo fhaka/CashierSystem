@@ -66,18 +66,25 @@ public class UserService {
             throw new ValidationException("user.lastSuperAdmin");
         }
 
+        CashierRole previousRole = cashier.getRole();
         cashier.setFullName(request.getFullName().trim());
         cashier.setUsername(request.getUsername().trim());
         cashier.setRole(newRole);
         cashier.setActive(newActive);
+        // Saving a user in the admin screen also unlocks an account locked by wrong passwords.
+        cashier.setFailedLogins(0);
+        cashier.setLockedUntil(null);
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
             if (request.getPassword().length() < 4) {
                 throw new ValidationException("user.passwordTooShort");
             }
             cashier.setPasswordHash(PasswordUtil.hash(request.getPassword()));
         }
+        boolean passwordChanged = request.getPassword() != null && !request.getPassword().isBlank();
+        boolean accessChanged = previousRole != newRole || !newActive;
         Cashier saved = cashierRepository.save(cashier);
-        if (!saved.isActive()) {
+        // Sign the user out everywhere when their access or password changes (the admin keeps their own session).
+        if ((accessChanged || passwordChanged) && !saved.getId().equals(currentSuperAdmin.getId())) {
             sessionService.invalidateUser(saved.getId());
         }
         return toResponse(saved);

@@ -1,0 +1,25 @@
+-- Demo products for trying the app. Loaded only by the "h2" profile, never in a real shop.
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (1, 'Bukë 800 gr', '100000000001', 100.00, 75.00, 20.00, 50, 'pcs', 7);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (2, 'Qumësht', '100000000002', 200, 180, 20.00, 35, 'pcs', 1);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (3, 'Oriz 1 kg', '100000000003', 180, 160, 20.00, 100, 'pcs', 7);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (4, 'Sapun', '100000000004', 120, 95, 20.00, 40, 'pcs', 3);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (5, 'Cigare Gold', '100000000005', 400.00, 376, 0.00, 200, 'pcs', 8);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (6, 'Çokollatë', '100000000006', 150, 132, 20.00, 20, 'pcs', 4);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (7, 'Çamçakëz Orbit Spearmint', '100000000007', 70, 55, 20.00, 20, 'pcs', 4);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (8, 'Qese plastike', '0001', 20, 12, 20.00, 1000, 'pcs', 13);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (9, 'Makarona 500 gr', '100000000008', 120.00, 105.00, 20.00, 100, 'pcs', 7);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (10, 'Kos grek 1 l', '100000000009', 160.00, 143.00, 20.00, 35, 'pcs', 1);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (11, 'Sheqer 1 kg', '100000000010', 80, 65, 20.00, 200, 'pcs', 7);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (12, 'Kripë deti', '100000000011', 30, 18.00, 20.00, 70, 'pcs', 7);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (13, 'Cigare Red', '100000000012', 400, 376, 0.00, 200, 'pcs', 8);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (14, 'Detergjent Dash', '100000000013', 2600, 2370, 20.00, 12, 'pcs', 3);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (15, 'Shampo', '100000000014', 390.00, 280.00, 20.00, 20, 'pcs', 9);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (16, 'Pastë dhëmbësh', '100000000015', 390.00, 280.00, 20.00, 20, 'pcs', 9);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (17, 'Djathë i bardhë', '100000000016', 750, 700.00, 20.00, 96, 'kg', 1);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (18, 'Djathë kaçkavall', '100000000017', 1200, 980.00, 20.00, 78, 'kg', 1);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (19, 'Krahë pule 800 gr', '100000000018', 390.00, 280.00, 20.00, 20, 'pcs', 5);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (20, 'Mocarela', '100000000019', 470, 420, 20.00, 35, 'kg', 1);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (21, 'Verë e kuqe', '100000000020', 800, 680, 20.00, 40, 'pcs', 2);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (22, 'Pije e gazuar', '100000000021', 90, 71, 20.00, 150, 'pcs', 2);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (23, 'Birrë', '100000000022', 120, 96, 20.00, 200, 'pcs', 2);
+INSERT IGNORE INTO products (id, name, barcode, price, purchase_price, tax_rate, stock, unit, category_id) VALUES (24, 'Vodka', '100000000023', 1700, 1420, 20.00, 30, 'pcs', 2);

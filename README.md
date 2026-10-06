@@ -1,119 +1,108 @@
-# Supermarket Cashier System
+# Haka Market POS
 
-Backend-focused Java 17+ demo using Spring Boot, Spring Data JPA, H2, JDBC, async operations, custom exceptions, generics, streams, lambdas, collections, and the Strategy pattern.
+Supermarket cashier system: selling at the till with a barcode scanner, shifts and cash reconciliation, products and stock, supplier purchase invoices, reports, users with roles, thermal receipt printing and automatic backups.
 
-## Run
+Built with Java 17+, Spring Boot 3, Spring Data JPA, MySQL and Flyway. The cashier screen is plain HTML/CSS/JS served by the same application.
+
+## Requirements
+
+- Java 17 or newer
+- Maven 3.9+
+- MySQL 8 (not needed for the demo mode below)
+
+## Quick try (no MySQL)
+
+Starts with an in-memory database and demo products. Everything is lost when it stops.
 
 ```powershell
-mvn spring-boot:run
+mvn spring-boot:run -Dspring-boot.run.profiles=h2
 ```
 
-The API starts at `http://localhost:8080`.
+Open `http://localhost:8081`. On first start, register the first account: it becomes the **Super Admin**.
 
-Open the cashier screen:
+## Shop installation (MySQL)
 
-```text
-http://localhost:8080
+1. Create the database and a dedicated MySQL user. Edit the password in the script first:
+
+   ```powershell
+   mysql -u root -p < docs/mysql-setup.sql
+   ```
+
+2. Create `src/main/resources/application-local.properties` (it is git-ignored, never commit it):
+
+   ```properties
+   spring.datasource.username=haka_pos
+   spring.datasource.password=the-password-from-step-1
+   ```
+
+   Alternatively set the environment variables `MYSQL_USER`, `MYSQL_PASSWORD` and optionally `MYSQL_DATABASE`.
+
+3. Start the app:
+
+   ```powershell
+   mvn spring-boot:run
+   ```
+
+   The app listens on port **8081** on all network interfaces, so other tills on the shop network can open `http://<server-ip>:8081`.
+
+### Database schema
+
+The schema is managed by **Flyway** migrations in `src/main/resources/db/migration`. They run automatically on startup.
+
+- A new, empty database is built from `V1__baseline.sql` onwards.
+- A database created by older versions of the app (before Flyway) is detected and marked as version 1 without touching existing data. Only newer migrations are applied.
+- Never edit a migration that has already run in a shop. Add a new `V<next>__description.sql` file instead.
+
+Hibernate does not change tables (`ddl-auto=none`). The tests run with `ddl-auto=validate`, so the build fails if the entities and migrations ever differ.
+
+## Roles
+
+| Role | Can do |
+|------|--------|
+| Cashier | Sell, open/close own shift, see own sales |
+| Super Cashier | Everything a cashier can, plus products, purchase invoices, reports, change prices at the till |
+| Super Admin | Everything, plus users and backups |
+
+## Receipt printer
+
+Set the Windows printer name in `application.properties`:
+
+```properties
+receipt.printer.name=Ocom Printer
 ```
 
-H2 console:
+If empty, the default Windows printer is used. Receipts are sent as raw ESC/POS with an automatic paper cut. The printer can also be chosen at checkout.
 
-- URL: `http://localhost:8080/h2-console`
-- JDBC URL: `jdbc:h2:mem:supermarket`
-- User: `sa`
-- Password: empty
+## Backups
 
-## Main Endpoints
+A backup runs every day at 23:00 (Europe/Tirane) and can be started manually by a Super Admin. Files are written to `backups/` next to the app. They contain sales data and password hashes: keep them private. The folder is git-ignored.
 
-```http
-GET    /products
-GET    /products/in-stock
-GET    /products/search?query=bread
-GET    /products/barcode/100000000001
-GET    /products/sorted-by-price
-GET    /products/lookup
-GET    /products/sorted-map
-GET    /products/{id}
-POST   /products
-PUT    /products/{id}
-DELETE /products/{id}
+## Tests
 
-GET    /sales/cart
-POST   /sales/cart
-GET    /sales/cart/subtotal
-DELETE /sales/cart
-POST   /sales/checkout
-GET    /sales
-GET    /sales/logs
-GET    /sales/logs/{id}
-POST   /sales/logs
-PUT    /sales/logs/{id}
-DELETE /sales/logs/{id}
-
-POST   /auth/register
-POST   /auth/login
+```powershell
+mvn test
 ```
 
-## Example Requests
+Integration tests start the whole application on an in-memory database built by the real Flyway migrations, and cover login and roles, the full sale flow (cart, checkout, stock, shift balance), purchase invoices and the discount rule.
 
-Create product:
+## API
 
-```json
-{
-  "name": "Apples",
-  "barcode": "200000000001",
-  "price": 2.50,
-  "stock": 40,
-  "categoryName": "Food"
-}
-```
+All endpoints except `/auth/*` need the header `X-Auth-Token` with the token returned by login. Every response has the shape `{ "success": true|false, "message": "...", "data": ... }`.
 
-Add to cart:
+| Area | Endpoints |
+|------|-----------|
+| Auth | `GET /auth/setup`, `POST /auth/register` (first account only), `POST /auth/login`, `POST /auth/logout` |
+| Products | `GET /products`, `/products/in-stock`, `/products/search?query=`, `/products/barcode/{barcode}`, `/products/{id}`; `POST /products`, `PUT /products/{id}`, `DELETE /products/{id}` |
+| Categories | `GET /categories` |
+| Cart & sales | `GET/POST/DELETE /sales/cart`, `PUT /sales/cart/{productId}`, `GET /sales/cart/subtotal`, `POST /sales/checkout`, `GET /sales` |
+| Shifts | `GET /shifts`, `GET /shifts/open`, `POST /shifts/open`, `POST /shifts/{id}/close` |
+| Purchases | `GET /purchases`, `POST /purchases` |
+| Reports | `GET /reports/sales` |
+| Users | `GET /users`, `POST /users`, `PUT /users/{id}` |
+| Printer | `GET /printer/printers`, `POST /printer/receipt`, `POST /printer/test-cut` |
+| Backups | `GET /backups`, `POST /backups/run` |
+| Sale logs (JDBC) | `GET/POST /sales/logs`, `GET/PUT/DELETE /sales/logs/{id}` |
 
-```json
-{
-  "productId": 1,
-  "quantity": 3
-}
-```
+## Course requirements
 
-Add to cart by barcode:
-
-```json
-{
-  "barcode": "100000000001",
-  "quantity": 3
-}
-```
-
-Register cashier:
-
-```json
-{
-  "fullName": "Cashier One",
-  "username": "cashier",
-  "password": "1234"
-}
-```
-
-Create JDBC sale log:
-
-```json
-{
-  "saleId": 1,
-  "message": "Manual JDBC log entry"
-}
-```
-
-## Requirements Mapping
-
-- R1 Collections: `ArrayList<CartItem>`, `HashMap<Long, Product>`, `TreeMap<String, Product>`
-- R2 Generics: `ApiResponse<T>`, `FilterUtil<T>`
-- R3 Lambdas: sorting and filtering products
-- R4 Streams: cart subtotal and checkout calculations
-- R5 Concurrency: async JDBC sale logging with `@Async` and `CompletableFuture`
-- R6 JDBC: full CRUD in `JdbcLogRepository` through `/sales/logs`
-- R7 JPA: `Product`, `Category`, `Sale`, `SaleItem`
-- R8 REST API: product, cart, checkout, sales history endpoints
-- R9 Design Pattern: `PricingStrategy`, `TaxStrategy`, `DiscountStrategy`
-- R10 Exceptions: `ProductNotFoundException`, `InsufficientStockException`, global handler
+The mapping of the original course requirements (R1–R10) to the code is in `Requirenments_Fulfilled.txt`.

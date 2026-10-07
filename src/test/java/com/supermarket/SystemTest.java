@@ -3,6 +3,7 @@ package com.supermarket;
 import org.junit.jupiter.api.Test;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -21,7 +22,7 @@ class SystemTest extends IntegrationTest {
         getJson("/system/info", null).andExpect(status().isUnauthorized());
         String admin = registerSuperAdmin();
         getJson("/system/info", admin).andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.version").value("1.0.0"))
+                .andExpect(jsonPath("$.data.version").value(matchesPattern("\\d+\\.\\d+\\.\\d+(-SNAPSHOT)?")))
                 .andExpect(jsonPath("$.data.databaseVersion").value("v9"))
                 .andExpect(jsonPath("$.data.backupFolder").isNotEmpty());
     }

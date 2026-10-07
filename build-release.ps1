@@ -46,7 +46,9 @@ Remove-Item $out -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force "$out\input", $package | Out-Null
 Copy-Item "target\$jar" "$out\input\"
 
-& "$jdk\bin\jpackage.exe" --type app-image --name HakaPOS --app-version $version `
+# Windows takes only numbers as the program version: 1.0.1-SNAPSHOT (a development build) becomes 1.0.1.
+$appVersion = $version -replace '-.*$', ''
+& "$jdk\bin\jpackage.exe" --type app-image --name HakaPOS --app-version $appVersion `
     --input "$out\input" --main-jar $jar --dest $package `
     --java-options '-Dfile.encoding=UTF-8' --java-options '-Xmx768m' --java-options '-Duser.timezone=Europe/Tirane' `
     --vendor 'Haka Market' --description 'Supermarket cash register'

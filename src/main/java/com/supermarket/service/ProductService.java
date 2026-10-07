@@ -115,7 +115,9 @@ public class ProductService {
         product.setPrice(request.getPrice());
         product.setPurchasePrice(request.getPurchasePrice());
         product.setTaxRate(request.getTaxRate());
-        product.setStock(Quantities.requireStock(request.getStock(), unit));
+        // Stock is not edited here: the form may show an old number while the till keeps selling. It changes only
+        // through sales, refunds, purchase invoices, adjustments and stock counts, each recorded with its reason.
+        Quantities.requireStock(product.getStock(), unit);
         product.setUnit(unit);
         product.setCategory(resolveCategory(request));
         applyReorderSettings(product, request, unit);

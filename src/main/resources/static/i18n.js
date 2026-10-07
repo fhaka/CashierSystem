@@ -738,6 +738,11 @@ const SQ = {
   'Backup folder': 'Dosja e kopjeve',
   'Version': 'Versioni',
   'database': 'databaza',
+  // 1.0.1: stock of new and edited products
+  'New product: register it, then it is added to this invoice.': 'Produkt i ri: regjistrojeni dhe do të shtohet në këtë faturë.',
+  'Change the stock with the "Stock" button (a reason is recorded).': 'Stoku ndryshohet me butonin "Gjendja" (ruhet arsyeja).',
+  'The stock comes from this purchase invoice.': 'Stoku vjen nga kjo faturë blerjeje.',
+  'Product registered and added to the invoice. Enter the quantity received.': 'Produkti u regjistrua dhe u shtua në faturë. Shkruani sasinë e marrë.',
 };
 
 const SUPPORTED_LANGUAGES = ['sq', 'en'];

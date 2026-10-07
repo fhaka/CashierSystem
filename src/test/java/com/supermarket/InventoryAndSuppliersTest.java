@@ -217,4 +217,54 @@ class InventoryAndSuppliersTest extends IntegrationTest {
         assertThat(jdbc.queryForObject("SELECT name FROM products WHERE barcode = '700000000012'", String.class)).isEqualTo("Djathë; i bardhë");
         assertThat(stock(jdbc.queryForObject("SELECT id FROM products WHERE barcode = '700000000012'", Long.class))).isEqualByComparingTo("12.5");
     }
+
+    @Test
+    void editingAProductNeverChangesItsStock() throws Exception {
+        String admin = registerSuperAdmin();
+        long p = product(admin, "700000000021", "100.00", "10", "pcs", null);
+        openShift(admin, "0");
+        // The edit form was opened when the stock was 10; meanwhile the till sells 2.
+        postJson("/sales/cart", admin, Map.of("productId", p, "quantity", 2)).andExpect(status().isOk());
+        postJson("/sales/checkout", admin, null).andExpect(status().isOk());
+
+        putJson("/products/" + p, admin, Map.of("name", "Emër i ri", "barcode", "700000000021", "price", "120.00",
+                "purchasePrice", "1.00", "taxRate", "20", "stock", "10", "unit", "pcs", "categoryId", 7))
+                .andExpect(status().isOk());
+        assertThat(stock(p)).isEqualByComparingTo("8");
+        assertThat(jdbc.queryForObject("SELECT price FROM products WHERE id = ?", BigDecimal.class, p)).isEqualByComparingTo("120.00");
+
+        // Changing the unit still checks the stock: 1.5 kg cannot become a product sold by whole pieces.
+        long kg = product(admin, "700000000022", "100.00", "1.5", "kg", null);
+        putJson("/products/" + kg, admin, Map.of("name", "Djathë", "barcode", "700000000022", "price", "100.00",
+                "purchasePrice", "1.00", "taxRate", "20", "unit", "pcs", "categoryId", 7))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void aProductRegisteredDuringAPurchaseGetsOnlyTheInvoiceQuantity() throws Exception {
+        String admin = registerSuperAdmin();
+        // The purchase screen registers new products with stock 0; the invoice brings the 10 pieces.
+        long p = product(admin, "700000000023", "100.00", "0", "pcs", null);
+        purchase(admin, "F-NEW", "Furnitori", LocalDate.now(), p, "10", "60.00", null);
+        assertThat(stock(p)).isEqualByComparingTo("10");
+    }
+
+    @Test
+    void aDifferentStockInAnImportedFileIsRecordedAsAStockCount() throws Exception {
+        String admin = registerSuperAdmin();
+        long p = product(admin, "700000000024", "100.00", "5", "pcs", null);
+        String upload = "barcode;name;price;stock\n700000000024;Produkt;100;7\n";
+        mvc.perform(post("/products/import").header("X-Auth-Token", admin)
+                .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8)).content(upload.getBytes(StandardCharsets.UTF_8)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.updated").value(1));
+        assertThat(stock(p)).isEqualByComparingTo("7");
+        assertThat(jdbc.queryForObject("SELECT quantity_change FROM stock_adjustments WHERE product_id = ? AND reason = 'COUNT_CORRECTION'",
+                BigDecimal.class, p)).isEqualByComparingTo("2");
+
+        // The same file again changes nothing and records nothing.
+        mvc.perform(post("/products/import").header("X-Auth-Token", admin)
+                .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8)).content(upload.getBytes(StandardCharsets.UTF_8)))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM stock_adjustments WHERE product_id = ?", Integer.class, p)).isEqualTo(1);
+    }
 }

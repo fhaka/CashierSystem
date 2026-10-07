@@ -695,3 +695,7 @@ kbd {
 .backup-info { margin-bottom: 12px; }
 .backup-info strong { overflow-wrap: anywhere; text-align: right; }
 .backup-help { color: var(--muted); font-size: .8rem; margin-top: 10px; }
+
+/* Hint under a form field */
+.input-hint { display: block; color: var(--muted); font-size: .74rem; margin-top: 5px; line-height: 1.3; }
+.input:disabled { background: var(--s2); color: var(--muted); cursor: not-allowed; }

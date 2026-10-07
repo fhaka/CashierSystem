@@ -39,13 +39,15 @@ public class ProductCsvService {
     private final ProductService productService;
     private final AuditService auditService;
     private final MessageSource messageSource;
+    private final StockService stockService;
 
     public ProductCsvService(ProductRepository productRepository, ProductService productService, AuditService auditService,
-                             MessageSource messageSource) {
+                             MessageSource messageSource, StockService stockService) {
         this.productRepository = productRepository;
         this.productService = productService;
         this.auditService = auditService;
         this.messageSource = messageSource;
+        this.stockService = stockService;
     }
 
     public String export() {
@@ -92,6 +94,8 @@ public class ProductCsvService {
                 ProductRequest request = toRequest(cells, index, existing.orElse(null), separator);
                 if (existing.isPresent()) {
                     productService.update(existing.get().getId(), request, actor);
+                    // A different stock in the file counts as a stock count, kept in the product's stock history.
+                    stockService.correctTo(existing.get().getId(), request.getStock(), "CSV import", actor);
                     updated++;
                 } else {
                     productService.create(request, actor);

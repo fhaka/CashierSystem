@@ -1003,8 +1003,8 @@ async function addPurchaseByBarcode(barcode) {
     addPurchaseProduct(res.data);
     toast(t('Product added to purchase invoice'), 'success');
   } catch (e) {
-    toast(t('Product not registered. Complete product registration first.'), 'error');
-    openProdModal(null, barcode);
+    toast(t('New product: register it, then it is added to this invoice.'), 'info');
+    openProdModal(null, barcode, true);
   }
 }
 
@@ -1269,8 +1269,16 @@ async function openProdModalById(productId) {
   }
 }
 
-function openProdModal(prod, barcodePrefill) {
+/*
+ * Stock is typed here only as the opening stock of a new product on the Products screen. When editing, it is
+ * shown but changed with "Stock" (an adjustment with a reason). A product registered from a purchase invoice
+ * starts at 0: its stock comes from that invoice.
+ */
+let prodModalForPurchase = false;
+
+function openProdModal(prod, barcodePrefill, forPurchase = false) {
   const editing = !!prod;
+  prodModalForPurchase = !editing && forPurchase;
   loadCategories(prod?.category?.name || 'General');
   $('pm-title').textContent   = editing ? t('Edit Product') : t('Add Product');
   $('pm-submit').textContent  = editing ? t('Update Product') : t('Save Product');
@@ -1281,7 +1289,11 @@ function openProdModal(prod, barcodePrefill) {
   $('pm-tax').value    = prod?.taxRate ?? '20';
   $('pm-unit').value   = prod?.unit || 'pcs';
   $('pm-price').value  = prod?.price || '';
-  $('pm-stock').value  = prod?.stock ?? '';
+  $('pm-stock').value  = prodModalForPurchase ? '0' : (prod?.stock ?? '');
+  $('pm-stock').disabled = editing || prodModalForPurchase;
+  $('pm-stock-hint').textContent = editing ? t('Change the stock with the "Stock" button (a reason is recorded).')
+    : prodModalForPurchase ? t('The stock comes from this purchase invoice.') : '';
+  $('pm-stock-hint').classList.toggle('hidden', !editing && !prodModalForPurchase);
   $('pm-min').value    = prod?.minStock ?? '';
   $('pm-reorder').value = prod?.reorderQuantity ?? '';
   openModal('modal-prod');
@@ -1296,12 +1308,12 @@ async function submitProd() {
     taxRate:      parseFloat($('pm-tax').value),
     unit:         $('pm-unit').value,
     price:        parseFloat($('pm-price').value),
-    stock:        parseQuantity($('pm-stock').value),
+    stock:        id ? null : parseQuantity($('pm-stock').value || '0'),
     categoryName: $('pm-cat').value,
     minStock:     $('pm-min').value === '' ? null : parseQuantity($('pm-min').value),
     reorderQuantity: $('pm-reorder').value === '' ? null : parseQuantity($('pm-reorder').value),
   };
-  if (!body.name || !body.barcode || isNaN(body.purchasePrice) || isNaN(body.taxRate) || isNaN(body.price) || isNaN(body.stock)) {
+  if (!body.name || !body.barcode || isNaN(body.purchasePrice) || isNaN(body.taxRate) || isNaN(body.price) || (!id && isNaN(body.stock))) {
     toast(t('Please fill in all required fields'), 'error'); return;
   }
   try {
@@ -1309,14 +1321,17 @@ async function submitProd() {
       await req('PUT', `/products/${id}`, body);
       toast(t('Product updated'), 'success');
     } else {
-      await req('POST', '/products', body);
-      toast(t('Product added'), 'success');
+      const res = await req('POST', '/products', body);
+      if (prodModalForPurchase) {
+        addPurchaseProduct(res.data);
+        toast(t('Product registered and added to the invoice. Enter the quantity received.'), 'success');
+      } else {
+        toast(t('Product added'), 'success');
+      }
     }
     closeModal('modal-prod');
+    prodModalForPurchase = false;
     loadProdsTable();
-    if ($('view-purchases')?.classList.contains('on')) {
-      toast(t('Now scan the barcode again to add it to the purchase invoice'), 'info');
-    }
   } catch (e) { toast(e.message || t('Save failed'), 'error'); }
 }
 

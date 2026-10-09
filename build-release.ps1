@@ -58,7 +58,7 @@ if ($LASTEXITCODE -ne 0) { throw 'jpackage failed.' }
 Copy-Item release\*.bat, release\LEXO-MUA.txt $package
 New-Item -ItemType Directory -Force "$package\config", "$package\docs" | Out-Null
 Copy-Item release\config\application.properties.example "$package\config\"
-Copy-Item docs\mysql-setup.sql "$package\docs\"
+Copy-Item docs\mysql-setup.sql, docs\INSTALL-WITH-CLAUDE.md "$package\docs\"
 # Windows batch files need CRLF line endings.
 Get-ChildItem "$package\*.bat" | ForEach-Object {
     $text = [IO.File]::ReadAllText($_.FullName) -replace "`r?`n", "`r`n"

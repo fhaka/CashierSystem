@@ -761,3 +761,21 @@ kbd {
   background: repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 3px, #000 3px 4px, #fff 4px 6px) top / 80% 22px no-repeat; }
 .sl-shop { font-size: .66rem; color: #374151; }
 @media (max-width: 760px) { .labels-layout { grid-template-columns: 1fr; } }
+
+
+
+/* Till tabs: one customer each */
+.till-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 10px 18px 0; background: var(--s1); }
+.till-tab {
+  position: relative; text-align: left; font: inherit; color: var(--text); cursor: pointer;
+  background: var(--bg); border: 1px solid var(--border); border-bottom: none; border-radius: var(--r) var(--r) 0 0;
+  padding: 8px 12px 9px; display: flex; flex-direction: column; gap: 2px; transition: var(--tr);
+}
+.till-tab strong { font-size: .86rem; }
+.till-tab span { font-family: var(--mono); font-size: .76rem; color: var(--muted); }
+.till-tab small { font-size: .72rem; color: var(--amber); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.till-tab kbd { position: absolute; top: 7px; right: 8px; font-size: .62rem; padding: 1px 5px; min-width: 0; }
+.till-tab.busy span { color: var(--text); font-weight: 700; }
+.till-tab.busy:not(.on) { background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.55); }
+.till-tab.on { background: var(--amber); border-color: var(--amber); color: #fff; }
+.till-tab.on span, .till-tab.on small { color: #fff; }

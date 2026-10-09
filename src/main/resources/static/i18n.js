@@ -851,6 +851,13 @@ const SQ = {
   'Purchase invoice': 'Faturë blerjeje',
   'Bulk change': 'Ndryshim në grup',
   'File import': 'Importim skedari',
+  // 1.1: till tabs
+  'Customer {n}': 'Klienti {n}',
+  'empty': 'bosh',
+  '1 line': '1 rresht',
+  'Customer 1, 2 or 3 (each tab is its own sale)': 'Klienti 1, 2 ose 3 (çdo faqe është shitje më vete)',
+  'There are products that are not sold yet. Are you sure you want to close the till? The tabs will be emptied and the sale will not be registered.': 'Ka produkte që nuk janë shitur ende. Jeni i sigurt që doni të mbyllni arkën? Faqet do të pastrohen dhe shitja nuk do të regjistrohet.',
+  'Products thrown away at closing': 'Produkte të hedhura në mbyllje',
 };
 
 const SUPPORTED_LANGUAGES = ['sq', 'en'];

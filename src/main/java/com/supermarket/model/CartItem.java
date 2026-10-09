@@ -17,6 +17,9 @@ import java.math.RoundingMode;
 /**
  * One line of a cart. Name, barcode, price, VAT and unit are copied from the product when it is scanned,
  * so the price the customer was shown does not change while they are at the till.
+ * <p>A line for a box (package) counts boxes: price is the price of one box and every box takes
+ * {@link #getPiecesPerUnit()} pieces from the product's stock. A box and single pieces of the same product
+ * are separate lines.
  */
 @Entity
 @Table(name = "cart_items")
@@ -24,7 +27,6 @@ public class CartItem {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @JsonIgnore
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -53,6 +55,14 @@ public class CartItem {
     @Column(nullable = false, length = 10)
     private String unit;
 
+    @Column(name = "package_id")
+    private Long packageId;
+
+    @Column(length = 100)
+    private String packageName;
+
+    private Integer piecesPerUnit;
+
     protected CartItem() {
     }
 
@@ -64,6 +74,30 @@ public class CartItem {
         this.price = product.getPrice();
         this.taxRate = product.getTaxRate();
         this.unit = product.getUnit();
+    }
+
+    /** A line of whole boxes. */
+    public CartItem(ProductPackage box, BigDecimal boxes) {
+        this(box.getProduct(), boxes);
+        this.barcode = box.getBarcode();
+        this.price = box.effectivePrice();
+        this.packageId = box.getId();
+        this.packageName = box.getName();
+        this.piecesPerUnit = box.getPieces();
+    }
+
+    /** Pieces this line takes from the product's stock. */
+    public BigDecimal getStockQuantity() {
+        return piecesPerUnit == null ? quantity : quantity.multiply(BigDecimal.valueOf(piecesPerUnit));
+    }
+
+    /** The id of the line, used to change or remove it. */
+    public Long getLineId() {
+        return id;
+    }
+
+    public boolean isSameLine(Long productId, Long packageId) {
+        return this.productId.equals(productId) && java.util.Objects.equals(this.packageId, packageId);
     }
 
     public BigDecimal getLineTotal() {
@@ -126,5 +160,17 @@ public class CartItem {
 
     public String getUnit() {
         return unit;
+    }
+
+    public Long getPackageId() {
+        return packageId;
+    }
+
+    public String getPackageName() {
+        return packageName;
+    }
+
+    public Integer getPiecesPerUnit() {
+        return piecesPerUnit;
     }
 }

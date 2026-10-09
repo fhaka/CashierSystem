@@ -21,4 +21,8 @@ public interface AuditEventRepository extends JpaRepository<AuditEvent, Long> {
             """)
     List<AuditEvent> search(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to,
                             @Param("action") String action, @Param("cashierId") Long cashierId, Pageable page);
+
+    /** Newest first: everything recorded about one product, user, ... */
+    @Query("select e from AuditEvent e where e.entityType = :type and e.entityId = :id order by e.createdAt desc, e.id desc")
+    List<AuditEvent> findForEntity(@Param("type") String type, @Param("id") String id, Pageable page);
 }

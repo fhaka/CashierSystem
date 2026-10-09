@@ -73,8 +73,19 @@ public class Cart {
         this.updatedAt = now;
     }
 
-    public Optional<CartItem> findItem(Long productId) {
-        return items.stream().filter(item -> item.getProductId().equals(productId)).findFirst();
+    /** The line of single pieces (packageId null) or of a box of a product. */
+    public Optional<CartItem> findItem(Long productId, Long packageId) {
+        return items.stream().filter(item -> item.isSameLine(productId, packageId)).findFirst();
+    }
+
+    public Optional<CartItem> findLine(Long lineId) {
+        return items.stream().filter(item -> lineId.equals(item.getLineId())).findFirst();
+    }
+
+    /** Pieces of a product in the whole cart, single pieces and boxes together. */
+    public BigDecimal piecesOf(Long productId) {
+        return items.stream().filter(item -> item.getProductId().equals(productId))
+                .map(CartItem::getStockQuantity).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     public void addItem(CartItem item) {

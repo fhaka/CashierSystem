@@ -5,8 +5,10 @@ import com.supermarket.dto.ProductRequest;
 import com.supermarket.exception.ProductNotFoundException;
 import com.supermarket.model.Cashier;
 import com.supermarket.model.Category;
+import com.supermarket.model.PriceChange;
 import com.supermarket.model.Product;
 import com.supermarket.repository.CategoryRepository;
+import com.supermarket.repository.ProductPackageRepository;
 import com.supermarket.repository.ProductRepository;
 import com.supermarket.util.FilterUtil;
 import com.supermarket.util.Quantities;
@@ -19,6 +21,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 
 @Service
@@ -29,11 +32,18 @@ public class ProductService {
     private final FilterUtil<Product> productFilter = new FilterUtil<>();
 
     private final AuditService auditService;
+    private final ProductPackageRepository packageRepository;
+    private final PriceHistoryService priceHistoryService;
 
-    public ProductService(ProductRepository productRepository, CategoryRepository categoryRepository, AuditService auditService) {
+    private static final Set<String> CONTENT_UNITS = Set.of("g", "kg", "ml", "l");
+
+    public ProductService(ProductRepository productRepository, CategoryRepository categoryRepository, AuditService auditService,
+                          ProductPackageRepository packageRepository, PriceHistoryService priceHistoryService) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.auditService = auditService;
+        this.packageRepository = packageRepository;
+        this.priceHistoryService = priceHistoryService;
     }
 
     public List<Product> findAll() {
@@ -97,7 +107,9 @@ public class ProductService {
         Product product = new Product(request.getName().trim(), request.getBarcode().trim(), request.getPrice(), request.getPurchasePrice(),
                 request.getTaxRate(), Quantities.requireStock(request.getStock(), unit), unit, category);
         applyReorderSettings(product, request, unit);
+        applyContent(product, request);
         Product saved = productRepository.save(product);
+        priceHistoryService.record(saved.getId(), null, PriceChange.Source.EDIT, actor, null, saved.getPrice(), null, saved.getPurchasePrice());
         auditService.record(actor, "PRODUCT_CREATED", "PRODUCT", saved.getId(),
                 saved.getName() + ", price " + saved.getPrice() + ", stock " + saved.getStock().stripTrailingZeros().toPlainString());
         return saved;
@@ -105,9 +117,17 @@ public class ProductService {
 
     @Transactional
     public Product update(Long id, ProductRequest request, Cashier actor) {
+        return update(id, request, actor, PriceChange.Source.EDIT);
+    }
+
+    /** source says where the change comes from (the product form, or a product file import) for the price history. */
+    @Transactional
+    public Product update(Long id, ProductRequest request, Cashier actor, PriceChange.Source source) {
         validateProductRequest(request);
         Product product = findById(id);
         String before = summary(product);
+        BigDecimal oldPrice = product.getPrice();
+        BigDecimal oldPurchasePrice = product.getPurchasePrice();
         requireFreeBarcode(request.getBarcode().trim(), id);
         String unit = normalizeUnit(request.getUnit());
         product.setName(request.getName().trim());
@@ -118,10 +138,15 @@ public class ProductService {
         // Stock is not edited here: the form may show an old number while the till keeps selling. It changes only
         // through sales, refunds, purchase invoices, adjustments and stock counts, each recorded with its reason.
         Quantities.requireStock(product.getStock(), unit);
+        if (!Quantities.PIECES.equals(unit) && !packageRepository.findForProduct(id).isEmpty()) {
+            throw new ValidationException("package.onlyPieces", product.getName());
+        }
         product.setUnit(unit);
         product.setCategory(resolveCategory(request));
         applyReorderSettings(product, request, unit);
+        applyContent(product, request);
         Product saved = productRepository.save(product);
+        priceHistoryService.record(saved.getId(), null, source, actor, oldPrice, saved.getPrice(), oldPurchasePrice, saved.getPurchasePrice());
         String after = summary(saved);
         if (!before.equals(after)) {
             auditService.record(actor, "PRODUCT_UPDATED", "PRODUCT", saved.getId(), before + " -> " + after);
@@ -154,6 +179,22 @@ public class ProductService {
                 ? null : Quantities.requirePositive(request.getReorderQuantity(), unit));
     }
 
+    /** What one piece contains (0.5 l, 330 g); both empty clears it. */
+    private static void applyContent(Product product, ProductRequest request) {
+        BigDecimal amount = request.getContentAmount();
+        String unit = request.getContentUnit() == null || request.getContentUnit().isBlank() ? null : request.getContentUnit().trim().toLowerCase();
+        if (amount == null && unit == null) {
+            product.setContentAmount(null);
+            product.setContentUnit(null);
+            return;
+        }
+        if (amount == null || amount.signum() <= 0 || unit == null || !CONTENT_UNITS.contains(unit)) {
+            throw new ValidationException("product.invalidContent");
+        }
+        product.setContentAmount(amount);
+        product.setContentUnit(unit);
+    }
+
     /** The fields worth auditing, in one line, to show what an edit changed. */
     private static String summary(Product product) {
         return product.getName() + " [" + product.getBarcode() + "] price " + product.getPrice()
@@ -168,6 +209,9 @@ public class ProductService {
                 .ifPresent(other -> {
                     throw new ValidationException(other.isActive() ? "product.barcodeExists" : "product.barcodeInactive", other.getName());
                 });
+        packageRepository.findByBarcode(barcode).ifPresent(box -> {
+            throw new ValidationException("product.barcodeIsPackage", box.getName(), box.getProduct().getName());
+        });
     }
 
     private Category resolveCategory(ProductRequest request) {

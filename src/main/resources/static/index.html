@@ -98,7 +98,7 @@
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
         </svg>
-        <span data-i18n>Products</span>
+        <span data-i18n>Warehouse</span>
       </button>
       <button class="nav-btn manager-only" data-v="purchases" onclick="gotoView('purchases')">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -367,10 +367,11 @@
     <div id="view-products" class="view">
       <div class="page-head" style="flex-shrink:0;">
         <div>
-          <div class="page-title" data-i18n>Products</div>
-          <div class="page-sub" data-i18n>Manage inventory and pricing</div>
+          <div class="page-title" data-i18n>Warehouse</div>
+          <div class="page-sub" data-i18n>Products, stock, prices, boxes and shelf labels</div>
         </div>
-        <div class="actions">
+        <div class="actions reports-actions">
+          <button class="btn btn-secondary" onclick="openLabelsChangedToday()" data-i18n>Labels for today's prices</button>
           <button class="btn btn-secondary" onclick="exportProducts()" data-i18n>Export CSV</button>
           <button class="btn btn-secondary" onclick="$('import-file').click()" data-i18n>Import CSV</button>
           <input type="file" id="import-file" accept=".csv,text/csv" class="hidden" onchange="importProducts(this)" />
@@ -382,22 +383,46 @@
           </button>
         </div>
       </div>
-      <div class="prod-page">
-        <div class="toolbar">
-          <input class="input" type="text" data-i18n-placeholder placeholder="Filter products" oninput="filterTable(this.value)" />
+      <div class="wh-page">
+        <div class="wh-kpis" id="wh-kpis"></div>
+        <div class="toolbar wh-toolbar">
+          <input class="input" id="wh-search" type="text" data-i18n-placeholder placeholder="Search by name or barcode" oninput="renderProdsTable()" />
+          <select class="input" id="wh-category" onchange="renderProdsTable()"></select>
+          <select class="input" id="wh-stock-filter" onchange="setWarehouseFilter(this.value)">
+            <option value="all" data-i18n>All active products</option>
+            <option value="low" data-i18n>Below minimum stock</option>
+            <option value="out" data-i18n>Out of stock</option>
+            <option value="dead" data-i18n>No sales in 60 days</option>
+            <option value="changed" data-i18n>Price changed today</option>
+            <option value="inactive" data-i18n>Deactivated</option>
+          </select>
+          <select class="input" id="wh-sort" onchange="renderProdsTable()">
+            <option value="name" data-i18n>Sort: name</option>
+            <option value="stock" data-i18n>Sort: lowest stock</option>
+            <option value="value" data-i18n>Sort: highest stock value</option>
+            <option value="margin" data-i18n>Sort: lowest margin</option>
+            <option value="sold" data-i18n>Sort: best sellers</option>
+          </select>
           <div class="tb-spacer"></div>
           <span class="tb-count" id="tb-count"></span>
         </div>
+        <div class="wh-bulk hidden" id="wh-bulk">
+          <strong id="wh-bulk-count"></strong>
+          <button class="btn btn-secondary btn-sm" onclick="openBulkPrice()" data-i18n>Change prices</button>
+          <button class="btn btn-secondary btn-sm" onclick="openLabelsForSelected()" data-i18n>Print labels</button>
+          <button class="btn btn-ghost btn-sm" onclick="clearWarehouseSelection()" data-i18n>Clear selection</button>
+        </div>
         <div class="tbl-wrap">
-          <table>
+          <table class="wh-table">
             <thead>
               <tr>
-                <th data-i18n>ID</th><th data-i18n>Name</th><th data-i18n>Barcode</th>
-                <th data-i18n>Category</th><th data-i18n>Unit</th><th data-i18n>Purchase</th><th data-i18n>Tax</th><th data-i18n>Final Price</th><th data-i18n>Stock</th><th data-i18n>Actions</th>
+                <th class="wh-check"><input type="checkbox" id="wh-select-all" onchange="selectAllWarehouse(this.checked)" /></th>
+                <th data-i18n>Product</th><th data-i18n>Category</th><th data-i18n>Stock</th><th data-i18n>Price</th>
+                <th data-i18n>Cost</th><th data-i18n>Margin</th><th data-i18n>Stock value</th><th data-i18n>Sold (30 days)</th>
               </tr>
             </thead>
             <tbody id="prod-tbody">
-              <tr><td colspan="10" class="no-data" data-i18n>Loading...</td></tr>
+              <tr><td colspan="9" class="no-data" data-i18n>Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1113,6 +1138,23 @@
           <input class="input" id="pm-reorder" type="number" min="0" step="any" data-i18n-placeholder placeholder="Empty: automatic" />
         </div>
       </div>
+      <div class="two-col">
+        <div class="input-group">
+          <label class="input-label" data-i18n>Content of one piece</label>
+          <input class="input" id="pm-content" type="number" min="0" step="any" data-i18n-placeholder placeholder="e.g. 500" />
+        </div>
+        <div class="input-group">
+          <label class="input-label" data-i18n>Content unit</label>
+          <select class="input" id="pm-content-unit">
+            <option value="">-</option>
+            <option value="g">g</option>
+            <option value="kg">kg</option>
+            <option value="ml">ml</option>
+            <option value="l">l</option>
+          </select>
+          <small class="input-hint" data-i18n>Shelf labels then show the price per kg or litre.</small>
+        </div>
+      </div>
     </div>
     <div class="modal-foot">
       <button class="btn btn-secondary" onclick="closeModal('modal-prod')" data-i18n>Cancel</button>
@@ -1328,6 +1370,105 @@
     <div class="modal-foot">
       <button class="btn btn-secondary" onclick="closeModal('modal-adjust')" data-i18n>Cancel</button>
       <button class="btn btn-primary" onclick="submitAdjustment()" data-i18n>Save</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="modal-card" class="overlay hidden">
+  <div class="modal card-modal">
+    <div class="modal-head">
+      <div>
+        <div class="modal-title" id="card-title"></div>
+        <div class="card-sub" id="card-sub"></div>
+      </div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeProductCard()">x</button>
+    </div>
+    <div class="card-actions" id="card-actions"></div>
+    <div class="card-kpis" id="card-kpis"></div>
+    <div class="seg card-tabs" id="card-tabs"></div>
+    <div class="card-body" id="card-body"></div>
+  </div>
+</div>
+
+
+<div id="modal-package" class="overlay hidden">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-head">
+      <div class="modal-title" id="pkg-title" data-i18n>Box</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-package')">x</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="pkg-id" />
+      <p class="sale-detail-meta" id="pkg-meta"></p>
+      <div class="input-group"><label class="input-label" data-i18n>Barcode of the box</label><input class="input" id="pkg-barcode" /></div>
+      <div class="input-group"><label class="input-label" data-i18n>Name</label><input class="input" id="pkg-name" data-i18n-placeholder placeholder="e.g. Box of 24" /></div>
+      <div class="two-col">
+        <div class="input-group"><label class="input-label" data-i18n>Pieces in the box</label><input class="input" id="pkg-pieces" type="number" min="2" step="1" oninput="updatePackageHint()" /></div>
+        <div class="input-group"><label class="input-label" data-i18n>Price of the box (LEK)</label><input class="input" id="pkg-price" type="number" min="0" step="0.01" oninput="updatePackageHint()" data-i18n-placeholder placeholder="Empty: pieces x piece price" /></div>
+      </div>
+      <small class="input-hint" id="pkg-hint"></small>
+      <label class="check-row"><input type="checkbox" id="pkg-active" checked /> <span data-i18n>Active (can be sold and bought)</span></label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal('modal-package')" data-i18n>Cancel</button>
+      <button class="btn btn-primary" onclick="savePackage()" data-i18n>Save</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="modal-bulk-price" class="overlay hidden">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-head">
+      <div class="modal-title" data-i18n>Change prices</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-bulk-price')">x</button>
+    </div>
+    <div class="modal-body">
+      <p class="sale-detail-meta" id="bp-meta"></p>
+      <div class="two-col">
+        <div class="input-group"><label class="input-label" data-i18n>Change (%)</label><input class="input" id="bp-percent" type="number" step="0.1" data-i18n-placeholder placeholder="e.g. 5 or -10" oninput="previewBulkPrice()" /></div>
+        <div class="input-group">
+          <label class="input-label" data-i18n>Round to</label>
+          <select class="input" id="bp-round" onchange="previewBulkPrice()">
+            <option value="0" data-i18n>No rounding</option>
+            <option value="1">1 LEK</option>
+            <option value="5">5 LEK</option>
+            <option value="10" selected>10 LEK</option>
+          </select>
+        </div>
+      </div>
+      <div class="tbl-wrap report-table-wrap"><table><thead><tr><th data-i18n>Product</th><th data-i18n>Now</th><th data-i18n>New</th></tr></thead><tbody id="bp-rows"></tbody></table></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal('modal-bulk-price')" data-i18n>Cancel</button>
+      <button class="btn btn-primary" id="bp-apply" onclick="applyBulkPrice()" data-i18n>Apply new prices</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="modal-labels" class="overlay hidden">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-head">
+      <div class="modal-title" data-i18n>Shelf labels</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-labels')">x</button>
+    </div>
+    <div class="modal-body">
+      <div class="labels-layout">
+        <div>
+          <div class="tbl-wrap"><table><thead><tr><th data-i18n>Label</th><th data-i18n>Copies</th><th></th></tr></thead><tbody id="lbl-items"></tbody></table></div>
+          <div class="input-group" style="margin-top:12px;">
+            <label class="input-label" data-i18n>Printer</label>
+            <select class="input" id="lbl-printer"><option value="" data-i18n>Receipt printer from Settings</option></select>
+          </div>
+        </div>
+        <div class="labels-preview" id="lbl-preview"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal('modal-labels')" data-i18n>Cancel</button>
+      <button class="btn btn-primary" onclick="printLabels()" data-i18n>Print</button>
     </div>
   </div>
 </div>

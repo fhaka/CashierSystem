@@ -12,6 +12,7 @@ public class PurchaseItemRequest {
     private BigDecimal taxRate;
     private String unit;
     private LocalDate expiryDate;
+    private Long packageId;
 
     public Long getProductId() {
         return productId;
@@ -67,5 +68,14 @@ public class PurchaseItemRequest {
 
     public void setExpiryDate(LocalDate expiryDate) {
         this.expiryDate = expiryDate;
+    }
+
+    /** Set when the line was bought in boxes: quantity is then the number of boxes and purchasePrice the price per box. */
+    public Long getPackageId() {
+        return packageId;
+    }
+
+    public void setPackageId(Long packageId) {
+        this.packageId = packageId;
     }
 }

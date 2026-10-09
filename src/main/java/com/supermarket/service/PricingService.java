@@ -124,13 +124,13 @@ public class PricingService {
                 manualDiscount, base.subtract(total), total);
     }
 
-    /** What a promotion takes off one cart line. "Buy X get Y" only works on pieces. */
+    /** What a promotion takes off one cart line. "Buy X get Y" only works on single pieces, not on boxes. */
     static BigDecimal discountFor(Promotion promotion, CartItem item) {
         BigDecimal gross = item.getLineTotal();
         if (promotion.getType() == Promotion.Type.PERCENT) {
             return gross.multiply(promotion.getDiscountPercent()).movePointLeft(2).setScale(2, RoundingMode.HALF_UP).min(gross);
         }
-        if (Quantities.KILOGRAMS.equals(item.getUnit())) {
+        if (Quantities.KILOGRAMS.equals(item.getUnit()) || item.getPackageId() != null) {
             return BigDecimal.ZERO;
         }
         int groupSize = promotion.getBuyQuantity() + promotion.getFreeQuantity();

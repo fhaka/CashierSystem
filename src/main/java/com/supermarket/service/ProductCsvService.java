@@ -3,6 +3,7 @@ package com.supermarket.service;
 import com.supermarket.dto.ProductRequest;
 import com.supermarket.exception.LocalizedException;
 import com.supermarket.model.Cashier;
+import com.supermarket.model.PriceChange;
 import com.supermarket.model.Product;
 import com.supermarket.repository.ProductRepository;
 import org.springframework.context.MessageSource;
@@ -93,7 +94,7 @@ public class ProductCsvService {
                 Optional<Product> existing = productRepository.findByBarcode(barcode);
                 ProductRequest request = toRequest(cells, index, existing.orElse(null), separator);
                 if (existing.isPresent()) {
-                    productService.update(existing.get().getId(), request, actor);
+                    productService.update(existing.get().getId(), request, actor, PriceChange.Source.IMPORT);
                     // A different stock in the file counts as a stock count, kept in the product's stock history.
                     stockService.correctTo(existing.get().getId(), request.getStock(), "CSV import", actor);
                     updated++;

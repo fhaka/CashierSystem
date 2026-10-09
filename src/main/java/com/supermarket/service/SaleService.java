@@ -40,6 +40,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -195,7 +196,10 @@ public class SaleService {
                 .findAllForUpdate(cartItems.stream().map(CartItem::getProductId).toList())
                 .stream()
                 .collect(Collectors.toMap(Product::getId, Function.identity()));
-        cartItems.forEach(item -> validateStock(productsById.get(item.getProductId()), item));
+        // Single pieces and boxes of the same product are separate lines: the stock must cover all of them.
+        Map<Long, BigDecimal> piecesByProduct = new LinkedHashMap<>();
+        cartItems.forEach(item -> piecesByProduct.merge(item.getProductId(), item.getStockQuantity(), BigDecimal::add));
+        cartItems.forEach(item -> validateStock(productsById.get(item.getProductId()), item, piecesByProduct.get(item.getProductId())));
 
         LocalDateTime now = LocalDateTime.now();
         PricingService.CartPrice price = pricingService.price(cartItems, cart.getManualDiscountPercent(), now);
@@ -210,7 +214,7 @@ public class SaleService {
         sale.setInvoiceNumber(nextInvoiceNumber());
         for (PricingService.LinePrice line : price.lines()) {
             Product product = productsById.get(line.item().getProductId());
-            product.setStock(product.getStock().subtract(line.item().getQuantity()));
+            product.setStock(product.getStock().subtract(line.item().getStockQuantity()));
             sale.addItem(toSaleItem(line, product));
         }
         if (customer != null) {
@@ -320,8 +324,18 @@ public class SaleService {
         BigDecimal discount = line.discount();
         BigDecimal lineTotal = line.total();
         BigDecimal taxAmount = lineTotal.subtract(CartItem.withoutTax(lineTotal, item.getTaxRate()));
-        SaleItem saleItem = new SaleItem(product, item.getQuantity(), item.getPrice(), item.getUnitPriceWithoutTax(),
-                item.getTaxRate(), taxAmount, item.getUnit());
+        SaleItem saleItem;
+        if (item.getPackageId() == null) {
+            saleItem = new SaleItem(product, item.getQuantity(), item.getPrice(), item.getUnitPriceWithoutTax(),
+                    item.getTaxRate(), taxAmount, item.getUnit());
+        } else {
+            // Boxes: the sale line counts pieces, at the box price shared over its pieces; the boxes are kept too.
+            BigDecimal pieces = BigDecimal.valueOf(item.getPiecesPerUnit());
+            BigDecimal piecePrice = item.getPrice().divide(pieces, 2, RoundingMode.HALF_UP);
+            saleItem = new SaleItem(product, item.getStockQuantity(), piecePrice, CartItem.withoutTax(piecePrice, item.getTaxRate()),
+                    item.getTaxRate(), taxAmount, item.getUnit());
+            saleItem.setPackage(item.getPackageId(), item.getPackageName(), item.getQuantity(), item.getPrice());
+        }
         saleItem.setDiscountAmount(discount);
         saleItem.setLineTotal(lineTotal);
         saleItem.setPurchasePrice(product.getPurchasePrice());
@@ -340,11 +354,11 @@ public class SaleService {
         return String.format("%06d", number);
     }
 
-    private void validateStock(Product product, CartItem item) {
+    private void validateStock(Product product, CartItem item, BigDecimal piecesInCart) {
         if (product == null || !product.isActive()) {
             throw new ValidationException("product.inactive", item.getProductName());
         }
-        if (product.getStock().compareTo(item.getQuantity()) < 0) {
+        if (product.getStock().compareTo(piecesInCart) < 0) {
             throw new InsufficientStockException(product.getName());
         }
     }
@@ -410,8 +424,13 @@ public class SaleService {
         r.rule();
         for (SaleItem item : sale.getItems()) {
             r.line(item.getProduct().getName());
-            r.row("  " + formatQuantity(item.getQuantity(), item.getUnit()) + " " + text("unit." + item.getUnit(), locale)
-                    + " x " + ReceiptLayout.format(item.getPrice()), item.getPrice().multiply(item.getQuantity()));
+            if (item.getPackageId() != null) {
+                r.row("  " + item.getPackageCount().stripTrailingZeros().toPlainString() + " " + item.getPackageName()
+                        + " x " + ReceiptLayout.format(item.getPackagePrice()), item.getPackagePrice().multiply(item.getPackageCount()));
+            } else {
+                r.row("  " + formatQuantity(item.getQuantity(), item.getUnit()) + " " + text("unit." + item.getUnit(), locale)
+                        + " x " + ReceiptLayout.format(item.getPrice()), item.getPrice().multiply(item.getQuantity()));
+            }
             if (item.getPromotion() != null && item.getPromotionDiscount().signum() > 0) {
                 r.row("  " + text("receipt.promotion", locale) + " " + item.getPromotion().getName(),
                         "-" + ReceiptLayout.format(item.getPromotionDiscount()));

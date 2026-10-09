@@ -779,3 +779,6 @@ kbd {
 .till-tab.busy:not(.on) { background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.55); }
 .till-tab.on { background: var(--amber); border-color: var(--amber); color: #fff; }
 .till-tab.on span, .till-tab.on small { color: #fff; }
+
+/* Magazina: totals row */
+.wh-total td { background: var(--bg); border-top: 2px solid var(--border); font-size: .9rem; }

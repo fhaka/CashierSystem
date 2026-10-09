@@ -16,12 +16,12 @@ INSTALIMI I PARË
 3. Shpaketoni këtë dosje p.sh. në C:\HakaPOS (jo në Desktop dhe jo në Downloads).
 4. Hapni start.bat. Herën e parë hapet config\application.properties:
    vendosni fjalëkalimin e haka_pos te spring.datasource.password, ruajeni, hapni përsëri start.bat.
-5. Arka hapet vetë. Krijoni llogarinë e administratorit (vetëm herën e parë).
+5. Paneli i Shitjeve hapet vetë. Krijoni llogarinë e administratorit (vetëm herën e parë).
 6. Te "Cilësimet" plotësoni emrin e dyqanit, adresën, NIPT-in dhe printerin e kuponit.
-7. Hapni install-autostart.bat që programi të niset vetë çdo mëngjes dhe të keni ikonën "Arka" në desktop.
+7. Hapni install-autostart.bat që programi të niset vetë çdo mëngjes dhe të keni ikonën "Paneli i Shitjeve" në desktop.
 
 PËRDORIMI ÇDO DITË
-- start.bat (ose ikona "Arka"): nis programin dhe hap arkën.
+- start.bat (ose ikona "Paneli i Shitjeve"): nis programin dhe hap panelin e shitjeve.
 - open-till.bat: hap edhe një dritare arke (p.sh. pasi e keni mbyllur).
 - stop.bat: ndal programin (përfundoni më parë shitjen në vazhdim).
 - Arka të tjera në rrjet: hapni në shfletues http://ADRESA-E-KËTIJ-KOMPJUTERI:8081
@@ -59,7 +59,7 @@ FIRST INSTALL
    spring.datasource.password, save, and run start.bat again.
 5. The till opens. Create the administrator account (first time only).
 6. In Settings, enter the shop name, address, tax number (NIPT) and receipt printer.
-7. Run install-autostart.bat to start the program at Windows sign-in and get an "Arka" desktop shortcut.
+7. Run install-autostart.bat to start the program at Windows sign-in and get a "Paneli i Shitjeve" desktop shortcut.
 
 DAILY USE: start.bat / open-till.bat / stop.bat. Other tills: http://THIS-COMPUTER:8081
 

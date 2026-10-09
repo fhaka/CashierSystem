@@ -351,11 +351,11 @@
         </div>
         <div class="compact-summary">
           <div class="subtotal-row"><span class="sub-label" data-i18n>Total</span><span class="sub-amount" id="cart-subtotal">0.00 LEK</span></div>
-          <button class="btn btn-primary btn-checkout" id="btn-checkout" disabled onclick="doCheckout()"><span data-i18n>Checkout (F10)</span></button>
-          <button class="btn btn-secondary btn-clear btn-sm" id="btn-clear" disabled onclick="clearCart()"><span data-i18n>Clear Invoice (F9)</span></button>
+          <button class="btn btn-primary btn-checkout" id="btn-checkout" disabled onclick="doCheckout()"><span data-i18n>Checkout (F5)</span></button>
+          <button class="btn btn-secondary btn-clear btn-sm" id="btn-clear" disabled onclick="clearCart()"><span data-i18n>Clear Invoice (F8)</span></button>
           <div class="park-actions">
             <button class="btn btn-secondary btn-sm" onclick="parkCart()"><span data-i18n>Park cart (F7)</span></button>
-            <button class="btn btn-secondary btn-sm" onclick="openParkedCarts()"><span data-i18n>Parked carts (F8)</span></button>
+            <button class="btn btn-secondary btn-sm" onclick="openParkedCarts()"><span data-i18n>Parked carts (F9)</span></button>
             <button class="btn btn-secondary btn-sm" onclick="openCustomerPicker()"><span data-i18n>Customer (F3)</span></button>
             <button class="btn btn-secondary btn-sm" onclick="askManualDiscount()"><span data-i18n>Discount % (F6)</span></button>
           </div>
@@ -426,6 +426,7 @@
             <tbody id="prod-tbody">
               <tr><td colspan="9" class="no-data" data-i18n>Loading...</td></tr>
             </tbody>
+            <tfoot id="wh-foot"></tfoot>
           </table>
         </div>
       </div>
@@ -1228,7 +1229,7 @@
       <small id="pay-total-foreign"></small>
     </div>
     <div class="pay-quick">
-      <button class="btn btn-secondary btn-sm" onclick="payExactCash()" data-i18n>Exact cash (F10)</button>
+      <button class="btn btn-secondary btn-sm" onclick="payExactCash()" data-i18n>Exact cash (F5)</button>
       <button class="btn btn-secondary btn-sm" onclick="payAllByCard()" data-i18n>All by card (F9)</button>
     </div>
     <div class="pay-notes">
@@ -1704,9 +1705,9 @@
         <tr><td><kbd>F3</kbd></td><td data-i18n>Customer of the sale</td></tr>
         <tr><td><kbd>F4</kbd></td><td data-i18n>Quantity of the selected line</td></tr>
         <tr><td><kbd>F6</kbd></td><td data-i18n>Discount on the whole cart</td></tr>
-        <tr><td><kbd>F7</kbd> / <kbd>F8</kbd></td><td data-i18n>Park cart / parked carts</td></tr>
-        <tr><td><kbd>F9</kbd></td><td data-i18n>Clear the invoice</td></tr>
-        <tr><td><kbd>F10</kbd></td><td data-i18n>Pay. In the payment window: exact cash; press again to finish</td></tr>
+        <tr><td><kbd>F7</kbd> / <kbd>F9</kbd></td><td data-i18n>Park cart / parked carts</td></tr>
+        <tr><td><kbd>F8</kbd></td><td data-i18n>Clear the invoice</td></tr>
+        <tr><td><kbd>F5</kbd></td><td data-i18n>Pay. In the payment window: exact cash; press again to finish</td></tr>
         <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd></td><td data-i18n>Select a line (or a search result)</td></tr>
         <tr><td><kbd>+</kbd> <kbd>-</kbd></td><td data-i18n>One more / one less of the selected line</td></tr>
         <tr><td><kbd>Delete</kbd></td><td data-i18n>Remove the selected line</td></tr>

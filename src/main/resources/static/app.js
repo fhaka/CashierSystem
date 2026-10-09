@@ -564,7 +564,7 @@ function onRateChanged() {
 
 function refreshCurrencyDisplay() {
   renderCart();
-  renderProdsTable(allProdTable);
+  if ($('view-products')?.classList.contains('on')) renderProdsTable();
   if (salesPage) { renderSalesTable(); renderStats(); }
   if ($('view-reports')?.classList.contains('on')) applyReportFilters();
 }
@@ -574,8 +574,7 @@ async function addToCart(body) {
   try {
     const res = await req('POST', '/sales/cart', body);
     cartItems = Array.isArray(res.data) ? res.data : [];
-    const productId = body.productId;
-    const index = productId ? cartItems.findIndex(i => i.productId === productId) : cartItems.length - 1;
+    const index = body.productId ? cartItems.findIndex(i => i.productId === body.productId && !i.packageId) : cartItems.length - 1;
     selectedLine = index >= 0 ? index : cartItems.length - 1;
     renderCart();
     fetchSubtotal();
@@ -602,24 +601,24 @@ function renderInvoiceRows() {
   }
   tbody.innerHTML = cartItems.map((item, index) => {
     const priceCell = true
-      ? `<input class="input pos-edit-cell" type="number" min="0.01" step="0.01" value="${Number(item.price || 0).toFixed(2)}" onchange="updateCartInline(${item.productId}, 'price', this.value)" />`
+      ? `<input class="input pos-edit-cell" type="number" min="0.01" step="0.01" value="${Number(item.price || 0).toFixed(2)}" onchange="updateCartInline(${item.lineId}, 'price', this.value)" />`
       : `<span class="td-p">${fmt(item.price)}</span>`;
     return `
     <tr class="${index === selectedLine ? 'selected' : ''}" onclick="selectLine(${index})">
       <td class="td-m">${String(index + 1).padStart(4, '0')}</td>
       <td class="invoice-code-cell">${esc(item.barcode || item.productId)}</td>
-      <td><strong>${esc(item.productName)}</strong></td>
+      <td><strong>${esc(item.productName)}</strong>${item.packageName ? `<div class="wh-sub">${esc(item.packageName)} · ${t('{count} pieces', { count: item.piecesPerUnit })}</div>` : ''}</td>
       <td class="td-p">${fmt(item.unitPriceWithoutTax)}</td>
       <td class="td-m">${fmtTax(item.taxRate)}</td>
       <td class="td-p">${fmt(item.taxAmount)}</td>
       <td>${priceCell}</td>
-      <td><input class="input pos-edit-cell pos-qty-cell" type="number" min="0" step="${item.unit === 'kg' ? '0.001' : '1'}" value="${fmtQty(item.quantity, item.unit)}" onchange="updateCartInline(${item.productId}, 'quantity', this.value)" /></td>
+      <td><input class="input pos-edit-cell pos-qty-cell" type="number" min="0" step="${item.unit === 'kg' ? '0.001' : '1'}" value="${fmtQty(item.quantity, item.unit)}" onchange="updateCartInline(${item.lineId}, 'quantity', this.value)" /></td>
       <td class="td-p">${fmt(item.lineTotal)}</td>
-      <td class="td-m">${esc(unitLabel(item.unit))}</td>
+      <td class="td-m">${esc(item.packageName ? t('box') : unitLabel(item.unit))}</td>
       <td class="td-a">
-        <button class="btn btn-secondary btn-sm btn-icon" title="${t('Decrease')}" onclick="stepQty(${item.productId},-1)">-</button>
-        <button class="btn btn-secondary btn-sm btn-icon" title="${t('Increase')}" onclick="stepQty(${item.productId},1)">+</button>
-        <button class="btn btn-danger btn-sm btn-icon" title="${t('Remove')}" onclick="removeItem(${item.productId})">x</button>
+        <button class="btn btn-secondary btn-sm btn-icon" title="${t('Decrease')}" onclick="stepQty(${item.lineId},-1)">-</button>
+        <button class="btn btn-secondary btn-sm btn-icon" title="${t('Increase')}" onclick="stepQty(${item.lineId},1)">+</button>
+        <button class="btn btn-danger btn-sm btn-icon" title="${t('Remove')}" onclick="removeItem(${item.lineId})">x</button>
       </td>
     </tr>
   `;
@@ -695,21 +694,21 @@ function promptQuantity() {
   if (value === null) return;
   const qty = parseQuantity(value);
   if (Number.isNaN(qty) || qty < 0) { toast(t('Enter a valid quantity'), 'error'); return; }
-  setQuantity(item.productId, qty);
+  setQuantity(item.lineId, qty);
 }
 
-/* The +/- buttons: one piece, or 100 g for weighed products. */
-function stepQty(productId, direction) {
-  const item = cartItems.find(i => i.productId === productId);
+/* The +/- buttons: one piece (or box), or 100 g for weighed products. */
+function stepQty(lineId, direction) {
+  const item = cartItems.find(i => i.lineId === lineId);
   if (!item) return;
   const step = item.unit === 'kg' ? 0.1 : 1;
-  setQuantity(productId, parseFloat(item.quantity) + direction * step);
+  setQuantity(lineId, parseFloat(item.quantity) + direction * step);
 }
 
-async function setQuantity(productId, quantity) {
+async function setQuantity(lineId, quantity) {
   const rounded = Math.max(0, Math.round(quantity * 1000) / 1000);
   try {
-    const res = await reqApproved('PUT', `/sales/cart/${productId}`, { quantity: rounded });
+    const res = await reqApproved('PUT', `/sales/cart/lines/${lineId}`, { quantity: rounded });
     cartItems = Array.isArray(res.data) ? res.data : [];
     renderCart();
     fetchSubtotal();
@@ -719,8 +718,8 @@ async function setQuantity(productId, quantity) {
   }
 }
 
-async function updateCartInline(productId, field, value) {
-  const item = cartItems.find(cartItem => cartItem.productId === productId);
+async function updateCartInline(lineId, field, value) {
+  const item = cartItems.find(cartItem => cartItem.lineId === lineId);
   if (!item) return;
   const body = { quantity: item.quantity };
   if (field === 'quantity') {
@@ -742,7 +741,7 @@ async function updateCartInline(productId, field, value) {
     body.price = price;
   }
   try {
-    const res = await reqApproved('PUT', `/sales/cart/${productId}`, body);
+    const res = await reqApproved('PUT', `/sales/cart/lines/${lineId}`, body);
     cartItems = Array.isArray(res.data) ? res.data : [];
     renderCart();
     fetchSubtotal();
@@ -753,8 +752,8 @@ async function updateCartInline(productId, field, value) {
   }
 }
 
-async function removeItem(productId) {
-  await setQuantity(productId, 0);
+async function removeItem(lineId) {
+  await setQuantity(lineId, 0);
 }
 
 /* Parked carts: put the current customer aside and serve the next one. */
@@ -999,8 +998,8 @@ function scanPurchaseField() {
 
 async function addPurchaseByBarcode(barcode) {
   try {
-    const res = await req('GET', `/products/barcode/${encodeURIComponent(barcode)}`);
-    addPurchaseProduct(res.data);
+    const res = await req('GET', `/products/scan/${encodeURIComponent(barcode)}`);
+    addPurchaseProduct(res.data.product, res.data.packageInfo);
     toast(t('Product added to purchase invoice'), 'success');
   } catch (e) {
     toast(t('New product: register it, then it is added to this invoice.'), 'info');
@@ -1008,19 +1007,23 @@ async function addPurchaseByBarcode(barcode) {
   }
 }
 
-function addPurchaseProduct(product) {
-  const existing = purchaseItems.find(item => item.productId === product.id);
+/* A line of single pieces, or of boxes (box given): then quantity counts boxes and the purchase price is per box. */
+function addPurchaseProduct(product, box = null) {
+  const existing = purchaseItems.find(item => item.productId === product.id && (item.packageId || null) === (box?.id || null));
   if (existing) {
     existing.quantity += 1;
   } else {
     purchaseItems.push({
       productId: product.id,
-      barcode: product.barcode,
+      packageId: box?.id || null,
+      packageName: box?.name || null,
+      pieces: box?.pieces || null,
+      barcode: box?.barcode || product.barcode,
       name: product.name,
       category: product.category?.name || 'General',
       unit: product.unit || 'pcs',
       quantity: 1,
-      purchasePrice: parseFloat(product.purchasePrice || 0),
+      purchasePrice: parseFloat(product.purchasePrice || 0) * (box?.pieces || 1),
       taxRate: parseFloat(product.taxRate || 20),
       sellingPrice: parseFloat(product.price || 0),
       expiryDate: ''
@@ -1041,13 +1044,13 @@ function renderPurchaseRows() {
     <tr>
       <td class="td-m">${String(index + 1).padStart(4, '0')}</td>
       <td class="invoice-code-cell">${esc(item.barcode)}</td>
-      <td><strong>${esc(item.name)}</strong></td>
+      <td><strong>${esc(item.name)}</strong>${item.packageId ? `<div class="wh-sub">${esc(item.packageName)} · ${t('{count} pieces', { count: item.pieces })} · ${t('price per box')}</div>` : ''}</td>
       <td><span class="badge b-blue">${esc(item.category)}</span></td>
-      <td>
+      <td>${item.packageId ? `<span class="badge b-muted">${t('box')}</span>` : `
         <select class="input purchase-cell" onchange="updatePurchaseItem(${index}, 'unit', this.value)">
           <option value="pcs" ${item.unit === 'pcs' ? 'selected' : ''}>pcs</option>
           <option value="kg" ${item.unit === 'kg' ? 'selected' : ''}>kg</option>
-        </select>
+        </select>`}
       </td>
       <td><input class="input purchase-cell" type="number" min="0" step="${item.unit === 'kg' ? '0.001' : '1'}" value="${item.quantity}" onchange="updatePurchaseItem(${index}, 'quantity', this.value)" /></td>
       <td><input class="input purchase-cell" type="number" min="0" step="0.01" value="${item.purchasePrice}" onchange="updatePurchaseItem(${index}, 'purchasePrice', this.value)" /></td>
@@ -1091,7 +1094,7 @@ function getPurchaseLineTotal(item) {
 
 function updatePurchaseTotal() {
   const total = purchaseItems.reduce((sum, item) => sum + getPurchaseLineTotal(item), 0);
-  const itemsInInvoice = itemCount(purchaseItems);
+  const itemsInInvoice = itemCount(purchaseItems.map(item => ({ ...item, quantity: parseQuantity(item.quantity) * (item.pieces || 1) })));
   if ($('purchase-total')) $('purchase-total').textContent = fmtLek(total);
   if ($('purchase-lines-count')) $('purchase-lines-count').textContent = purchaseItems.length;
   if ($('purchase-items-count')) $('purchase-items-count').textContent = itemsInInvoice;
@@ -1113,6 +1116,7 @@ async function savePurchaseInvoice() {
     invoiceDate: $('purchase-date')?.value,
     items: purchaseItems.map(item => ({
       productId: item.productId,
+      packageId: item.packageId || null,
       quantity: parseQuantity(item.quantity),
       purchasePrice: parseFloat(item.purchasePrice || 0),
       sellingPrice: parseFloat(item.sellingPrice || 0),
@@ -1195,78 +1199,483 @@ function updateFinalPricePreview() {
   }
 }
 
+/*  Magazina (warehouse): products, stock, prices, boxes and shelf labels  */
+let warehouseOverview = null;
+let warehouseFilter = 'all';
+let warehouseChangedToday = new Set();
+const warehouseSelected = new Set();
+let productCard = null;
+let productCardTab = 'summary';
+const DEAD_STOCK_DAYS = 60;
+
 async function loadProdsTable() {
   $('prod-tbody').innerHTML = `<tr><td colspan="9" class="no-data">${t('Loading...')}</td></tr>`;
   try {
-    const res = await req('GET', '/products');
-    allProdTable = Array.isArray(res.data) ? res.data : [];
-    renderProdsTable(allProdTable);
-    $('tb-count').textContent = t('{count} products', { count: allProdTable.length });
+    const [overview, products, changed] = await Promise.all([
+      req('GET', '/warehouse/overview'),
+      req('GET', '/warehouse/products'),
+      req('GET', '/warehouse/labels/changed-today')
+    ]);
+    warehouseOverview = overview.data;
+    allProdTable = Array.isArray(products.data) ? products.data : [];
+    warehouseChangedToday = new Set(changed.data || []);
+    [...warehouseSelected].forEach(id => { if (!allProdTable.some(p => p.id === id)) warehouseSelected.delete(id); });
+    renderWarehouseKpis();
+    fillWarehouseCategories();
+    renderProdsTable();
+    if (productCard && !$('modal-card').classList.contains('hidden')) openProductCard(productCard.product.id, productCardTab);
   } catch (e) {
-    $('prod-tbody').innerHTML = `<tr><td colspan="10" class="no-data" style="color:var(--red)">${t('Error')}: ${esc(e.message)}</td></tr>`;
+    $('prod-tbody').innerHTML = `<tr><td colspan="9" class="no-data" style="color:var(--red)">${t('Error')}: ${esc(e.message)}</td></tr>`;
   }
 }
 
-function filterTable(q) {
-  const lq = q.toLowerCase();
-  const filtered = allProdTable.filter(p =>
-    p.name.toLowerCase().includes(lq) ||
-    (p.barcode || '').includes(lq) ||
-    (p.category?.name || '').toLowerCase().includes(lq)
-  );
-  renderProdsTable(filtered);
-  $('tb-count').textContent = t('{shown} of {total} products', { shown: filtered.length, total: allProdTable.length });
+function renderWarehouseKpis() {
+  const o = warehouseOverview;
+  if (!o) return;
+  const tile = (filter, label, value, tone = '') => `
+    <button class="wh-kpi ${tone} ${filter && filter === warehouseFilter ? 'on' : ''}" ${filter ? `onclick="setWarehouseFilter('${filter}')"` : 'disabled'}>
+      <span>${label}</span><strong>${value}</strong>
+    </button>`;
+  $('wh-kpis').innerHTML =
+    tile('all', t('Active products'), o.activeProducts) +
+    tile(null, t('Stock value (cost)'), fmtLek(o.stockValueAtCost)) +
+    tile(null, t('Stock value (selling price)'), fmtLek(o.stockValueAtPrice)) +
+    tile('low', t('Below minimum stock'), o.lowStock, o.lowStock ? 'warn' : '') +
+    tile('out', t('Out of stock'), o.outOfStock, o.outOfStock ? 'bad' : '') +
+    tile('dead', t('No sales in 60 days'), o.deadStock) +
+    tile('changed', t('Price changed today'), o.pricesChangedToday, o.pricesChangedToday ? 'warn' : '');
 }
 
-function renderProdsTable(products) {
+function setWarehouseFilter(filter) {
+  warehouseFilter = filter;
+  $('wh-stock-filter').value = filter;
+  renderWarehouseKpis();
+  renderProdsTable();
+}
+
+function fillWarehouseCategories() {
+  const select = $('wh-category');
+  const current = select.value;
+  const names = [...new Set(allProdTable.map(p => p.category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  select.innerHTML = `<option value="">${t('All categories')}</option>` + names.map(n => `<option>${esc(n)}</option>`).join('');
+  select.value = names.includes(current) ? current : '';
+}
+
+/* Whole boxes in a stock of pieces: "= 3 boxes" next to the stock. */
+function boxesText(p) {
+  if (!p.biggestPackagePieces || parseFloat(p.stock) < p.biggestPackagePieces) return '';
+  return '= ' + t('{count} x {box}', { count: Math.floor(parseFloat(p.stock) / p.biggestPackagePieces), box: p.biggestPackage });
+}
+
+function warehouseRows() {
+  const q = ($('wh-search')?.value || '').trim().toLowerCase();
+  const category = $('wh-category')?.value || '';
+  const deadBefore = Date.now() - DEAD_STOCK_DAYS * 86400000;
+  const rows = allProdTable.filter(p => {
+    if (warehouseFilter === 'inactive') { if (p.active) return false; }
+    else if (!p.active) return false;
+    const stock = parseFloat(p.stock);
+    if (warehouseFilter === 'low' && !(p.minStock != null && stock <= parseFloat(p.minStock))) return false;
+    if (warehouseFilter === 'out' && stock > 0) return false;
+    if (warehouseFilter === 'dead' && !(stock > 0 && (!p.lastSaleAt || new Date(p.lastSaleAt).getTime() < deadBefore))) return false;
+    if (warehouseFilter === 'changed' && !warehouseChangedToday.has(p.id)) return false;
+    if (category && p.category !== category) return false;
+    return !q || p.name.toLowerCase().includes(q) || (p.barcode || '').includes(q);
+  });
+  const by = {
+    name: (a, b) => a.name.localeCompare(b.name),
+    stock: (a, b) => parseFloat(a.stock) - parseFloat(b.stock),
+    value: (a, b) => parseFloat(b.stockValue) - parseFloat(a.stockValue),
+    margin: (a, b) => parseFloat(a.marginPercent) - parseFloat(b.marginPercent),
+    sold: (a, b) => parseFloat(b.soldLast30Days) - parseFloat(a.soldLast30Days)
+  }[$('wh-sort')?.value || 'name'];
+  return rows.sort(by);
+}
+
+function renderProdsTable() {
   const tbody = $('prod-tbody');
-  if (!products.length) {
-    tbody.innerHTML = `<tr><td colspan="10" class="no-data">${t('No products found')}</td></tr>`; return;
+  const rows = warehouseRows();
+  $('tb-count').textContent = t('{shown} of {total} products', { shown: rows.length, total: allProdTable.length });
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="9" class="no-data">${t('No products found')}</td></tr>`;
+  } else {
+    tbody.innerHTML = rows.map(p => {
+      const stock = parseFloat(p.stock);
+      const tone = stock <= 0 ? 'b-red' : (p.minStock != null && stock <= parseFloat(p.minStock)) ? 'b-amber' : 'b-green';
+      const margin = parseFloat(p.marginPercent);
+      return `<tr class="wh-row ${p.active ? '' : 'row-inactive'}" onclick="openProductCard(${p.id})">
+        <td class="wh-check" onclick="event.stopPropagation()"><input type="checkbox" ${warehouseSelected.has(p.id) ? 'checked' : ''} onchange="toggleWarehouseSelect(${p.id}, this.checked)" /></td>
+        <td><strong>${esc(p.name)}</strong>${p.active ? '' : ` <span class="badge b-red">${t('Inactive')}</span>`}
+          <div class="wh-sub">${esc(p.barcode)}${p.packages ? ` · <span class="badge b-muted">${t('{count} boxes', { count: p.packages })}</span>` : ''}</div></td>
+        <td><span class="badge b-blue">${esc(p.category || t('None'))}</span></td>
+        <td><span class="badge ${tone}">${fmtQty(p.stock, p.unit)} ${esc(unitLabel(p.unit))}</span><div class="wh-sub">${esc(boxesText(p))}</div></td>
+        <td class="td-p">${fmt(p.price)}</td>
+        <td class="td-p">${fmt(p.purchasePrice)}</td>
+        <td class="${margin < 10 ? 't-red' : ''}">${margin.toFixed(1)}%</td>
+        <td class="td-p">${fmtLek(p.stockValue)}</td>
+        <td class="td-m">${fmtQty(p.soldLast30Days, p.unit)}</td>
+      </tr>`;
+    }).join('');
   }
-  tbody.innerHTML = products.map(p => {
-    const sc = p.stock === 0 ? 'b-red' : p.lowStock ? 'b-amber' : 'b-green';
-    const inactive = p.active === false;
-    return `<tr class="${inactive ? 'row-inactive' : ''}">
-      <td class="td-m t-muted">#${p.id}</td>
-      <td><strong>${esc(p.name)}</strong>${inactive ? ` <span class="badge b-red">${t('Inactive')}</span>` : ''}</td>
-      <td class="td-m">${esc(p.barcode)}</td>
-      <td><span class="badge b-blue">${esc(p.category?.name || t('None'))}</span></td>
-      <td><span class="badge b-muted">${esc(unitLabel(p.unit))}</span></td>
-      <td class="td-p">${fmt(p.purchasePrice)}</td>
-      <td class="td-m">${fmtTax(p.taxRate)}</td>
-      <td class="td-p">${fmt(p.price)}</td>
-      <td><span class="badge ${sc}">${fmtQty(p.stock, p.unit)}</span></td>
-      <td class="td-a">
-        <button class="btn btn-secondary btn-sm" onclick="openAdjust(${p.id})">${t('Stock')}</button>
-        <button class="btn btn-secondary btn-sm btn-icon" title="${t('Edit')}" onclick="openProdModalById(${p.id})">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-          </svg>
-        </button>
-        ${inactive ? `<button class="btn btn-secondary btn-sm" onclick="activateProd(${p.id})">${t('Reactivate')}</button>` : `<button class="btn btn-danger btn-sm btn-icon" title="${t('Deactivate')}" onclick="confirmDelete(${p.id})">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="3 6 5 6 21 6"/>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-          </svg>
-        </button>`}
-      </td>
-    </tr>`;
-  }).join('');
+  $('wh-select-all').checked = rows.length > 0 && rows.every(p => warehouseSelected.has(p.id));
+  renderWarehouseBulk();
+}
+
+function toggleWarehouseSelect(id, on) {
+  if (on) warehouseSelected.add(id); else warehouseSelected.delete(id);
+  renderWarehouseBulk();
+}
+
+function selectAllWarehouse(on) {
+  warehouseRows().forEach(p => { if (on) warehouseSelected.add(p.id); else warehouseSelected.delete(p.id); });
+  renderProdsTable();
+}
+
+function clearWarehouseSelection() {
+  warehouseSelected.clear();
+  renderProdsTable();
+}
+
+function renderWarehouseBulk() {
+  $('wh-bulk').classList.toggle('hidden', warehouseSelected.size === 0);
+  $('wh-bulk-count').textContent = t('{count} selected', { count: warehouseSelected.size });
 }
 
 async function openProdModalById(productId) {
-  const localProduct = allProdTable.find(product => product.id === productId);
-  if (localProduct) {
-    openProdModal(localProduct);
-    return;
-  }
   try {
     const res = await req('GET', `/products/${productId}`);
     openProdModal(res.data);
   } catch (e) {
     toast(e.message || t('Could not load product'), 'error');
   }
+}
+
+/*  Product card  */
+const CARD_TABS = [
+  ['summary', 'Summary'], ['boxes', 'Boxes'], ['prices', 'Prices'], ['movements', 'Stock movements'],
+  ['suppliers', 'Suppliers'], ['history', 'History']
+];
+const MOVEMENT_LABELS = { SALE: 'Sale', REFUND: 'Refund', PURCHASE: 'Purchase', ADJUSTMENT: 'Adjustment' };
+const PRICE_SOURCES = { EDIT: 'Edited', PURCHASE: 'Purchase invoice', BULK: 'Bulk change', IMPORT: 'File import' };
+
+async function openProductCard(productId, tab = 'summary') {
+  try {
+    const res = await req('GET', `/warehouse/products/${productId}`);
+    productCard = res.data;
+    productCardTab = tab;
+    renderProductCard();
+    openModal('modal-card');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function closeProductCard() {
+  closeModal('modal-card');
+  productCard = null;
+}
+
+function cardBoxPrice(box) {
+  return box.price != null ? parseFloat(box.price) : parseFloat(productCard.product.price) * box.pieces;
+}
+
+function renderProductCard() {
+  const c = productCard;
+  const p = c.product;
+  const stock = parseFloat(p.stock);
+  $('card-title').textContent = p.name;
+  $('card-sub').innerHTML = `${esc(p.barcode)} · ${esc(c.category || t('None'))} · ${esc(unitLabel(p.unit))}`
+    + (p.active ? '' : ` · <span class="badge b-red">${t('Inactive')}</span>`);
+  $('card-actions').innerHTML = `
+    <button class="btn btn-secondary btn-sm" onclick="openProdModalById(${p.id})">${t('Edit')}</button>
+    <button class="btn btn-secondary btn-sm" onclick="openAdjust(${p.id})">${t('Adjust stock')}</button>
+    <button class="btn btn-primary btn-sm" onclick="openLabelsForCard()">${t('Print label')}</button>
+    ${p.active ? `<button class="btn btn-danger btn-sm" onclick="confirmDelete(${p.id})">${t('Deactivate')}</button>`
+      : `<button class="btn btn-secondary btn-sm" onclick="activateProd(${p.id})">${t('Reactivate')}</button>`}`;
+  const boxes = c.packages.filter(b => b.active);
+  const biggest = boxes.reduce((max, b) => (!max || b.pieces > max.pieces ? b : max), null);
+  const kpi = (label, value, sub = '') => `<div class="card-kpi"><span>${label}</span><strong>${value}</strong>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  $('card-kpis').innerHTML =
+    kpi(t('Stock'), `${fmtQty(p.stock, p.unit)} ${esc(unitLabel(p.unit))}`,
+      biggest && stock >= biggest.pieces ? esc('= ' + t('{count} x {box}', { count: Math.floor(stock / biggest.pieces), box: biggest.name })) : '') +
+    kpi(t('Price'), fmtLek(p.price), c.unitPriceLabel ? `${esc(c.unitPriceLabel)} ${fmtLek(c.unitPrice)}` : '') +
+    kpi(t('Cost'), fmtLek(p.purchasePrice), `${t('Margin')} ${parseFloat(c.marginPercent).toFixed(1)}%`) +
+    kpi(t('Stock value'), fmtLek(stock > 0 ? stock * parseFloat(p.purchasePrice) : 0)) +
+    kpi(t('Sold (30 days)'), `${fmtQty(c.sales.soldLast30Days, p.unit)}`, fmtLek(c.sales.revenueLast30Days)) +
+    kpi(t('Days of stock left'), c.sales.daysOfStockLeft == null ? '-' : c.sales.daysOfStockLeft,
+      c.sales.lastSaleAt ? t('Last sale {date}', { date: fmtDate(c.sales.lastSaleAt) }) : t('Never sold'));
+  $('card-tabs').innerHTML = CARD_TABS.map(([id, label]) =>
+    `<button class="btn btn-secondary btn-sm ${id === productCardTab ? 'on' : ''}" onclick="showCardTab('${id}')">${t(label)}${id === 'boxes' && boxes.length ? ` (${boxes.length})` : ''}</button>`).join('');
+  $('card-body').innerHTML = ({
+    summary: cardSummary, boxes: cardBoxes, prices: cardPrices, movements: cardMovements, suppliers: cardSuppliers, history: cardHistory
+  })[productCardTab]();
+}
+
+function showCardTab(tab) {
+  productCardTab = tab;
+  renderProductCard();
+}
+
+function cardSummary() {
+  const c = productCard;
+  const p = c.product;
+  const weeks = c.sales.weeks;
+  const max = Math.max(1, ...weeks.map(w => parseFloat(w.quantity)));
+  const bars = weeks.map(w => {
+    const q = parseFloat(w.quantity);
+    return `<div class="wk-bar" title="${esc(formatDay(w.week))}: ${fmtQty(q, p.unit)}">
+      <span class="wk-fill" style="height:${Math.round(q / max * 100)}%"></span><small>${esc(formatDay(w.week).slice(0, 5))}</small></div>`;
+  }).join('');
+  const line = (label, value) => `<div class="balance-line"><span>${label}</span><strong>${value}</strong></div>`;
+  return `<div class="card-grid">
+    <section><h3 class="section-title">${t('Sold per week')}</h3><div class="wk-chart">${bars}</div></section>
+    <section><h3 class="section-title">${t('Details')}</h3>
+      ${line(t('Category'), esc(c.category || t('None')))}
+      ${line(t('VAT'), fmtTax(p.taxRate))}
+      ${line(t('Content of one piece'), p.contentAmount ? `${parseFloat(p.contentAmount)} ${esc(p.contentUnit)}` : '-')}
+      ${line(t('Minimum stock'), p.minStock != null ? fmtQty(p.minStock, p.unit) : '-')}
+      ${line(t('Reorder quantity'), p.reorderQuantity != null ? fmtQty(p.reorderQuantity, p.unit) : t('Automatic'))}
+    </section>
+  </div>`;
+}
+
+function cardBoxes() {
+  const c = productCard;
+  const p = c.product;
+  if (p.unit !== 'pcs') return `<p class="no-data">${t('Only products sold by the piece can have boxes.')}</p>`;
+  const rows = c.packages.map(b => {
+    const price = cardBoxPrice(b);
+    const perPiece = price / b.pieces;
+    const saving = parseFloat(p.price) * b.pieces - price;
+    return `<tr class="${b.active ? '' : 'row-inactive'}">
+      <td><strong>${esc(b.name)}</strong>${b.active ? '' : ` <span class="badge b-red">${t('Inactive')}</span>`}</td>
+      <td class="td-m">${esc(b.barcode)}</td>
+      <td class="td-m">${b.pieces}</td>
+      <td class="td-p">${fmtLek(price)}${b.price == null ? ` <span class="badge b-muted">${t('auto')}</span>` : ''}</td>
+      <td class="td-p">${fmtLek(perPiece)}</td>
+      <td class="td-p">${saving > 0.004 ? fmtLek(saving) : '-'}</td>
+      <td><button class="btn btn-secondary btn-sm" onclick="openPackageModal(${b.id})">${t('Edit')}</button></td>
+    </tr>`;
+  }).join('');
+  return `<p class="input-hint">${t('A box has its own barcode. Selling or buying a box moves its pieces in and out of the stock of this product.')}</p>
+    <div class="tbl-wrap"><table><thead><tr><th>${t('Box')}</th><th>${t('Barcode')}</th><th>${t('Pieces')}</th><th>${t('Box price')}</th>
+      <th>${t('Per piece')}</th><th>${t('Customer saves')}</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="7" class="no-data">${t('No boxes yet.')}</td></tr>`}</tbody></table></div>
+    <button class="btn btn-primary btn-sm" style="margin-top:12px;" onclick="openPackageModal()">${t('Add box')}</button>`;
+}
+
+function cardPrices() {
+  const rows = productCard.priceHistory.map(ch => {
+    const box = ch.packageId ? productCard.packages.find(b => b.id === ch.packageId) : null;
+    const change = (from, to) => to == null ? '' : `${from == null ? '' : fmtLek(from) + ' → '}<strong>${fmtLek(to)}</strong>`;
+    return `<tr><td class="td-m">${fmtDate(ch.changedAt)}</td>
+      <td>${box ? esc(box.name) : t('Piece')}</td>
+      <td>${change(ch.oldPrice, ch.newPrice)}</td>
+      <td>${change(ch.oldPurchasePrice, ch.newPurchasePrice)}</td>
+      <td>${esc(t(PRICE_SOURCES[ch.source] || ch.source))}</td>
+      <td>${esc(ch.cashierName || '')}</td></tr>`;
+  }).join('');
+  return `<div class="tbl-wrap"><table><thead><tr><th>${t('Date')}</th><th>${t('For')}</th><th>${t('Selling price')}</th>
+    <th>${t('Purchase price')}</th><th>${t('Source')}</th><th>${t('User')}</th></tr></thead>
+    <tbody>${rows || `<tr><td colspan="6" class="no-data">${t('No price changes yet.')}</td></tr>`}</tbody></table></div>`;
+}
+
+function cardMovements() {
+  const p = productCard.product;
+  const rows = productCard.movements.map(m => {
+    const change = parseFloat(m.change);
+    const what = m.type === 'ADJUSTMENT' ? t(ADJUST_REASONS[m.reference] || m.reference) : (m.reference || '');
+    return `<tr><td class="td-m">${fmtDate(m.at)}</td>
+      <td>${esc(t(MOVEMENT_LABELS[m.type] || m.type))}</td>
+      <td class="td-m">${esc(what)}</td>
+      <td class="${change < 0 ? 'diff-minus' : 'diff-plus'}">${change > 0 ? '+' : ''}${fmtQty(change, p.unit)}</td>
+      <td class="td-m">${fmtQty(m.stockAfter, p.unit)}</td>
+      <td>${esc(m.detail || '')}</td><td>${esc(m.cashier || '')}</td></tr>`;
+  }).join('');
+  return `<div class="tbl-wrap"><table><thead><tr><th>${t('Date')}</th><th>${t('Type')}</th><th>${t('Document')}</th><th>${t('Quantity change')}</th>
+    <th>${t('Stock after')}</th><th>${t('Details')}</th><th>${t('User')}</th></tr></thead>
+    <tbody>${rows || `<tr><td colspan="7" class="no-data">${t('No stock movements yet.')}</td></tr>`}</tbody></table></div>`;
+}
+
+function cardSuppliers() {
+  const p = productCard.product;
+  const rows = productCard.suppliers.map(s => `<tr><td><strong>${esc(s.supplier)}</strong></td><td class="td-m">${formatDay(s.lastPurchase)}</td>
+    <td class="td-p">${fmtLek(s.lastPurchasePrice)}</td><td class="td-m">${fmtQty(s.totalQuantity, p.unit)}</td><td class="td-m">${s.purchases}</td></tr>`).join('');
+  return `<div class="tbl-wrap"><table><thead><tr><th>${t('Supplier')}</th><th>${t('Last purchase')}</th><th>${t('Last price (piece)')}</th>
+    <th>${t('Total bought')}</th><th>${t('Invoices')}</th></tr></thead>
+    <tbody>${rows || `<tr><td colspan="5" class="no-data">${t('Not bought on a purchase invoice yet.')}</td></tr>`}</tbody></table></div>`;
+}
+
+function cardHistory() {
+  const rows = productCard.history.map(e => `<tr><td class="td-m">${fmtDate(e.createdAt)}</td><td>${esc(auditActionLabel(e.action))}</td>
+    <td class="audit-details">${esc(e.details || '')}</td><td>${esc(e.cashierName || '')}</td></tr>`).join('');
+  return `<div class="tbl-wrap"><table><thead><tr><th>${t('Date')}</th><th>${t('Action')}</th><th>${t('Details')}</th><th>${t('User')}</th></tr></thead>
+    <tbody>${rows || `<tr><td colspan="4" class="no-data">-</td></tr>`}</tbody></table></div>`;
+}
+
+/*  Boxes  */
+function openPackageModal(packageId) {
+  const p = productCard.product;
+  const box = packageId ? productCard.packages.find(b => b.id === packageId) : null;
+  $('pkg-id').value = box?.id || '';
+  $('pkg-title').textContent = box ? t('Edit box') : t('Add box');
+  $('pkg-meta').textContent = `${p.name} — ${t('piece price')} ${fmtLek(p.price)}`;
+  $('pkg-barcode').value = box?.barcode || '';
+  $('pkg-name').value = box?.name || '';
+  $('pkg-pieces').value = box?.pieces || '';
+  $('pkg-price').value = box?.price ?? '';
+  $('pkg-active').checked = box ? box.active : true;
+  updatePackageHint();
+  openModal('modal-package');
+  setTimeout(() => $('pkg-barcode').focus(), 50);
+}
+
+function updatePackageHint() {
+  const pieces = parseInt($('pkg-pieces').value, 10);
+  const piecePrice = parseFloat(productCard?.product.price || 0);
+  if (!pieces || pieces < 2) { $('pkg-hint').textContent = ''; return; }
+  const full = piecePrice * pieces;
+  const own = parseFloat($('pkg-price').value);
+  $('pkg-hint').textContent = Number.isFinite(own) && own > 0
+    ? t('{pieces} pieces one by one: {full}. With this box the customer pays {own} ({per} per piece).',
+        { pieces, full: fmtLek(full), own: fmtLek(own), per: fmtLek(own / pieces) })
+    : t('Without its own price the box costs {full} ({pieces} x {price}).', { full: fmtLek(full), pieces, price: fmtLek(piecePrice) });
+}
+
+async function savePackage() {
+  const id = $('pkg-id').value;
+  const price = $('pkg-price').value.trim();
+  const body = {
+    barcode: $('pkg-barcode').value.trim(),
+    name: $('pkg-name').value.trim(),
+    pieces: parseInt($('pkg-pieces').value, 10),
+    price: price === '' ? null : parseFloat(price),
+    active: $('pkg-active').checked
+  };
+  try {
+    if (id) await req('PUT', `/warehouse/packages/${id}`, body);
+    else await req('POST', `/warehouse/products/${productCard.product.id}/packages`, body);
+    closeModal('modal-package');
+    toast(t('Box saved'), 'success');
+    await openProductCard(productCard.product.id, 'boxes');
+    loadProdsTable();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+/*  Bulk price change  */
+let _bulkTmr;
+function openBulkPrice() {
+  $('bp-meta').textContent = t('{count} products selected. The new prices are shown before anything is saved.', { count: warehouseSelected.size });
+  $('bp-percent').value = '';
+  $('bp-rows').innerHTML = '';
+  $('bp-apply').disabled = true;
+  openModal('modal-bulk-price');
+  setTimeout(() => $('bp-percent').focus(), 50);
+}
+
+function bulkPriceBody(apply) {
+  return { productIds: [...warehouseSelected], percent: parseFloat($('bp-percent').value), roundTo: parseFloat($('bp-round').value), apply };
+}
+
+function previewBulkPrice() {
+  clearTimeout(_bulkTmr);
+  _bulkTmr = setTimeout(async () => {
+    const body = bulkPriceBody(false);
+    if (!Number.isFinite(body.percent)) { $('bp-rows').innerHTML = ''; $('bp-apply').disabled = true; return; }
+    try {
+      const res = await req('POST', '/warehouse/prices/bulk', body);
+      $('bp-rows').innerHTML = res.data.map(r => `<tr><td>${esc(r.name)}</td><td class="td-p">${fmtLek(r.oldPrice)}</td>
+        <td class="td-p"><strong>${fmtLek(r.newPrice)}</strong></td></tr>`).join('');
+      $('bp-apply').disabled = false;
+    } catch (e) {
+      $('bp-rows').innerHTML = `<tr><td colspan="3" class="no-data" style="color:var(--red)">${esc(e.message)}</td></tr>`;
+      $('bp-apply').disabled = true;
+    }
+  }, 300);
+}
+
+async function applyBulkPrice() {
+  try {
+    await req('POST', '/warehouse/prices/bulk', bulkPriceBody(true));
+    closeModal('modal-bulk-price');
+    toast(t('Prices changed. Print the new shelf labels.'), 'success');
+    const ids = [...warehouseSelected];
+    await loadProdsTable();
+    openLabels(ids.map(id => ({ productId: id, copies: 1 })));
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+/*  Shelf labels  */
+let labelItems = [];
+
+function openLabelsForCard() {
+  const p = productCard.product;
+  openLabels([{ productId: p.id, copies: 1 }].concat(
+    productCard.packages.filter(b => b.active).map(b => ({ productId: p.id, packageId: b.id, copies: 0 }))));
+}
+
+function openLabelsForSelected() {
+  openLabels([...warehouseSelected].map(id => ({ productId: id, copies: 1 })));
+}
+
+function openLabelsChangedToday() {
+  if (!warehouseChangedToday.size) { toast(t('No prices changed today.'), 'info'); return; }
+  openLabels([...warehouseChangedToday].map(id => ({ productId: id, copies: 1 })));
+}
+
+async function openLabels(items) {
+  labelItems = items;
+  const printers = $('lbl-printer');
+  printers.innerHTML = `<option value="">${t('Receipt printer from Settings')}</option>`;
+  openModal('modal-labels');
+  renderLabelItems();
+  try {
+    const res = await req('GET', '/printer/printers');
+    (res.data || []).forEach(name => printers.add(new Option(name, name)));
+  } catch {}
+}
+
+async function renderLabelItems() {
+  try {
+    const res = await req('POST', '/warehouse/labels/preview', { items: labelItems.map(i => ({ ...i, copies: Math.max(1, i.copies) })) });
+    const labels = res.data;
+    $('lbl-items').innerHTML = labels.map((l, i) => `<tr>
+      <td><strong>${esc(l.name)}</strong>${l.packageText ? `<div class="wh-sub">${esc(l.packageText)}</div>` : ''}</td>
+      <td><input class="input lbl-copies" type="number" min="0" max="50" value="${labelItems[i].copies}" onchange="setLabelCopies(${i}, this.value)" /></td>
+      <td><button class="btn btn-ghost btn-sm" onclick="removeLabelItem(${i})">x</button></td></tr>`).join('');
+    $('lbl-preview').innerHTML = labels.filter((l, i) => labelItems[i].copies > 0).map(l => `
+      <div class="shelf-label">
+        <div class="sl-name">${esc(l.name)}</div>
+        ${l.packageText ? `<div class="sl-box">${esc(l.packageText)}</div>` : ''}
+        <div class="sl-price">${esc(labelMoney(l.price))} <small>LEK</small></div>
+        ${l.unitPriceText ? `<div class="sl-unit">${esc(l.unitPriceText)}</div>` : ''}
+        <div class="sl-barcode">${esc(l.barcode)}</div>
+        <div class="sl-shop">${esc(shopSettings?.name || '')} ${formatDay(isoDay(new Date()))}</div>
+      </div>`).join('') || `<p class="no-data">${t('Nothing to print.')}</p>`;
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function labelMoney(amount) {
+  const n = parseFloat(amount);
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
+function setLabelCopies(index, value) {
+  labelItems[index].copies = Math.max(0, Math.min(50, parseInt(value, 10) || 0));
+  renderLabelItems();
+}
+
+function removeLabelItem(index) {
+  labelItems.splice(index, 1);
+  renderLabelItems();
+}
+
+async function printLabels() {
+  const items = labelItems.filter(i => i.copies > 0);
+  if (!items.length) { toast(t('Nothing to print.'), 'error'); return; }
+  try {
+    const res = await req('POST', '/warehouse/labels/print', { items, printerName: $('lbl-printer').value });
+    closeModal('modal-labels');
+    toast(t('{count} labels sent to the printer', { count: res.data.labels }), 'success');
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 /*
@@ -1296,6 +1705,8 @@ function openProdModal(prod, barcodePrefill, forPurchase = false) {
   $('pm-stock-hint').classList.toggle('hidden', !editing && !prodModalForPurchase);
   $('pm-min').value    = prod?.minStock ?? '';
   $('pm-reorder').value = prod?.reorderQuantity ?? '';
+  $('pm-content').value = prod?.contentAmount ?? '';
+  $('pm-content-unit').value = prod?.contentUnit || '';
   openModal('modal-prod');
 }
 
@@ -1312,6 +1723,8 @@ async function submitProd() {
     categoryName: $('pm-cat').value,
     minStock:     $('pm-min').value === '' ? null : parseQuantity($('pm-min').value),
     reorderQuantity: $('pm-reorder').value === '' ? null : parseQuantity($('pm-reorder').value),
+    contentAmount: $('pm-content').value === '' ? null : parseFloat($('pm-content').value),
+    contentUnit: $('pm-content-unit').value || null,
   };
   if (!body.name || !body.barcode || isNaN(body.purchasePrice) || isNaN(body.taxRate) || isNaN(body.price) || (!id && isNaN(body.stock))) {
     toast(t('Please fill in all required fields'), 'error'); return;
@@ -1486,7 +1899,7 @@ async function viewSale(saleId) {
   const items = (sale.items || []);
   const itemRows = items.map(i => `
     <tr>
-      <td>${esc(i.productName || i.product?.name || '')}</td>
+      <td>${esc(i.productName || i.product?.name || '')}${i.packageName ? `<div class="wh-sub">${esc(parseFloat(i.packageCount) + ' x ' + i.packageName)}</div>` : ''}</td>
       <td class="td-m">${esc(i.barcode || i.product?.barcode || '')}</td>
       <td class="td-m">${esc(unitLabel(i.unit || i.product?.unit))}</td>
       <td class="td-m" style="text-align:center">${fmtQty(i.quantity, i.unit)}</td>
@@ -2577,6 +2990,7 @@ async function submitRefund() {
 
 /*  Audit log  */
 const AUDIT_LABELS = {
+  PACKAGE_CREATED: 'Box added', PACKAGE_UPDATED: 'Box changed', PRICE_BULK: 'Prices changed in bulk',
   SETTINGS_CHANGED: 'Shop settings changed', RECEIPT_REPRINTED: 'Receipt reprinted',
   LOGIN: 'Signed in', LOGOUT: 'Signed out', LOGIN_FAILED: 'Failed sign-in', ACCOUNT_LOCKED: 'Account locked',
   APPROVAL_FAILED: 'Wrong manager PIN', PRICE_OVERRIDE: 'Price changed at till', CART_LINE_VOID: 'Line voided',
@@ -2956,7 +3370,8 @@ function sendToDisplay(message) {
     type: 'cart',
     shop,
     lang: currentLang,
-    items: cartItems.map(i => ({ name: i.productName, quantity: fmtQty(i.quantity, i.unit), unit: unitLabel(i.unit), total: i.lineTotal })),
+    items: cartItems.map(i => ({ name: i.packageName ? `${i.productName} (${i.packageName})` : i.productName,
+      quantity: fmtQty(i.quantity, i.unit), unit: i.packageName ? t('box') : unitLabel(i.unit), total: i.lineTotal })),
     total: cartSummary?.totalAmount ?? cartItems.reduce((sum, i) => sum + parseFloat(i.lineTotal || 0), 0),
     discount: cartSummary?.discountAmount || 0,
     customer: cartSummary?.customer?.fullName || null
@@ -3029,12 +3444,12 @@ document.addEventListener('keydown', e => {
   }
   if (searchEmpty && cartItems.length && (e.key === '+' || e.key === '-')) {
     e.preventDefault();
-    stepQty(selectedItem().productId, e.key === '+' ? 1 : -1);
+    stepQty(selectedItem().lineId, e.key === '+' ? 1 : -1);
     return;
   }
   if (searchEmpty && cartItems.length && e.key === 'Delete') {
     e.preventDefault();
-    removeItem(selectedItem().productId);
+    removeItem(selectedItem().lineId);
     return;
   }
   // Typing anywhere on the till (or a scanner) goes into the search field.

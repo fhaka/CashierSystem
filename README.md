@@ -132,6 +132,15 @@ Hibernate does not change tables (`ddl-auto=none`). The tests run with `ddl-auto
 - **Buying on credit ("në borxh"):** customers with a credit limit (set by managers) can pay all or part of a sale *on account*, within the limit. Debt payments are taken in the customer's screen; cash goes into the current shift's drawer. Refunds of such sales can go back onto the account. Each customer has a full history of points and debt.
 - Shift closing and X/Z reports show sales on account and points used; neither counts as cash in the drawer.
 
+## Warehouse (Magazina)
+
+- **One page for products** (*Magazina*, managers): figures at the top (active products, stock value at cost and at selling price, below minimum, out of stock, no sales in 60 days, prices changed today; each one filters the list), search, category and stock filters, sorting, and per product its stock, price, cost, margin, stock value and sales of the last 30 days.
+- **Product card** (click a product): stock, price with price per kg/litre, cost and margin, days of stock left, sales per week, and tabs for its boxes, price history, stock movements (sales, refunds, purchases, adjustments, with the stock after each), suppliers (last price per piece) and history of changes.
+- **Boxes:** a box has its own barcode and holds a number of pieces of one product, at its own (usually lower) price or at pieces x the piece price. Stock is kept only in pieces: scanning a box at the till sells that many pieces, a purchase invoice can be entered in boxes (price per box; the cost per piece is worked out), and a customer can return single pieces from a box. Opened boxes are sold piece by piece by scanning the product itself. "Buy X get Y" promotions count single pieces only; percentage promotions also cover boxes.
+- **Prices:** every change of a selling or purchase price is kept (edited by hand, by a purchase invoice, in bulk, by a file import). Selected products can get a new price in bulk (+/- %, rounded to 1, 5 or 10 LEK) after a preview.
+- **Shelf labels** on the thermal receipt printer, from a product's card (the product and each of its boxes), for selected products, or for every price changed today: name, big price, price per kg/litre (from the content of one piece, e.g. 0.5 l) or per piece for a box, barcode, shop and date.
+- A barcode belongs to one product or one box. Editing a product never changes its stock.
+
 ## Inventory and suppliers
 
 - **Suppliers** (*Furnitorët*): name, NIPT, phone, email, address, notes. A purchase invoice is linked to its supplier (type the name; a new name creates the supplier). Payments to suppliers are recorded, and each supplier shows invoiced, paid and **owed**.

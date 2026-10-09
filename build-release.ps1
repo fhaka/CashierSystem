@@ -2,7 +2,7 @@
 #   HakaPOS\                       the program with its own Java (no Java needed on the shop computer)
 #   config\application.properties.example
 #   start.bat, stop.bat, open-till.bat, restore-backup.bat, install-autostart.bat
-#   LEXO-MUA.txt, docs\mysql-setup.sql
+#   LEXO-MUA.txt, docs\mysql-setup.sql, docs\INSTALL-WITH-CLAUDE.md (setup steps for Claude on a shop PC)
 #
 # Needs a JDK 17+ with jpackage (set JAVA_HOME, or it looks in C:\Program Files\Java) and Maven.
 # Run from the project folder:  powershell -ExecutionPolicy Bypass -File build-release.ps1 [-SkipTests]

@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -87,86 +88,95 @@ public class SaleController {
     }
 
     @GetMapping("/cart")
-    public ApiResponse<List<CartItem>> getCart(@RequestHeader(value = "X-Auth-Token", required = false) String token) {
+    public ApiResponse<List<CartItem>> getCart(@RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Cart-Slot", required = false) Integer tab) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Cart loaded", cartService.getCart(cashier));
+        return ApiResponse.ok("Cart loaded", cartService.getCart(cashier, tab));
     }
 
     @PostMapping("/cart")
     public ApiResponse<List<CartItem>> addToCart(
             @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Cart-Slot", required = false) Integer tab,
             @RequestBody CartItemRequest request
     ) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Item added to cart", cartService.addToCart(cashier, request));
+        return ApiResponse.ok("Item added to cart", cartService.addToCart(cashier, tab, request));
     }
 
     @PutMapping("/cart/{productId}")
     public ApiResponse<List<CartItem>> updateCartItem(
             @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Cart-Slot", required = false) Integer tab,
             @RequestHeader(value = "X-Approval-Pin", required = false) String approvalPin,
             @PathVariable Long productId,
             @RequestBody CartItemRequest request
     ) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Cart item updated", cartService.updateCartItem(cashier, productId, request, approvalPin));
+        return ApiResponse.ok("Cart item updated", cartService.updateCartItem(cashier, tab, productId, request, approvalPin));
     }
 
     /** Quantity or price of one cart line, by its lineId (needed for lines of boxes). */
     @PutMapping("/cart/lines/{lineId}")
     public ApiResponse<List<CartItem>> updateCartLine(
             @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Cart-Slot", required = false) Integer tab,
             @RequestHeader(value = "X-Approval-Pin", required = false) String approvalPin,
             @PathVariable Long lineId,
             @RequestBody CartItemRequest request
     ) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Cart item updated", cartService.updateCartLine(cashier, lineId, request, approvalPin));
+        return ApiResponse.ok("Cart item updated", cartService.updateCartLine(cashier, tab, lineId, request, approvalPin));
     }
 
     @GetMapping("/cart/subtotal")
-    public ApiResponse<BigDecimal> getSubtotal(@RequestHeader(value = "X-Auth-Token", required = false) String token) {
+    public ApiResponse<BigDecimal> getSubtotal(@RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Cart-Slot", required = false) Integer tab) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Cart subtotal calculated with streams", cartService.calculateSubtotal(cashier));
+        return ApiResponse.ok("Cart subtotal calculated with streams", cartService.calculateSubtotal(cashier, tab));
     }
 
     @GetMapping("/cart/summary")
-    public ApiResponse<CartSummary> getCartSummary(@RequestHeader(value = "X-Auth-Token", required = false) String token) {
+    public ApiResponse<CartSummary> getCartSummary(@RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Cart-Slot", required = false) Integer tab) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Cart summary", saleService.cartSummary(cashier));
+        return ApiResponse.ok("Cart summary", saleService.cartSummary(cashier, tab));
     }
 
     /** Attaches a customer to the cart on screen: {"customerId": 5} or {"cardNumber": "..."}; {} removes them. */
     @PutMapping("/cart/customer")
     public ApiResponse<CartSummary> setCustomer(
             @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Cart-Slot", required = false) Integer tab,
             @RequestBody Map<String, String> body
     ) {
         Cashier cashier = sessionService.requireUser(token);
         String customerId = body.get("customerId");
-        cartService.setCustomer(cashier, customerId == null || customerId.isBlank() ? null : Long.valueOf(customerId), body.get("cardNumber"));
-        return ApiResponse.ok("Customer set", saleService.cartSummary(cashier));
+        cartService.setCustomer(cashier, tab, customerId == null || customerId.isBlank() ? null : Long.valueOf(customerId), body.get("cardNumber"));
+        return ApiResponse.ok("Customer set", saleService.cartSummary(cashier, tab));
     }
 
     /** Percentage off the whole cart: {"percent": 10}. Above the cashier limit it needs a manager PIN. */
     @PutMapping("/cart/discount")
     public ApiResponse<CartSummary> setDiscount(
             @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Cart-Slot", required = false) Integer tab,
             @RequestHeader(value = "X-Approval-Pin", required = false) String approvalPin,
             @RequestBody Map<String, BigDecimal> body
     ) {
         Cashier cashier = sessionService.requireUser(token);
-        cartService.setManualDiscount(cashier, body.get("percent"), approvalPin);
-        return ApiResponse.ok("Discount set", saleService.cartSummary(cashier));
+        cartService.setManualDiscount(cashier, tab, body.get("percent"), approvalPin);
+        return ApiResponse.ok("Discount set", saleService.cartSummary(cashier, tab));
     }
 
     @DeleteMapping("/cart")
     public ApiResponse<Void> clearCart(
             @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Cart-Slot", required = false) Integer tab,
             @RequestHeader(value = "X-Approval-Pin", required = false) String approvalPin
     ) {
         Cashier cashier = sessionService.requireUser(token);
-        cartService.clear(cashier, approvalPin);
+        cartService.clear(cashier, tab, approvalPin);
         return ApiResponse.ok("Cart cleared", null);
     }
 
@@ -174,10 +184,11 @@ public class SaleController {
     @PostMapping("/cart/park")
     public ApiResponse<ParkedCartResponse> parkCart(
             @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Cart-Slot", required = false) Integer tab,
             @RequestBody(required = false) ParkCartRequest request
     ) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Cart parked", ParkedCartResponse.from(cartService.park(cashier, request == null ? null : request.label())));
+        return ApiResponse.ok("Cart parked", ParkedCartResponse.from(cartService.park(cashier, tab, request == null ? null : request.label())));
     }
 
     @GetMapping("/carts/parked")
@@ -189,10 +200,25 @@ public class SaleController {
     @PostMapping("/carts/{cartId}/resume")
     public ApiResponse<List<CartItem>> resumeCart(
             @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Cart-Slot", required = false) Integer tab,
             @PathVariable Long cartId
     ) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Cart resumed", cartService.resume(cashier, cartId));
+        return ApiResponse.ok("Cart resumed", cartService.resume(cashier, tab, cartId));
+    }
+
+    /** The three tabs of the cashier's till: lines and total of each, for the tab buttons. */
+    @GetMapping("/cart/tabs")
+    public ApiResponse<List<Map<String, Object>>> tabs(@RequestHeader(value = "X-Auth-Token", required = false) String token) {
+        Cashier cashier = sessionService.requireUser(token);
+        List<Map<String, Object>> tabs = new ArrayList<>();
+        for (int tab = 1; tab <= CartService.TABS; tab++) {
+            CartSummary summary = saleService.cartSummary(cashier, tab);
+            List<CartItem> items = cartService.getCart(cashier, tab);
+            tabs.add(Map.of("tab", tab, "lines", items.size(), "total", summary.totalAmount(),
+                    "customer", summary.customer() == null ? "" : summary.customer().getFullName()));
+        }
+        return ApiResponse.ok("Till tabs", tabs);
     }
 
     @GetMapping("/next-invoice-number")
@@ -204,10 +230,11 @@ public class SaleController {
     @PostMapping("/checkout")
     public ApiResponse<ReceiptResponse> checkout(
             @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Cart-Slot", required = false) Integer tab,
             @RequestBody(required = false) CheckoutRequest request
     ) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Checkout completed", saleService.checkout(cashier, request));
+        return ApiResponse.ok("Checkout completed", saleService.checkout(cashier, tab, request));
     }
 
     @GetMapping("/logs")

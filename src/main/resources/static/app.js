@@ -9,6 +9,7 @@ let purchaseItems = [];
 let lastReceipt  = '';
 let keypadBuffer = '';
 let shopSettings = null;
+let activeTab = 1;
 let selectedLine = -1;
 let activeShift = null;
 let allUsers = [];
@@ -77,6 +78,8 @@ function toast(msg, type = 'info') {
 
 async function req(method, path, body, extraHeaders) {
   const opts = { method, headers: { 'Content-Type': 'application/json', 'Accept-Language': currentLang, ...(extraHeaders || {}) } };
+  // The till has three tabs (one customer each): cart requests say which one.
+  if (/^\/sales\/(cart|checkout|carts\/\d+\/resume)/.test(path)) opts.headers['X-Cart-Slot'] = String(activeTab);
   if (body !== undefined) opts.body = JSON.stringify(body);
   const res  = await fetch(API + path, opts);
   const json = await res.json().catch(() => ({}));
@@ -149,6 +152,7 @@ function clearLocalSession() {
   currentUser = null;
   cartItems = [];
   cartSummary = null;
+  activeTab = 1;
   selectedLine = -1;
   activeShift = null;
   sendToDisplay();
@@ -428,6 +432,7 @@ async function refreshCart() {
 
 function renderCart() {
   $('cart-count').textContent = cartItems.length;
+  loadTillTabs();
   if (selectedLine >= cartItems.length) selectedLine = cartItems.length - 1;
   renderInvoiceRows();
   const hasItems = cartItems.length > 0;
@@ -435,6 +440,45 @@ function renderCart() {
   $('btn-clear').disabled = !hasItems;
   if (!hasItems) $('cart-subtotal').textContent = fmt(0);
   sendToDisplay();
+}
+
+/*  Till tabs: three customers at once; switching never touches the other tabs  */
+let _tabsTmr;
+function loadTillTabs() {
+  clearTimeout(_tabsTmr);
+  _tabsTmr = setTimeout(async () => {
+    try {
+      const res = await req('GET', '/sales/cart/tabs');
+      renderTillTabs(res.data || []);
+    } catch {}
+  }, 150);
+}
+
+function renderTillTabs(tabs) {
+  const bar = $('till-tabs');
+  if (!bar) return;
+  bar.innerHTML = tabs.map(tab => {
+    const busy = tab.lines > 0;
+    return `<button class="till-tab ${tab.tab === activeTab ? 'on' : ''} ${busy ? 'busy' : ''}" onclick="switchTillTab(${tab.tab})">
+      <strong>${t('Customer {n}', { n: tab.tab })}</strong>
+      <span>${busy ? `${tab.lines === 1 ? t('1 line') : t('{count} lines', { count: tab.lines })} · ${fmt(tab.total)}` : t('empty')}</span>
+      ${tab.customer ? `<small>${esc(tab.customer)}</small>` : ''}
+      <kbd>Alt+${tab.tab}</kbd>
+    </button>`;
+  }).join('');
+}
+
+async function switchTillTab(tab) {
+  if (tab === activeTab) { focusSearch(); return; }
+  activeTab = tab;
+  selectedLine = -1;
+  cartSummary = null;
+  hideSearchResults();
+  $('pos-search').value = '';
+  $('cart-breakdown').innerHTML = '';
+  $('cart-customer').classList.add('hidden');
+  await refreshCart();
+  focusSearch();
 }
 
 /* The till's summary: total after promotions and discounts, and the customer of the sale. */
@@ -928,6 +972,7 @@ async function confirmPayment() {
     $('cart-subtotal').textContent = fmt(0);
     $('cart-breakdown').innerHTML = '';
     $('cart-customer').classList.add('hidden');
+    loadTillTabs();
     setNextInvoiceNumber();
     showReceipt(data.printableReceipt);
     if (shopSettings?.autoPrint) printReceipt();
@@ -2990,6 +3035,7 @@ async function submitRefund() {
 
 /*  Audit log  */
 const AUDIT_LABELS = {
+  CARTS_DISCARDED: 'Products thrown away at closing',
   PACKAGE_CREATED: 'Box added', PACKAGE_UPDATED: 'Box changed', PRICE_BULK: 'Prices changed in bulk',
   SETTINGS_CHANGED: 'Shop settings changed', RECEIPT_REPRINTED: 'Receipt reprinted',
   LOGIN: 'Signed in', LOGOUT: 'Signed out', LOGIN_FAILED: 'Failed sign-in', ACCOUNT_LOCKED: 'Account locked',
@@ -3176,7 +3222,17 @@ async function closeShift() {
   }
   const closingCash = parseFloat($('shift-closing-cash')?.value || '0');
   try {
-    const res = await req('POST', `/shifts/${activeShift.id}/close`, { closingCash });
+    let res;
+    try {
+      res = await req('POST', `/shifts/${activeShift.id}/close`, { closingCash });
+    } catch (e) {
+      if (e.code !== 'cart.unsoldItems') throw e;
+      if (!confirm(t('There are products that are not sold yet. Are you sure you want to close the till? The tabs will be emptied and the sale will not be registered.'))) return;
+      res = await req('POST', `/shifts/${activeShift.id}/close`, { closingCash, discardCarts: true });
+      cartItems = [];
+      cartSummary = null;
+      renderCart();
+    }
     activeShift = null;
     renderShiftSummary(res.data);
     toast(t('Shift closed'), 'success');
@@ -3428,6 +3484,11 @@ document.addEventListener('keydown', e => {
   if (TILL_KEYS[e.key]) {
     e.preventDefault();
     TILL_KEYS[e.key]();
+    return;
+  }
+  if (e.altKey && ['1', '2', '3'].includes(e.key)) {
+    e.preventDefault();
+    switchTillTab(parseInt(e.key, 10));
     return;
   }
   const target = e.target;

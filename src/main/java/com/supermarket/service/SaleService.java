@@ -130,8 +130,8 @@ public class SaleService {
 
     /** Total of the cart on screen, with the same discounts as checkout, for the screen and the payment window. */
     @Transactional(readOnly = true)
-    public CartSummary cartSummary(Cashier cashier) {
-        Optional<Cart> cart = cartService.openCart(cashier);
+    public CartSummary cartSummary(Cashier cashier, Integer tab) {
+        Optional<Cart> cart = cartService.openCart(cashier, tab);
         List<CartItem> items = cart.map(c -> List.copyOf(c.getItems())).orElse(List.of());
         PricingService.CartPrice price = pricingService.price(items, cart.map(Cart::getManualDiscountPercent).orElse(null),
                 LocalDateTime.now());
@@ -183,8 +183,8 @@ public class SaleService {
      * the same invoice number, and a failed checkout leaves no gap in the numbering.
      */
     @Transactional
-    public ReceiptResponse checkout(Cashier cashier, CheckoutRequest request) {
-        Cart cart = cartService.openCart(cashier)
+    public ReceiptResponse checkout(Cashier cashier, Integer tab, CheckoutRequest request) {
+        Cart cart = cartService.openCart(cashier, tab)
                 .filter(open -> !open.getItems().isEmpty())
                 .orElseThrow(() -> new ValidationException("cart.empty"));
         Shift shift = shiftService.findOpenShift(cashier.getId())

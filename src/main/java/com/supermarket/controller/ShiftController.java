@@ -10,6 +10,8 @@ import com.supermarket.model.Shift;
 import com.supermarket.model.Cashier;
 import com.supermarket.model.CashierRole;
 import com.supermarket.exception.PermissionDeniedException;
+import com.supermarket.exception.ValidationException;
+import com.supermarket.service.CartService;
 import com.supermarket.service.ReportService;
 import com.supermarket.service.ShiftService;
 import com.supermarket.service.SessionService;
@@ -31,11 +33,14 @@ public class ShiftController {
     private final ShiftService shiftService;
     private final SessionService sessionService;
     private final ReportService reportService;
+    private final CartService cartService;
 
-    public ShiftController(ShiftService shiftService, SessionService sessionService, ReportService reportService) {
+    public ShiftController(ShiftService shiftService, SessionService sessionService, ReportService reportService,
+                           CartService cartService) {
         this.shiftService = shiftService;
         this.sessionService = sessionService;
         this.reportService = reportService;
+        this.cartService = cartService;
     }
 
     @GetMapping
@@ -79,7 +84,16 @@ public class ShiftController {
             @RequestBody ShiftCloseRequest request
     ) {
         Cashier cashier = sessionService.requireUser(token);
-        return ApiResponse.ok("Shift closed", shiftService.closeShift(shiftId, request, cashier));
+        // Products still in the till's tabs are not sold: the cashier must confirm that they are thrown away.
+        int unsold = cartService.openCartsWithItems(cashier).size();
+        if (unsold > 0 && !request.isDiscardCarts()) {
+            throw new ValidationException("cart.unsoldItems", unsold);
+        }
+        Shift closed = shiftService.closeShift(shiftId, request, cashier);
+        if (unsold > 0) {
+            cartService.discardOpenCarts(cashier);
+        }
+        return ApiResponse.ok("Shift closed", closed);
     }
 
     @PostMapping("/{shiftId}/cash-movements")

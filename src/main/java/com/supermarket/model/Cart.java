@@ -50,6 +50,9 @@ public class Cart {
     @JoinColumn(name = "customer_id")
     private Customer customer;
 
+    /** Tab 1, 2 or 3 of the cashier's till while the cart is open; none while parked. */
+    private Integer slot;
+
     /** Discount on the whole cart, given by hand (a cashier needs a manager's approval above a limit). */
     @Column(precision = 5, scale = 2)
     private BigDecimal manualDiscountPercent;
@@ -163,5 +166,13 @@ public class Cart {
 
     public void setManualDiscountPercent(BigDecimal manualDiscountPercent) {
         this.manualDiscountPercent = manualDiscountPercent;
+    }
+
+    public Integer getSlot() {
+        return slot;
+    }
+
+    public void setSlot(Integer slot) {
+        this.slot = slot;
     }
 }

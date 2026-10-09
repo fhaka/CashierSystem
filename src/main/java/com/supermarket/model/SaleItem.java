@@ -71,6 +71,19 @@ public class SaleItem {
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal promotionDiscount = BigDecimal.ZERO;
 
+    /** Set when the line was sold as boxes: which box, how many and at what price per box (quantity is pieces). */
+    @Column(name = "package_id")
+    private Long packageId;
+
+    @Column(length = 100)
+    private String packageName;
+
+    @Column(precision = 12, scale = 3)
+    private BigDecimal packageCount;
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal packagePrice;
+
     public SaleItem() {
     }
 
@@ -198,5 +211,28 @@ public class SaleItem {
 
     public void setPromotionDiscount(BigDecimal promotionDiscount) {
         this.promotionDiscount = promotionDiscount;
+    }
+
+    public Long getPackageId() {
+        return packageId;
+    }
+
+    public String getPackageName() {
+        return packageName;
+    }
+
+    public BigDecimal getPackageCount() {
+        return packageCount;
+    }
+
+    public BigDecimal getPackagePrice() {
+        return packagePrice;
+    }
+
+    public void setPackage(Long packageId, String packageName, BigDecimal packageCount, BigDecimal packagePrice) {
+        this.packageId = packageId;
+        this.packageName = packageName;
+        this.packageCount = packageCount;
+        this.packagePrice = packagePrice;
     }
 }

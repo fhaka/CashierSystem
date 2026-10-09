@@ -112,6 +112,18 @@ public class SaleController {
         return ApiResponse.ok("Cart item updated", cartService.updateCartItem(cashier, productId, request, approvalPin));
     }
 
+    /** Quantity or price of one cart line, by its lineId (needed for lines of boxes). */
+    @PutMapping("/cart/lines/{lineId}")
+    public ApiResponse<List<CartItem>> updateCartLine(
+            @RequestHeader(value = "X-Auth-Token", required = false) String token,
+            @RequestHeader(value = "X-Approval-Pin", required = false) String approvalPin,
+            @PathVariable Long lineId,
+            @RequestBody CartItemRequest request
+    ) {
+        Cashier cashier = sessionService.requireUser(token);
+        return ApiResponse.ok("Cart item updated", cartService.updateCartLine(cashier, lineId, request, approvalPin));
+    }
+
     @GetMapping("/cart/subtotal")
     public ApiResponse<BigDecimal> getSubtotal(@RequestHeader(value = "X-Auth-Token", required = false) String token) {
         Cashier cashier = sessionService.requireUser(token);

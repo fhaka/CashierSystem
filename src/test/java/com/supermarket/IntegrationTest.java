@@ -35,8 +35,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 public abstract class IntegrationTest {
 
     private static final List<String> TABLES_CHILD_FIRST = List.of(
-            "audit_events", "customer_transactions", "inventory_count_lines", "inventory_counts", "stock_adjustments", "supplier_payments", "refund_items", "refunds", "cart_items", "carts", "sale_logs", "sale_items", "sale_payments", "sales", "cash_movements", "shifts", "promotions", "customers",
-            "purchase_items", "purchase_invoices", "suppliers", "products", "auth_sessions", "cashiers", "backup_logs", "shop_settings"
+            "audit_events", "price_changes", "customer_transactions", "inventory_count_lines", "inventory_counts", "stock_adjustments", "supplier_payments", "refund_items", "refunds", "cart_items", "carts", "sale_logs", "sale_items", "sale_payments", "sales", "cash_movements", "shifts", "promotions", "customers",
+            "purchase_items", "purchase_invoices", "suppliers", "product_packages", "products", "auth_sessions", "cashiers", "backup_logs", "shop_settings"
     );
 
     @Autowired

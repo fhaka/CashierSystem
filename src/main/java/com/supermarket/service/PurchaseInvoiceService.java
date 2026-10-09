@@ -4,6 +4,8 @@ import com.supermarket.exception.ValidationException;
 import com.supermarket.dto.PurchaseInvoiceRequest;
 import com.supermarket.dto.PurchaseItemRequest;
 import com.supermarket.model.Cashier;
+import com.supermarket.model.PriceChange;
+import com.supermarket.model.ProductPackage;
 import com.supermarket.model.Product;
 import com.supermarket.model.PurchaseInvoice;
 import com.supermarket.model.PurchaseItem;
@@ -15,6 +17,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.stream.Collectors;
+import java.util.function.Function;
+import java.util.Optional;
+import java.util.Map;
 import java.math.RoundingMode;
 import java.util.List;
 
@@ -27,13 +33,19 @@ public class PurchaseInvoiceService {
     private final AuditService auditService;
     private final SupplierService supplierService;
 
+    private final PackageService packageService;
+    private final PriceHistoryService priceHistoryService;
+
     public PurchaseInvoiceService(PurchaseInvoiceRepository purchaseInvoiceRepository, ProductRepository productRepository, ProductService productService,
-                                  AuditService auditService, SupplierService supplierService) {
+                                  AuditService auditService, SupplierService supplierService, PackageService packageService,
+                                  PriceHistoryService priceHistoryService) {
         this.purchaseInvoiceRepository = purchaseInvoiceRepository;
         this.productRepository = productRepository;
         this.productService = productService;
         this.auditService = auditService;
         this.supplierService = supplierService;
+        this.packageService = packageService;
+        this.priceHistoryService = priceHistoryService;
     }
 
     public List<PurchaseInvoice> findAll() {
@@ -53,31 +65,49 @@ public class PurchaseInvoiceService {
         );
         invoice.setSupplier(supplier);
 
+        // Lock the products like a sale does, so a sale at the same moment cannot overwrite the new stock.
+        request.getItems().forEach(this::validateItem);
+        Map<Long, Product> products = productRepository.findAllForUpdate(
+                        request.getItems().stream().map(PurchaseItemRequest::getProductId).distinct().sorted().toList())
+                .stream().collect(Collectors.toMap(Product::getId, Function.identity()));
+
         for (PurchaseItemRequest itemRequest : request.getItems()) {
-            validateItem(itemRequest);
-            Product product = productService.findById(itemRequest.getProductId());
-            String unit = normalizeUnit(itemRequest.getUnit());
-            BigDecimal quantity = Quantities.requirePositive(itemRequest.getQuantity(), unit);
-            BigDecimal lineTotal = itemRequest.getPurchasePrice().multiply(quantity).setScale(2, RoundingMode.HALF_UP);
+            Product product = Optional.ofNullable(products.get(itemRequest.getProductId()))
+                    .orElseGet(() -> productService.findById(itemRequest.getProductId()));
+            ProductPackage box = itemRequest.getPackageId() == null ? null : packageService.find(itemRequest.getPackageId());
+            if (box != null && !box.getProductId().equals(product.getId())) {
+                throw new ValidationException("package.notFound", itemRequest.getPackageId());
+            }
+            String unit = box == null ? normalizeUnit(itemRequest.getUnit()) : Quantities.PIECES;
+            BigDecimal counted = Quantities.requirePositive(itemRequest.getQuantity(), unit);
+            BigDecimal lineTotal = itemRequest.getPurchasePrice().multiply(counted).setScale(2, RoundingMode.HALF_UP);
+            // Bought in boxes: stock and cost are per piece (box price shared over its pieces).
+            BigDecimal quantity = box == null ? counted : counted.multiply(BigDecimal.valueOf(box.getPieces()));
+            BigDecimal piecePrice = box == null ? itemRequest.getPurchasePrice()
+                    : itemRequest.getPurchasePrice().divide(BigDecimal.valueOf(box.getPieces()), 2, RoundingMode.HALF_UP);
             total = total.add(lineTotal);
 
-            product.setPurchasePrice(itemRequest.getPurchasePrice());
+            priceHistoryService.record(product.getId(), null, PriceChange.Source.PURCHASE, actor,
+                    product.getPrice(), itemRequest.getSellingPrice(), product.getPurchasePrice(), piecePrice);
+            product.setPurchasePrice(piecePrice);
             product.setPrice(itemRequest.getSellingPrice());
             product.setTaxRate(itemRequest.getTaxRate());
             product.setUnit(unit);
             product.setStock(product.getStock().add(quantity));
-            productRepository.save(product);
 
             PurchaseItem item = new PurchaseItem(
                     product,
                     quantity,
-                    itemRequest.getPurchasePrice(),
+                    piecePrice,
                     itemRequest.getSellingPrice(),
                     itemRequest.getTaxRate(),
                     unit,
                     lineTotal
             );
             item.setExpiryDate(itemRequest.getExpiryDate());
+            if (box != null) {
+                item.setPackage(box.getId(), counted);
+            }
             invoice.addItem(item);
         }
 

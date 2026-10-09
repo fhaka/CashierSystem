@@ -8,6 +8,7 @@ public class CartItemRequest {
     private String barcode;
     private BigDecimal quantity;
     private BigDecimal price;
+    private Long packageId;
 
     public Long getProductId() {
         return productId;
@@ -39,5 +40,13 @@ public class CartItemRequest {
 
     public void setPrice(BigDecimal price) {
         this.price = price;
+    }
+
+    public Long getPackageId() {
+        return packageId;
+    }
+
+    public void setPackageId(Long packageId) {
+        this.packageId = packageId;
     }
 }

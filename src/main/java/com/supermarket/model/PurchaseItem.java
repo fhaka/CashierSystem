@@ -54,6 +54,13 @@ public class PurchaseItem {
     /** Best-before date of this delivery, if recorded. */
     private LocalDate expiryDate;
 
+    /** Set when bought in boxes: which box and how many (quantity and purchase price are per piece). */
+    @Column(name = "package_id")
+    private Long packageId;
+
+    @Column(precision = 12, scale = 3)
+    private BigDecimal packageCount;
+
     public PurchaseItem() {
     }
 
@@ -141,5 +148,18 @@ public class PurchaseItem {
 
     public void setExpiryDate(LocalDate expiryDate) {
         this.expiryDate = expiryDate;
+    }
+
+    public Long getPackageId() {
+        return packageId;
+    }
+
+    public BigDecimal getPackageCount() {
+        return packageCount;
+    }
+
+    public void setPackage(Long packageId, BigDecimal packageCount) {
+        this.packageId = packageId;
+        this.packageCount = packageCount;
     }
 }

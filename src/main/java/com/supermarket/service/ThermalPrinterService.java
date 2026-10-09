@@ -1,5 +1,7 @@
 package com.supermarket.service;
 
+import com.supermarket.util.ReceiptLayout;
+import com.supermarket.dto.Warehouse;
 import com.supermarket.exception.ReceiptPrinterException;
 import com.supermarket.exception.ValidationException;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,7 +23,11 @@ import java.awt.print.Paper;
 import java.awt.print.PrinterException;
 import java.awt.print.PrinterJob;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
 
@@ -48,6 +54,84 @@ public class ThermalPrinterService {
 
         PrintService printService = resolvePrintService(printerName);
         printRawBytes(printService, buildEscPosReceipt(receiptText));
+    }
+
+    /** Prints shelf labels, each cut off on its own. width = characters per line of the paper (32, 42 or 48). */
+    public void printLabels(List<Warehouse.Label> labels, String printerName, String shopName, int width) {
+        if (labels == null || labels.isEmpty()) {
+            throw new ValidationException("warehouse.noProducts");
+        }
+        PrintService printService = resolvePrintService(printerName);
+        try {
+            printRawBytes(printService, buildLabels(labels, shopName, width, LocalDate.now()));
+        } catch (IOException exception) {
+            throw new ReceiptPrinterException("printer.buildFailed", exception, exception.getMessage());
+        }
+    }
+
+    /**
+     * ESC/POS for shelf labels: product name in bold, the box if it is one, the price as large as the paper allows,
+     * the price per kg/litre/piece, the barcode (EAN-13 when the code is one, otherwise Code 128), shop and date.
+     */
+    static byte[] buildLabels(List<Warehouse.Label> labels, String shopName, int width, LocalDate date) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        String day = date.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"));
+        for (Warehouse.Label label : labels) {
+            for (int copy = 0; copy < label.copies(); copy++) {
+                out.write(new byte[] {0x1B, 0x40, 0x1B, 0x61, 0x01});           // init, centre
+                out.write(new byte[] {0x1B, 0x45, 0x01});                       // bold
+                out.write(labelText(new ReceiptLayout(width).line(label.name()).toString()));
+                out.write(new byte[] {0x1B, 0x45, 0x00});
+                if (label.packageText() != null) {
+                    out.write(labelText(new ReceiptLayout(width).line(label.packageText()).toString()));
+                }
+                String price = WarehouseService.labelMoney(label.price()) + " LEK";
+                int scale = 1;
+                for (int s = 4; s > 1; s--) {
+                    if (price.length() * s <= width) {
+                        scale = s;
+                        break;
+                    }
+                }
+                out.write(new byte[] {0x0A, 0x1D, 0x21, (byte) (((scale - 1) << 4) | (scale - 1))});   // character size
+                out.write(labelText(price + "\n"));
+                out.write(new byte[] {0x1D, 0x21, 0x00});
+                if (label.unitPriceText() != null) {
+                    out.write(labelText(label.unitPriceText() + "\n"));
+                }
+                out.write(0x0A);
+                writeBarcode(out, label.barcode());
+                out.write(labelText((shopName == null || shopName.isBlank() ? "" : shopName + "  ") + day + "\n"));
+                out.write(new byte[] {0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x00});     // feed, cut
+            }
+        }
+        return out.toByteArray();
+    }
+
+    /** EAN-13 when the code is a valid one (shown with its digits under it), otherwise Code 128. */
+    private static void writeBarcode(ByteArrayOutputStream out, String code) throws IOException {
+        out.write(new byte[] {0x1D, 0x68, 60, 0x1D, 0x48, 0x02});                  // height 60 dots, digits below
+        if (code.matches("\\d{13}") && ean13Valid(code)) {
+            out.write(new byte[] {0x1D, 0x77, 0x02, 0x1D, 0x6B, 67, 13});
+            out.write(code.getBytes(StandardCharsets.US_ASCII));
+        } else {
+            byte[] data = ("{B" + code).getBytes(StandardCharsets.US_ASCII);
+            out.write(new byte[] {0x1D, 0x77, (byte) (code.length() <= 10 ? 2 : 1), 0x1D, 0x6B, 73, (byte) data.length});
+            out.write(data);
+        }
+        out.write(0x0A);
+    }
+
+    static boolean ean13Valid(String code) {
+        int sum = 0;
+        for (int i = 0; i < 12; i++) {
+            sum += (code.charAt(i) - '0') * (i % 2 == 0 ? 1 : 3);
+        }
+        return (10 - sum % 10) % 10 == code.charAt(12) - '0';
+    }
+
+    private static byte[] labelText(String text) {
+        return text.replace('Ë', 'E').getBytes(PRINTER_CHARSET);
     }
 
     public void testCut() {

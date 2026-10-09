@@ -8,6 +8,7 @@ import com.supermarket.model.CartItem;
 import com.supermarket.model.Cashier;
 import com.supermarket.model.Customer;
 import com.supermarket.model.Product;
+import com.supermarket.model.ProductPackage;
 import com.supermarket.repository.CartRepository;
 import com.supermarket.util.Quantities;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,6 +34,7 @@ public class CartService {
     private final AuditService auditService;
     private final ScaleBarcodes scaleBarcodes;
     private final CustomerService customerService;
+    private final PackageService packageService;
     private final boolean voidsNeedApproval;
     private final BigDecimal cashierDiscountLimit;
 
@@ -43,6 +45,7 @@ public class CartService {
             AuditService auditService,
             ScaleBarcodes scaleBarcodes,
             CustomerService customerService,
+            PackageService packageService,
             @Value("${pos.approval.voids:true}") boolean voidsNeedApproval,
             @Value("${pos.discount.cashier-limit-percent:0}") BigDecimal cashierDiscountLimit
     ) {
@@ -52,6 +55,7 @@ public class CartService {
         this.auditService = auditService;
         this.scaleBarcodes = scaleBarcodes;
         this.customerService = customerService;
+        this.packageService = packageService;
         this.voidsNeedApproval = voidsNeedApproval;
         this.cashierDiscountLimit = cashierDiscountLimit;
     }
@@ -66,8 +70,16 @@ public class CartService {
         return openCart(cashier).map(Cart::getSubtotal).orElse(BigDecimal.ZERO);
     }
 
+    /**
+     * Adds a product, a box (its barcode or packageId) or a scale label. A box line counts boxes; a box and single
+     * pieces of the same product are separate lines, and the stock check counts both.
+     */
     @Transactional
     public List<CartItem> addToCart(Cashier cashier, CartItemRequest request) {
+        Optional<ProductPackage> box = packageFor(request);
+        if (box.isPresent()) {
+            return addBox(cashier, box.get(), request.getQuantity() == null ? BigDecimal.ONE : request.getQuantity());
+        }
         Product product;
         BigDecimal quantity;
         Optional<ScaleBarcodes.ScaleCode> scaleCode = scaleCodeFor(request);
@@ -87,14 +99,27 @@ public class CartService {
             throw new ValidationException("product.inactive", product.getName());
         }
         Cart cart = openCartOrCreate(cashier);
-        Optional<CartItem> existing = cart.findItem(product.getId());
-        BigDecimal newQuantity = existing.map(item -> item.getQuantity().add(quantity)).orElse(quantity);
-        requireStock(product, newQuantity);
+        Optional<CartItem> existing = cart.findItem(product.getId(), null);
+        requireStock(product, cart.piecesOf(product.getId()).add(quantity));
 
         existing.ifPresentOrElse(
-                item -> item.setQuantity(newQuantity),
+                item -> item.setQuantity(item.getQuantity().add(quantity)),
                 () -> cart.addItem(new CartItem(product, quantity))
         );
+        return touch(cart);
+    }
+
+    private List<CartItem> addBox(Cashier cashier, ProductPackage box, BigDecimal boxes) {
+        Product product = box.getProduct();
+        if (!product.isActive() || !box.isActive()) {
+            throw new ValidationException("product.inactive", product.getName() + " (" + box.getName() + ")");
+        }
+        BigDecimal count = Quantities.requirePositive(boxes, Quantities.PIECES);
+        Cart cart = openCartOrCreate(cashier);
+        requireStock(product, cart.piecesOf(product.getId()).add(count.multiply(BigDecimal.valueOf(box.getPieces()))));
+        cart.findItem(product.getId(), box.getId()).ifPresentOrElse(
+                item -> item.setQuantity(item.getQuantity().add(count)),
+                () -> cart.addItem(new CartItem(box, count)));
         return touch(cart);
     }
 
@@ -105,7 +130,20 @@ public class CartService {
     @Transactional
     public List<CartItem> updateCartItem(Cashier cashier, Long productId, CartItemRequest request, String approvalPin) {
         Cart cart = openCart(cashier).orElseThrow(() -> new ValidationException("cart.itemNotFound", productId));
-        CartItem item = cart.findItem(productId).orElseThrow(() -> new ValidationException("cart.itemNotFound", productId));
+        CartItem item = cart.findItem(productId, null).orElseThrow(() -> new ValidationException("cart.itemNotFound", productId));
+        return updateLine(cashier, cart, item, request, approvalPin);
+    }
+
+    /** The same for any line, by its id (lines of boxes have no line of their own per product). */
+    @Transactional
+    public List<CartItem> updateCartLine(Cashier cashier, Long lineId, CartItemRequest request, String approvalPin) {
+        Cart cart = openCart(cashier).orElseThrow(() -> new ValidationException("cart.lineNotFound"));
+        CartItem item = cart.findLine(lineId).orElseThrow(() -> new ValidationException("cart.lineNotFound"));
+        return updateLine(cashier, cart, item, request, approvalPin);
+    }
+
+    private List<CartItem> updateLine(Cashier cashier, Cart cart, CartItem item, CartItemRequest request, String approvalPin) {
+        Long productId = item.getProductId();
 
         BigDecimal oldQuantity = item.getQuantity();
         BigDecimal newQuantity = oldQuantity;
@@ -129,7 +167,7 @@ public class CartService {
 
         if (isVoid) {
             auditService.record(cashier, approver, "CART_LINE_VOID", "PRODUCT", productId,
-                    item.getProductName() + ": " + oldQuantity.stripTrailingZeros().toPlainString()
+                    lineName(item) + ": " + oldQuantity.stripTrailingZeros().toPlainString()
                             + " -> " + newQuantity.stripTrailingZeros().toPlainString());
         }
         if (newQuantity.signum() == 0) {
@@ -137,12 +175,14 @@ public class CartService {
             return touch(cart);
         }
         if (newQuantity.compareTo(oldQuantity) > 0) {
-            requireStock(productService.findById(productId), newQuantity);
+            BigDecimal perUnit = item.getPiecesPerUnit() == null ? BigDecimal.ONE : BigDecimal.valueOf(item.getPiecesPerUnit());
+            requireStock(productService.findById(productId),
+                    cart.piecesOf(productId).add(newQuantity.subtract(oldQuantity).multiply(perUnit)));
         }
         item.setQuantity(newQuantity);
         if (priceChange) {
             auditService.record(cashier, approver, "PRICE_OVERRIDE", "PRODUCT", productId,
-                    item.getProductName() + ": " + item.getPrice() + " -> " + request.getPrice());
+                    lineName(item) + ": " + item.getPrice() + " -> " + request.getPrice());
             item.setPrice(request.getPrice());
         }
         return touch(cart);
@@ -273,6 +313,21 @@ public class CartService {
         }
         String barcode = request.getBarcode().trim();
         return productService.findOptionalByBarcode(barcode).isPresent() ? Optional.empty() : scaleBarcodes.parse(barcode);
+    }
+
+    /** The box asked for: by packageId, or a scanned barcode that belongs to a box. */
+    private Optional<ProductPackage> packageFor(CartItemRequest request) {
+        if (request.getPackageId() != null) {
+            return Optional.of(packageService.find(request.getPackageId()));
+        }
+        if (request.getProductId() != null || request.getBarcode() == null || request.getBarcode().isBlank()) {
+            return Optional.empty();
+        }
+        return packageService.findByBarcode(request.getBarcode().trim());
+    }
+
+    private static String lineName(CartItem item) {
+        return item.getPackageName() == null ? item.getProductName() : item.getProductName() + " (" + item.getPackageName() + ")";
     }
 
     private Product resolveProduct(CartItemRequest request) {

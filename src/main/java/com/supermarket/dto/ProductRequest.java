@@ -15,6 +15,8 @@ public class ProductRequest {
     private String categoryName;
     private BigDecimal minStock;
     private BigDecimal reorderQuantity;
+    private BigDecimal contentAmount;
+    private String contentUnit;
 
     public String getName() {
         return name;
@@ -102,5 +104,21 @@ public class ProductRequest {
 
     public void setReorderQuantity(BigDecimal reorderQuantity) {
         this.reorderQuantity = reorderQuantity;
+    }
+
+    public BigDecimal getContentAmount() {
+        return contentAmount;
+    }
+
+    public void setContentAmount(BigDecimal contentAmount) {
+        this.contentAmount = contentAmount;
+    }
+
+    public String getContentUnit() {
+        return contentUnit;
+    }
+
+    public void setContentUnit(String contentUnit) {
+        this.contentUnit = contentUnit;
     }
 }

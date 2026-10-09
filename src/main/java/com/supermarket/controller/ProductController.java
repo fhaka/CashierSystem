@@ -2,8 +2,11 @@ package com.supermarket.controller;
 
 import com.supermarket.dto.ApiResponse;
 import com.supermarket.dto.ProductRequest;
+import com.supermarket.exception.ValidationException;
 import com.supermarket.model.Cashier;
 import com.supermarket.model.Product;
+import com.supermarket.model.ProductPackage;
+import com.supermarket.service.PackageService;
 import com.supermarket.service.ProductCsvService;
 import com.supermarket.service.ProductService;
 import com.supermarket.service.SessionService;
@@ -33,11 +36,28 @@ public class ProductController {
     private final ProductService productService;
     private final SessionService sessionService;
     private final ProductCsvService productCsvService;
+    private final PackageService packageService;
 
-    public ProductController(ProductService productService, SessionService sessionService, ProductCsvService productCsvService) {
+    public ProductController(ProductService productService, SessionService sessionService, ProductCsvService productCsvService,
+                             PackageService packageService) {
         this.productService = productService;
         this.sessionService = sessionService;
         this.productCsvService = productCsvService;
+        this.packageService = packageService;
+    }
+
+    /** A product scanned by its own barcode or by the barcode of one of its boxes ("package" is then set). */
+    public record Scanned(Product product, ProductPackage packageInfo) {
+    }
+
+    @GetMapping("/scan/{barcode}")
+    public ApiResponse<Scanned> scan(@RequestHeader(value = "X-Auth-Token", required = false) String token, @PathVariable String barcode) {
+        sessionService.requireUser(token);
+        String code = barcode.trim();
+        return ApiResponse.ok("Product loaded by barcode", productService.findOptionalByBarcode(code)
+                .map(product -> new Scanned(product, null))
+                .or(() -> packageService.findByBarcode(code).map(box -> new Scanned(box.getProduct(), box)))
+                .orElseThrow(() -> new ValidationException("product.barcodeNotFound", code)));
     }
 
     @GetMapping

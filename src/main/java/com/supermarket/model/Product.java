@@ -59,6 +59,13 @@ public class Product {
     @JoinColumn(name = "category_id")
     private Category category;
 
+    /** What one piece contains, e.g. 0.5 l or 330 g: shelf labels show the price per litre or kilogram. */
+    @Column(precision = 10, scale = 3)
+    private BigDecimal contentAmount;
+
+    @Column(length = 5)
+    private String contentUnit;
+
     public Product() {
     }
 
@@ -171,5 +178,21 @@ public class Product {
 
     public boolean isLowStock() {
         return minStock != null && stock.compareTo(minStock) <= 0;
+    }
+
+    public BigDecimal getContentAmount() {
+        return contentAmount;
+    }
+
+    public void setContentAmount(BigDecimal contentAmount) {
+        this.contentAmount = contentAmount;
+    }
+
+    public String getContentUnit() {
+        return contentUnit;
+    }
+
+    public void setContentUnit(String contentUnit) {
+        this.contentUnit = contentUnit;
     }
 }

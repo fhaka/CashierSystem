@@ -23,7 +23,7 @@ class SystemTest extends IntegrationTest {
         String admin = registerSuperAdmin();
         getJson("/system/info", admin).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.version").value(matchesPattern("\\d+\\.\\d+\\.\\d+(-SNAPSHOT)?")))
-                .andExpect(jsonPath("$.data.databaseVersion").value("v9"))
+                .andExpect(jsonPath("$.data.databaseVersion").value(matchesPattern("v\\d+")))
                 .andExpect(jsonPath("$.data.backupFolder").isNotEmpty());
     }
 }

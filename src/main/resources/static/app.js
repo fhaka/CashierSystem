@@ -939,7 +939,7 @@ function payNote(amount) {
   field.focus();
 }
 
-/* F10 in the payment window: exact cash if nothing was entered, then finish the sale. */
+/* F5 in the payment window: exact cash if nothing was entered, then finish the sale. */
 function paymentShortcut() {
   if (!readPayments().length) payExactCash();
   confirmPayment();
@@ -1364,6 +1364,35 @@ function renderProdsTable() {
   }
   $('wh-select-all').checked = rows.length > 0 && rows.every(p => warehouseSelected.has(p.id));
   renderWarehouseBulk();
+  renderWarehouseTotals(rows);
+}
+
+/*
+ * Totals of the products shown. The profit % is the margin of all their stock together: each product's margin
+ * counts as much as its stock is worth at selling price (without VAT), so it says roughly how much of the money
+ * would be profit if what is on the shelves were sold at today's prices.
+ */
+function renderWarehouseTotals(rows) {
+  let saleValue = 0;
+  let profit = 0;
+  let costValue = 0;
+  rows.forEach(p => {
+    const stock = Math.max(0, parseFloat(p.stock));
+    const priceExVat = parseFloat(p.price) / (1 + parseFloat(p.taxRate) / 100);
+    const value = stock * priceExVat;
+    saleValue += value;
+    profit += value * parseFloat(p.marginPercent) / 100;
+    costValue += parseFloat(p.stockValue);
+  });
+  const percent = saleValue > 0 ? profit / saleValue * 100 : 0;
+  $('wh-foot').innerHTML = rows.length ? `<tr class="wh-total">
+    <td></td>
+    <td colspan="5"><strong>${t('Total of the {count} products shown', { count: rows.length })}</strong>
+      <div class="wh-sub">${t('Profit if this stock is sold at today\'s prices: about {amount}', { amount: fmtLek(profit) })}</div></td>
+    <td class="${percent < 10 ? 't-red' : ''}"><strong>~${percent.toFixed(1)}%</strong></td>
+    <td class="td-p"><strong>${fmtLek(costValue)}</strong></td>
+    <td></td>
+  </tr>` : '';
 }
 
 function toggleWarehouseSelect(id, on) {
@@ -3451,9 +3480,9 @@ const TILL_KEYS = {
   F4: () => promptQuantity(),
   F6: () => askManualDiscount(),
   F7: () => parkCart(),
-  F8: () => openParkedCarts(),
-  F9: () => { if (cartItems.length) clearCart(); },
-  F10: () => doCheckout()
+  F5: () => doCheckout(),
+  F8: () => { if (cartItems.length) clearCart(); },
+  F9: () => openParkedCarts()
 };
 
 function openOverlay() {
@@ -3461,6 +3490,7 @@ function openOverlay() {
 }
 
 document.addEventListener('keydown', e => {
+  if (e.key === 'F5' && currentUser && $('view-pos').classList.contains('on')) e.preventDefault();
   const overlay = openOverlay();
   if (e.key === 'Escape') {
     if (overlay?.id === 'modal-pin') return;
@@ -3471,7 +3501,7 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (overlay?.id === 'modal-payment') {
-    if (e.key === 'F10') { e.preventDefault(); paymentShortcut(); }
+    if (e.key === 'F5') { e.preventDefault(); paymentShortcut(); }
     if (e.key === 'F9') { e.preventDefault(); payAllByCard(); }
     return;
   }

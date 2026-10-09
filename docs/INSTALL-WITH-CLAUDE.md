@@ -175,7 +175,7 @@ netsh advfirewall firewall show rule name="Haka POS"
 Start-Process -FilePath "C:\HakaPOS\install-autostart.bat" -WorkingDirectory "C:\HakaPOS" -Wait
 ```
 
-It creates the startup shortcut and the **Arka** icon on the desktop. Its window ends with "press any key": tell
+It creates the startup shortcut and the **Paneli i Shitjeve** icon on the desktop. Its window ends with "press any key": tell
 the person to press a key there.
 
 ### A9. Backups
@@ -187,7 +187,7 @@ every week**: a backup on the same disk is lost if the disk breaks. Restore = dr
 
 ### A10. Done – tell the person
 
-- Daily use: the **Arka** icon (or `start.bat`); `stop.bat` stops the program.
+- Daily use: the **Paneli i Shitjeve** icon (or `start.bat`); `stop.bat` stops the program.
 - The till for a second PC: `http://<this PC's address>:8081` (Part B).
 - Where the database password is stored (`C:\HakaPOS\config\application.properties`) and that the root
   password they chose is only for repairs.
@@ -208,7 +208,7 @@ Ask for it (from A7, e.g. `192.168.1.10`), or ask the person to read it on the m
 Test-NetConnection 192.168.1.10 -Port 8081 | Select-Object TcpTestSucceeded
 ```
 
-If `False`: is the main PC on and the program running (Arka window open there)? Firewall rule added (A7) and the
+If `False`: is the main PC on and the program running (Paneli i Shitjeve window open there)? Firewall rule added (A7) and the
 main PC's network set to *Private*? Both PCs in the same network (same router / Wi-Fi)? `server.address=0.0.0.0`
 in the main PC's settings?
 
@@ -216,7 +216,7 @@ in the main PC's settings?
 
 ```powershell
 $shell = New-Object -ComObject WScript.Shell
-$link = $shell.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\Arka.lnk')
+$link = $shell.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\Paneli i Shitjeve.lnk')
 $link.TargetPath = (Get-Command msedge -ErrorAction SilentlyContinue).Source
 if (-not $link.TargetPath) { $link.TargetPath = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" }
 $link.Arguments = '--app=http://192.168.1.10:8081/ --start-maximized'

@@ -20,10 +20,12 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
- * The cart on each till, stored in the database so it survives a restart. Each cashier has one OPEN cart;
- * other carts can be PARKED and resumed later, also from another till.
+ * The carts on each till, stored in the database so they survive a restart. Each cashier's till has three tabs,
+ * each with its own OPEN cart, so the next customer can be served while one fetches something they forgot.
+ * Carts can also be PARKED and resumed later, also from another till.
  */
 @Service
 public class CartService {
@@ -36,6 +38,9 @@ public class CartService {
     private final CustomerService customerService;
     private final PackageService packageService;
     private final boolean voidsNeedApproval;
+
+    /** Tabs on each till. */
+    public static final int TABS = 3;
     private final BigDecimal cashierDiscountLimit;
 
     public CartService(
@@ -61,13 +66,13 @@ public class CartService {
     }
 
     @Transactional(readOnly = true)
-    public List<CartItem> getCart(Cashier cashier) {
-        return openCart(cashier).map(cart -> List.copyOf(cart.getItems())).orElse(List.of());
+    public List<CartItem> getCart(Cashier cashier, Integer tab) {
+        return openCart(cashier, tab).map(cart -> List.copyOf(cart.getItems())).orElse(List.of());
     }
 
     @Transactional(readOnly = true)
-    public BigDecimal calculateSubtotal(Cashier cashier) {
-        return openCart(cashier).map(Cart::getSubtotal).orElse(BigDecimal.ZERO);
+    public BigDecimal calculateSubtotal(Cashier cashier, Integer tab) {
+        return openCart(cashier, tab).map(Cart::getSubtotal).orElse(BigDecimal.ZERO);
     }
 
     /**
@@ -75,10 +80,10 @@ public class CartService {
      * pieces of the same product are separate lines, and the stock check counts both.
      */
     @Transactional
-    public List<CartItem> addToCart(Cashier cashier, CartItemRequest request) {
+    public List<CartItem> addToCart(Cashier cashier, Integer tab, CartItemRequest request) {
         Optional<ProductPackage> box = packageFor(request);
         if (box.isPresent()) {
-            return addBox(cashier, box.get(), request.getQuantity() == null ? BigDecimal.ONE : request.getQuantity());
+            return addBox(cashier, tab, box.get(), request.getQuantity() == null ? BigDecimal.ONE : request.getQuantity());
         }
         Product product;
         BigDecimal quantity;
@@ -98,7 +103,7 @@ public class CartService {
         if (!product.isActive()) {
             throw new ValidationException("product.inactive", product.getName());
         }
-        Cart cart = openCartOrCreate(cashier);
+        Cart cart = openCartOrCreate(cashier, tab);
         Optional<CartItem> existing = cart.findItem(product.getId(), null);
         requireStock(product, cart.piecesOf(product.getId()).add(quantity));
 
@@ -109,13 +114,13 @@ public class CartService {
         return touch(cart);
     }
 
-    private List<CartItem> addBox(Cashier cashier, ProductPackage box, BigDecimal boxes) {
+    private List<CartItem> addBox(Cashier cashier, Integer tab, ProductPackage box, BigDecimal boxes) {
         Product product = box.getProduct();
         if (!product.isActive() || !box.isActive()) {
             throw new ValidationException("product.inactive", product.getName() + " (" + box.getName() + ")");
         }
         BigDecimal count = Quantities.requirePositive(boxes, Quantities.PIECES);
-        Cart cart = openCartOrCreate(cashier);
+        Cart cart = openCartOrCreate(cashier, tab);
         requireStock(product, cart.piecesOf(product.getId()).add(count.multiply(BigDecimal.valueOf(box.getPieces()))));
         cart.findItem(product.getId(), box.getId()).ifPresentOrElse(
                 item -> item.setQuantity(item.getQuantity().add(count)),
@@ -128,16 +133,16 @@ public class CartService {
      * line is a void; a cashier needs a manager's PIN for voids (if pos.approval.voids) and for price changes.
      */
     @Transactional
-    public List<CartItem> updateCartItem(Cashier cashier, Long productId, CartItemRequest request, String approvalPin) {
-        Cart cart = openCart(cashier).orElseThrow(() -> new ValidationException("cart.itemNotFound", productId));
+    public List<CartItem> updateCartItem(Cashier cashier, Integer tab, Long productId, CartItemRequest request, String approvalPin) {
+        Cart cart = openCart(cashier, tab).orElseThrow(() -> new ValidationException("cart.itemNotFound", productId));
         CartItem item = cart.findItem(productId, null).orElseThrow(() -> new ValidationException("cart.itemNotFound", productId));
         return updateLine(cashier, cart, item, request, approvalPin);
     }
 
     /** The same for any line, by its id (lines of boxes have no line of their own per product). */
     @Transactional
-    public List<CartItem> updateCartLine(Cashier cashier, Long lineId, CartItemRequest request, String approvalPin) {
-        Cart cart = openCart(cashier).orElseThrow(() -> new ValidationException("cart.lineNotFound"));
+    public List<CartItem> updateCartLine(Cashier cashier, Integer tab, Long lineId, CartItemRequest request, String approvalPin) {
+        Cart cart = openCart(cashier, tab).orElseThrow(() -> new ValidationException("cart.lineNotFound"));
         CartItem item = cart.findLine(lineId).orElseThrow(() -> new ValidationException("cart.lineNotFound"));
         return updateLine(cashier, cart, item, request, approvalPin);
     }
@@ -190,8 +195,8 @@ public class CartService {
 
     /** Empties the till's cart. With items in it this is a void of the whole cart. */
     @Transactional
-    public void clear(Cashier cashier, String approvalPin) {
-        Optional<Cart> cart = openCart(cashier);
+    public void clear(Cashier cashier, Integer tab, String approvalPin) {
+        Optional<Cart> cart = openCart(cashier, tab);
         if (cart.isEmpty()) {
             return;
         }
@@ -205,8 +210,8 @@ public class CartService {
 
     /** Attaches a customer (by id or loyalty card number) to the cart on screen; null removes them. */
     @Transactional
-    public Cart setCustomer(Cashier cashier, Long customerId, String cardNumber) {
-        Cart cart = openCartOrCreate(cashier);
+    public Cart setCustomer(Cashier cashier, Integer tab, Long customerId, String cardNumber) {
+        Cart cart = openCartOrCreate(cashier, tab);
         if (customerId == null && (cardNumber == null || cardNumber.isBlank())) {
             cart.setCustomer(null);
         } else {
@@ -225,11 +230,11 @@ public class CartService {
      * above that a manager's PIN is needed. 0 removes the discount.
      */
     @Transactional
-    public Cart setManualDiscount(Cashier cashier, BigDecimal percent, String approvalPin) {
+    public Cart setManualDiscount(Cashier cashier, Integer tab, BigDecimal percent, String approvalPin) {
         if (percent == null || percent.signum() < 0 || percent.compareTo(BigDecimal.valueOf(100)) > 0) {
             throw new ValidationException("discount.invalidPercent");
         }
-        Cart cart = openCart(cashier)
+        Cart cart = openCart(cashier, tab)
                 .filter(open -> !open.getItems().isEmpty())
                 .orElseThrow(() -> new ValidationException("cart.empty"));
         if (percent.signum() == 0) {
@@ -249,11 +254,12 @@ public class CartService {
 
     /** Puts the cart on screen aside so the till can serve the next customer. */
     @Transactional
-    public Cart park(Cashier cashier, String label) {
-        Cart cart = openCart(cashier)
+    public Cart park(Cashier cashier, Integer tab, String label) {
+        Cart cart = openCart(cashier, tab)
                 .filter(open -> !open.getItems().isEmpty())
                 .orElseThrow(() -> new ValidationException("cart.nothingToPark"));
         cart.setStatus(Cart.Status.PARKED);
+        cart.setSlot(null);
         cart.setLabel(label == null || label.isBlank() ? null : label.trim());
         cart.setUpdatedAt(LocalDateTime.now());
         return cart;
@@ -266,8 +272,8 @@ public class CartService {
 
     /** Brings a parked cart to this till. The till's own cart must be empty first. */
     @Transactional
-    public List<CartItem> resume(Cashier cashier, Long cartId) {
-        Optional<Cart> current = openCart(cashier);
+    public List<CartItem> resume(Cashier cashier, Integer tab, Long cartId) {
+        Optional<Cart> current = openCart(cashier, tab);
         if (current.isPresent() && !current.get().getItems().isEmpty()) {
             throw new ValidationException("cart.notEmpty");
         }
@@ -277,21 +283,60 @@ public class CartService {
         current.ifPresent(cartRepository::delete);
         cartRepository.flush();
         parked.setStatus(Cart.Status.OPEN);
+        parked.setSlot(requireTab(tab));
         parked.setCashier(cashier);
         return touch(parked);
     }
 
-    /** The cart to sell, used by checkout inside its own transaction. */
-    Optional<Cart> openCart(Cashier cashier) {
-        return cartRepository.findFirstByCashierIdAndStatusOrderByIdDesc(cashier.getId(), Cart.Status.OPEN);
+    /** The cart in a tab of the cashier's till, used by checkout inside its own transaction. */
+    Optional<Cart> openCart(Cashier cashier, Integer tab) {
+        return cartRepository.findFirstByCashierIdAndStatusAndSlotOrderByIdDesc(cashier.getId(), Cart.Status.OPEN, requireTab(tab));
+    }
+
+    /** The tabs of the cashier's till that have products in them. */
+    @Transactional(readOnly = true)
+    public List<Cart> openCartsWithItems(Cashier cashier) {
+        return cartRepository.findByCashierIdAndStatusOrderBySlot(cashier.getId(), Cart.Status.OPEN).stream()
+                .filter(cart -> !cart.getItems().isEmpty()).toList();
+    }
+
+    /**
+     * Empties every tab of the till when the cashier closes the shift and confirms it: nothing is sold. What was
+     * thrown away is written to the audit log.
+     */
+    @Transactional
+    public void discardOpenCarts(Cashier cashier) {
+        for (Cart cart : cartRepository.findByCashierIdAndStatusOrderBySlot(cashier.getId(), Cart.Status.OPEN)) {
+            if (!cart.getItems().isEmpty()) {
+                auditService.record(cashier, "CARTS_DISCARDED", "CART", cart.getId(), "tab " + cart.getSlot() + ": "
+                        + cart.getItems().stream().map(item -> lineName(item) + " x " + item.getQuantity().stripTrailingZeros().toPlainString())
+                        .collect(Collectors.joining(", ")) + "; " + cart.getSubtotal() + " LEK");
+            }
+            cartRepository.delete(cart);
+        }
+    }
+
+    /** 1, 2 or 3; no tab given means tab 1. */
+    public static int requireTab(Integer tab) {
+        if (tab == null) {
+            return 1;
+        }
+        if (tab < 1 || tab > TABS) {
+            throw new ValidationException("cart.invalidTab", TABS);
+        }
+        return tab;
     }
 
     void delete(Cart cart) {
         cartRepository.delete(cart);
     }
 
-    private Cart openCartOrCreate(Cashier cashier) {
-        return openCart(cashier).orElseGet(() -> cartRepository.save(new Cart(cashier, LocalDateTime.now())));
+    private Cart openCartOrCreate(Cashier cashier, Integer tab) {
+        return openCart(cashier, tab).orElseGet(() -> {
+            Cart cart = new Cart(cashier, LocalDateTime.now());
+            cart.setSlot(requireTab(tab));
+            return cartRepository.save(cart);
+        });
     }
 
     private List<CartItem> touch(Cart cart) {

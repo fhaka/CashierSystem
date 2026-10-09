@@ -194,7 +194,10 @@ class PromotionsAndCustomersTest extends IntegrationTest {
         postJson("/customers/" + neighbour + "/payments", cashier, Map.of("amount", "200", "method", "CASH")).andExpect(status().isOk());
         assertThat(jdbc.queryForObject("SELECT balance FROM customers WHERE id = ?", BigDecimal.class, neighbour)).isEqualByComparingTo("400.00");
 
-        JsonNode shift = data(postJson("/shifts/" + shiftId + "/close", cashier, Map.of("closingCash", "1200.00")));
+        // The refused sale is still in the till: closing asks first, and the cashier confirms it is thrown away.
+        postJson("/shifts/" + shiftId + "/close", cashier, Map.of("closingCash", "1200.00"))
+                .andExpect(jsonPath("$.code").value("cart.unsoldItems"));
+        JsonNode shift = data(postJson("/shifts/" + shiftId + "/close", cashier, Map.of("closingCash", "1200.00", "discardCarts", true)));
         assertThat(shift.path("creditSales").decimalValue()).isEqualByComparingTo("600.00");
         assertThat(shift.path("cashIn").decimalValue()).isEqualByComparingTo("200.00");
         assertThat(shift.path("expectedCash").decimalValue()).isEqualByComparingTo("1200.00");

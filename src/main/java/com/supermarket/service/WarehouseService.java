@@ -5,10 +5,12 @@ import com.supermarket.exception.ValidationException;
 import com.supermarket.model.Cashier;
 import com.supermarket.model.PriceChange;
 import com.supermarket.model.Product;
+import com.supermarket.model.Promotion;
 import com.supermarket.model.ProductPackage;
 import com.supermarket.repository.AuditEventRepository;
 import com.supermarket.repository.ProductPackageRepository;
 import com.supermarket.repository.ProductRepository;
+import com.supermarket.repository.PromotionRepository;
 import com.supermarket.util.Quantities;
 import jakarta.persistence.EntityManager;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,8 +25,13 @@ import java.math.RoundingMode;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.Collections;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -49,11 +56,13 @@ public class WarehouseService {
     private final AuditEventRepository auditEventRepository;
     private final AuditService auditService;
     private final MessageSource messageSource;
+    private final PromotionRepository promotionRepository;
     private final boolean costIncludesVat;
 
     public WarehouseService(EntityManager entityManager, ProductRepository productRepository,
                             ProductPackageRepository packageRepository, PriceHistoryService priceHistoryService,
                             AuditEventRepository auditEventRepository, AuditService auditService, MessageSource messageSource,
+                            PromotionRepository promotionRepository,
                             @Value("${pos.reports.cost-includes-vat:true}") boolean costIncludesVat) {
         this.entityManager = entityManager;
         this.productRepository = productRepository;
@@ -62,6 +71,7 @@ public class WarehouseService {
         this.auditEventRepository = auditEventRepository;
         this.auditService = auditService;
         this.messageSource = messageSource;
+        this.promotionRepository = promotionRepository;
         this.costIncludesVat = costIncludesVat;
     }
 
@@ -206,8 +216,29 @@ public class WarehouseService {
 
     // --- product card parts -------------------------------------------------------------------------------------
 
-    /** Sales, refunds, purchases and adjustments, newest first, with the stock after each one. */
+    /**
+     * The product's stock movements between two days (both optional), newest first, optionally of one type
+     * (SALE, REFUND, PURCHASE, ADJUSTMENT). The stock after each movement is worked out from the whole history.
+     */
+    @Transactional(readOnly = true)
+    public List<Warehouse.Movement> movements(Long productId, LocalDate from, LocalDate to, String type) {
+        Product product = productRepository.findById(productId).orElseThrow(() -> new ValidationException("product.notFound", productId));
+        LocalDateTime start = from == null ? LocalDateTime.MIN : from.atStartOfDay();
+        LocalDateTime end = to == null ? LocalDateTime.MAX : to.atTime(LocalTime.MAX);
+        return allMovements(product).stream()
+                .filter(m -> !m.at().isBefore(start) && !m.at().isAfter(end))
+                .filter(m -> type == null || type.isBlank() || type.equalsIgnoreCase(m.type()))
+                .toList();
+    }
+
+    /** The newest movements, for the product card. */
     private List<Warehouse.Movement> movements(Product product) {
+        List<Warehouse.Movement> all = allMovements(product);
+        return all.subList(0, Math.min(MOVEMENTS_SHOWN, all.size()));
+    }
+
+    /** Sales, refunds, purchases and adjustments, newest first, with the stock after each one. */
+    private List<Warehouse.Movement> allMovements(Product product) {
         Long id = product.getId();
         List<Warehouse.Movement> all = new ArrayList<>();
         for (Object[] r : list("""
@@ -242,7 +273,7 @@ public class WarehouseService {
         // Walk back from today's stock: the stock after each movement.
         List<Warehouse.Movement> shown = new ArrayList<>();
         BigDecimal stock = product.getStock();
-        for (Warehouse.Movement m : all.subList(0, Math.min(MOVEMENTS_SHOWN, all.size()))) {
+        for (Warehouse.Movement m : all) {
             shown.add(new Warehouse.Movement(m.at(), m.type(), m.reference(), m.change(), stock, m.detail(), m.cashier()));
             stock = stock.subtract(m.change());
         }
@@ -297,6 +328,151 @@ public class WarehouseService {
         BigDecimal perDay = sold30.divide(BigDecimal.valueOf(30), 4, RoundingMode.HALF_UP);
         BigDecimal daysLeft = perDay.signum() == 0 ? null : product.getStock().max(BigDecimal.ZERO).divide(perDay, 0, RoundingMode.DOWN);
         return new Warehouse.SalesStats(sold30, money(revenue30), lastSaleByProduct().get(product.getId()), daysLeft, weekRows);
+    }
+
+    /** The Kartela e Artikullit's analysis of the last days (7 to 730). */
+    @Transactional(readOnly = true)
+    public Warehouse.ProductAnalysis analysis(Long productId, int days) {
+        Product product = productRepository.findById(productId).orElseThrow(() -> new ValidationException("product.notFound", productId));
+        int period = Math.max(7, Math.min(730, days));
+        LocalDate first = LocalDate.now().minusDays(period - 1L);
+        LocalDateTime start = first.atStartOfDay();
+
+        Map<LocalDate, BigDecimal[]> daily = new TreeMap<>();
+        Map<LocalDate, Set<Long>> receiptsByDay = new HashMap<>();
+        for (int i = 0; i < period; i++) {
+            daily.put(first.plusDays(i), new BigDecimal[] {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+        }
+        BigDecimal[] weekdays = zeros(7);
+        BigDecimal[] hours = zeros(24);
+        Map<Long, CustomerSales> customers = new LinkedHashMap<>();
+        Set<Long> receipts = new HashSet<>();
+        BigDecimal vat = BigDecimal.ZERO;
+        for (Object[] r : entityManager.createQuery("""
+                        select s.id, s.date, si.quantity, si.lineTotal, si.taxAmount, si.purchasePrice, si.taxRate,
+                               cu.id, cu.fullName, cu.cardNumber
+                        from SaleItem si join si.sale s left join s.customer cu
+                        where si.product.id = :id and s.date >= :from
+                        """, Object[].class)
+                .setParameter("id", productId).setParameter("from", start).getResultList()) {
+            Long saleId = (Long) r[0];
+            LocalDateTime at = (LocalDateTime) r[1];
+            BigDecimal quantity = (BigDecimal) r[2];
+            BigDecimal revenue = (BigDecimal) r[3];
+            BigDecimal profit = lineProfit(quantity, revenue, (BigDecimal) r[4], (BigDecimal) r[5], (BigDecimal) r[6]);
+            BigDecimal[] day = daily.get(at.toLocalDate());
+            if (day != null) {
+                day[0] = day[0].add(quantity);
+                day[1] = day[1].add(revenue);
+                day[2] = day[2].add(profit);
+                receiptsByDay.computeIfAbsent(at.toLocalDate(), d -> new HashSet<>()).add(saleId);
+            }
+            receipts.add(saleId);
+            vat = vat.add(r[4] == null ? BigDecimal.ZERO : (BigDecimal) r[4]);
+            weekdays[at.getDayOfWeek().getValue() - 1] = weekdays[at.getDayOfWeek().getValue() - 1].add(quantity);
+            hours[at.getHour()] = hours[at.getHour()].add(quantity);
+            if (r[7] != null) {
+                customers.computeIfAbsent((Long) r[7], id -> new CustomerSales((String) r[8], (String) r[9])).add(saleId, quantity, revenue);
+            }
+        }
+
+        BigDecimal quantity = BigDecimal.ZERO;
+        BigDecimal revenue = BigDecimal.ZERO;
+        BigDecimal profit = BigDecimal.ZERO;
+        List<Warehouse.DaySales> dayRows = new ArrayList<>();
+        for (Map.Entry<LocalDate, BigDecimal[]> e : daily.entrySet()) {
+            BigDecimal[] v = e.getValue();
+            quantity = quantity.add(v[0]);
+            revenue = revenue.add(v[1]);
+            profit = profit.add(v[2]);
+            dayRows.add(new Warehouse.DaySales(e.getKey(), v[0], money(v[1]), money(v[2]),
+                    receiptsByDay.getOrDefault(e.getKey(), Set.of()).size()));
+        }
+        BigDecimal revenueExVat = revenue.subtract(vat);
+        List<Warehouse.CustomerRow> top = customers.values().stream()
+                .map(c -> new Warehouse.CustomerRow(c.name, c.card, c.quantity, money(c.revenue), c.visits.size()))
+                .sorted(Comparator.comparing(Warehouse.CustomerRow::revenue).reversed())
+                .limit(10).toList();
+        return new Warehouse.ProductAnalysis(period, quantity, money(revenue), money(profit),
+                revenueExVat.signum() == 0 ? BigDecimal.ZERO : profit.multiply(BigDecimal.valueOf(100)).divide(revenueExVat, 1, RoundingMode.HALF_UP),
+                receipts.size(), quantity.divide(BigDecimal.valueOf(period), 3, RoundingMode.HALF_UP), dayRows,
+                stockSeries(product, first), List.of(weekdays), List.of(hours), top, promotionsFor(product), lastPurchase(productId));
+    }
+
+    /** What one customer bought of the product: quantity, money and on how many receipts. */
+    private static final class CustomerSales {
+        private final String name;
+        private final String card;
+        private final Set<Long> visits = new HashSet<>();
+        private BigDecimal quantity = BigDecimal.ZERO;
+        private BigDecimal revenue = BigDecimal.ZERO;
+
+        CustomerSales(String name, String card) {
+            this.name = name;
+            this.card = card;
+        }
+
+        void add(Long saleId, BigDecimal pieces, BigDecimal amount) {
+            visits.add(saleId);
+            quantity = quantity.add(pieces);
+            revenue = revenue.add(amount);
+        }
+    }
+
+    /** Profit of one sale line, without VAT, the same way as the reports. */
+    private BigDecimal lineProfit(BigDecimal quantity, BigDecimal lineTotal, BigDecimal tax, BigDecimal purchasePrice, BigDecimal taxRate) {
+        BigDecimal cost = quantity.multiply(purchasePrice == null ? BigDecimal.ZERO : purchasePrice);
+        if (costIncludesVat && taxRate != null) {
+            cost = cost.divide(BigDecimal.ONE.add(taxRate.movePointLeft(2)), 4, RoundingMode.HALF_UP);
+        }
+        return lineTotal.subtract(tax == null ? BigDecimal.ZERO : tax).subtract(cost);
+    }
+
+    /** The stock at the end of each day since the first day, worked back from today's stock through the movements. */
+    private List<Warehouse.StockPoint> stockSeries(Product product, LocalDate first) {
+        List<Warehouse.Movement> all = allMovements(product);
+        List<Warehouse.StockPoint> points = new ArrayList<>();
+        BigDecimal running = product.getStock();
+        int index = 0;
+        for (LocalDate day = LocalDate.now(); !day.isBefore(first); day = day.minusDays(1)) {
+            LocalDateTime endOfDay = day.atTime(LocalTime.MAX);
+            while (index < all.size() && all.get(index).at().isAfter(endOfDay)) {
+                running = running.subtract(all.get(index).change());
+                index++;
+            }
+            points.add(new Warehouse.StockPoint(day, running));
+        }
+        Collections.reverse(points);
+        return points;
+    }
+
+    private List<Warehouse.PromotionRow> promotionsFor(Product product) {
+        Long categoryId = product.getCategory() == null ? null : product.getCategory().getId();
+        LocalDateTime now = LocalDateTime.now();
+        return promotionRepository.findAll().stream()
+                .filter(p -> p.covers(product.getId(), categoryId))
+                .sorted(Comparator.comparing(Promotion::getCreatedAt).reversed())
+                .map(p -> new Warehouse.PromotionRow(p.getId(), p.getName(), p.getType().name(),
+                        p.getProductId() != null ? text("warehouse.promoProduct") : text("warehouse.promoCategory", p.getCategoryName()),
+                        p.isActive(), p.isActive() && p.runsAt(now), p.getStartsOn(), p.getEndsOn()))
+                .toList();
+    }
+
+    private Warehouse.LastPurchase lastPurchase(Long productId) {
+        return entityManager.createQuery("""
+                        select inv.invoiceDate, coalesce(sup.name, inv.company), inv.invoiceNumber, pi.quantity, pi.purchasePrice
+                        from PurchaseItem pi join pi.invoice inv left join inv.supplier sup where pi.product.id = :id
+                        order by inv.invoiceDate desc, pi.id desc
+                        """, Object[].class)
+                .setParameter("id", productId).setMaxResults(1).getResultStream()
+                .map(r -> new Warehouse.LastPurchase((LocalDate) r[0], (String) r[1], (String) r[2], (BigDecimal) r[3], (BigDecimal) r[4]))
+                .findFirst().orElse(null);
+    }
+
+    private static BigDecimal[] zeros(int n) {
+        BigDecimal[] values = new BigDecimal[n];
+        Arrays.fill(values, BigDecimal.ZERO);
+        return values;
     }
 
     // --- helpers -----------------------------------------------------------------------------------------------

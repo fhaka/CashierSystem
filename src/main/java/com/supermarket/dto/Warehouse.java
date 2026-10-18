@@ -54,6 +54,36 @@ public final class Warehouse {
                               List<AuditEvent> history) {
     }
 
+    /** One day of a product's sales: quantity, revenue (VAT included), profit (without VAT), receipts. */
+    public record DaySales(LocalDate day, BigDecimal quantity, BigDecimal revenue, BigDecimal profit, int receipts) {
+    }
+
+    /** The stock at the end of a day. */
+    public record StockPoint(LocalDate day, BigDecimal stock) {
+    }
+
+    /** A customer (with a loyalty card on the sale) who bought the product. */
+    public record CustomerRow(String name, String cardNumber, BigDecimal quantity, BigDecimal revenue, int purchases) {
+    }
+
+    /** A promotion that covers the product (itself or its category). */
+    public record PromotionRow(Long id, String name, String type, String scope, boolean active, boolean runningNow,
+                               LocalDate startsOn, LocalDate endsOn) {
+    }
+
+    public record LastPurchase(LocalDate date, String supplier, String invoice, BigDecimal quantity, BigDecimal pricePerPiece) {
+    }
+
+    /**
+     * The Kartela e Artikullit's analysis of the last {days} days: totals, one row per day, the stock at the end of each
+     * day, quantity sold by weekday (Monday first) and by hour, top customers, promotions and the last purchase.
+     */
+    public record ProductAnalysis(int days, BigDecimal quantity, BigDecimal revenue, BigDecimal profit, BigDecimal marginPercent,
+                                  int receipts, BigDecimal averagePerDay, List<DaySales> daily, List<StockPoint> stock,
+                                  List<BigDecimal> byWeekday, List<BigDecimal> byHour, List<CustomerRow> topCustomers,
+                                  List<PromotionRow> promotions, LastPurchase lastPurchase) {
+    }
+
     /** Raise or lower selling prices by a percentage, rounded to roundTo LEK (0 = to the cent). */
     public record BulkPriceRequest(List<Long> productIds, BigDecimal percent, BigDecimal roundTo, boolean apply) {
     }

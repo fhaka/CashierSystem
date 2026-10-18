@@ -100,6 +100,12 @@
         </svg>
         <span data-i18n>Warehouse</span>
       </button>
+      <button class="nav-btn manager-only" data-v="kartela" onclick="gotoView('kartela')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h6"/><path d="M7 13h10"/><path d="M7 17h4"/>
+        </svg>
+        <span data-i18n>Product card</span>
+      </button>
       <button class="nav-btn manager-only" data-v="purchases" onclick="gotoView('purchases')">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/>
@@ -135,6 +141,12 @@
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
         </svg>
         <span data-i18n>Sales Log</span>
+      </button>
+      <button class="nav-btn manager-only" data-v="journal" onclick="gotoView('journal')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7"/><path d="M9 11h7"/>
+        </svg>
+        <span data-i18n>Journal of operations</span>
       </button>
       <button class="nav-btn manager-only" data-v="reports" onclick="gotoView('reports')">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -859,6 +871,67 @@
       </div>
     </div>
 
+    <div id="view-kartela" class="view">
+      <div class="page-head" style="flex-shrink:0;">
+        <div>
+          <div class="page-title" data-i18n>Product card</div>
+          <div class="page-sub" data-i18n>Everything about one product: stock, sales, prices, boxes, suppliers and history</div>
+        </div>
+        <div class="actions kr-head-actions">
+          <div class="search-wrap kr-search">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input class="input" id="kr-search" autocomplete="off" data-i18n-placeholder placeholder="Search a product or scan its barcode"
+                   oninput="onKartelaSearch(this.value)" onkeydown="onKartelaSearchKey(event)" onblur="setTimeout(hideKartelaResults, 150)" />
+            <div class="search-results hidden" id="kr-results"></div>
+          </div>
+          <button class="btn btn-secondary btn-icon" id="kr-prev" onclick="stepKartela(-1)" data-i18n-title title="Previous product">&lsaquo;</button>
+          <button class="btn btn-secondary btn-icon" id="kr-next" onclick="stepKartela(1)" data-i18n-title title="Next product">&rsaquo;</button>
+        </div>
+      </div>
+      <div class="kr-page" id="kr-page"></div>
+    </div>
+
+    <div id="view-journal" class="view">
+      <div class="page-head" style="flex-shrink:0;">
+        <div>
+          <div class="page-title" data-i18n>Journal of operations</div>
+          <div class="page-sub" data-i18n>Every operation of the shop in one place: sales, refunds, purchases, stock, cash and payments</div>
+        </div>
+        <div class="actions reports-actions">
+          <select class="input" id="jr-period" onchange="onJournalPeriod()">
+            <option value="today" data-i18n>Today</option>
+            <option value="yesterday" data-i18n>Yesterday</option>
+            <option value="week" data-i18n>This week</option>
+            <option value="last7" selected data-i18n>Last 7 days</option>
+            <option value="month" data-i18n>This month</option>
+            <option value="lastMonth" data-i18n>Last month</option>
+            <option value="custom" data-i18n>Custom dates</option>
+          </select>
+          <input class="input hidden" id="jr-from" type="date" onchange="loadJournal()" />
+          <input class="input hidden" id="jr-to" type="date" onchange="loadJournal()" />
+          <select class="input" id="jr-user" onchange="loadJournal()"></select>
+          <button class="btn btn-secondary" onclick="loadJournal()" data-i18n>Refresh</button>
+          <button class="btn btn-secondary" onclick="exportJournal()" data-i18n>Excel</button>
+        </div>
+      </div>
+      <div class="jr-page">
+        <div class="jr-search-row">
+          <div class="search-wrap">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input class="input" id="jr-q" data-i18n-placeholder placeholder="Search: document number, customer, supplier, product, note" oninput="onJournalSearch()" />
+          </div>
+        </div>
+        <div class="jr-chips" id="jr-chips"></div>
+        <div class="jr-summary" id="jr-summary"></div>
+        <div class="jr-timeline" id="jr-timeline"></div>
+        <div class="jr-more" id="jr-more"></div>
+      </div>
+    </div>
+
     <div id="view-audit" class="view">
       <div class="page-head" style="flex-shrink:0;">
         <div>
@@ -1378,19 +1451,14 @@
 </div>
 
 
-<div id="modal-card" class="overlay hidden">
-  <div class="modal card-modal">
+<div id="modal-journal" class="overlay hidden">
+  <div class="modal" style="max-width:560px;">
     <div class="modal-head">
-      <div>
-        <div class="modal-title" id="card-title"></div>
-        <div class="card-sub" id="card-sub"></div>
-      </div>
-      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeProductCard()">x</button>
+      <div class="modal-title" id="je-title"></div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-journal')">x</button>
     </div>
-    <div class="card-actions" id="card-actions"></div>
-    <div class="card-kpis" id="card-kpis"></div>
-    <div class="seg card-tabs" id="card-tabs"></div>
-    <div class="card-body" id="card-body"></div>
+    <div class="modal-body" id="je-body"></div>
+    <div class="modal-foot" id="je-actions"></div>
   </div>
 </div>
 

@@ -96,6 +96,16 @@ public class ExportService {
     }
 
     /** All sales of a period, one row per sale. */
+    /** One sheet with a header row and the rows as given (numbers stay numbers). */
+    public byte[] tableXlsx(String sheetName, List<String> header, List<Object[]> rows) {
+        try (Workbook book = new XSSFWorkbook()) {
+            table(book.createSheet(sheetName), new Styles(book), header, rows);
+            return bytes(book);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Could not create the Excel file", exception);
+        }
+    }
+
     public byte[] salesXlsx(List<SalesPage.Row> sales, LocalDate from, LocalDate to) {
         try (Workbook book = new XSSFWorkbook()) {
             Styles styles = new Styles(book);

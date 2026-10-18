@@ -252,7 +252,7 @@ function applyRolePermissions() {
 
 /*  Navigation  */
 function gotoView(view) {
-  if (['products', 'purchases', 'reports', 'suppliers', 'inventory', 'promotions'].includes(view) && !isOperationalManager()) {
+  if (['products', 'purchases', 'reports', 'suppliers', 'inventory', 'promotions', 'kartela', 'journal'].includes(view) && !isOperationalManager()) {
     toast(t('Super Cashier or Super Admin access is required'), 'error');
     view = 'home';
   }
@@ -273,6 +273,8 @@ function gotoView(view) {
   if (view === 'inventory') showInventoryTab(currentInventoryTab);
   if (view === 'sales')    loadSales();
   if (view === 'settings') loadSettingsForm();
+  if (view === 'kartela') initKartela();
+  if (view === 'journal') initJournal();
   if (view === 'pos') { refreshTillInfo(); setTimeout(focusSearch, 50); }
   if (view === 'reports')  loadReports();
   if (view === 'users') loadUsers();
@@ -1249,8 +1251,6 @@ let warehouseOverview = null;
 let warehouseFilter = 'all';
 let warehouseChangedToday = new Set();
 const warehouseSelected = new Set();
-let productCard = null;
-let productCardTab = 'summary';
 const DEAD_STOCK_DAYS = 60;
 
 async function loadProdsTable() {
@@ -1268,7 +1268,7 @@ async function loadProdsTable() {
     renderWarehouseKpis();
     fillWarehouseCategories();
     renderProdsTable();
-    if (productCard && !$('modal-card').classList.contains('hidden')) openProductCard(productCard.product.id, productCardTab);
+    if (productCard && $('view-kartela').classList.contains('on')) loadKartela(productCard.product.id, true);
   } catch (e) {
     $('prod-tbody').innerHTML = `<tr><td colspan="9" class="no-data" style="color:var(--red)">${t('Error')}: ${esc(e.message)}</td></tr>`;
   }
@@ -1424,165 +1424,630 @@ async function openProdModalById(productId) {
   }
 }
 
-/*  Product card  */
-const CARD_TABS = [
-  ['summary', 'Summary'], ['boxes', 'Boxes'], ['prices', 'Prices'], ['movements', 'Stock movements'],
-  ['suppliers', 'Suppliers'], ['history', 'History']
-];
+/*  Kartela e Artikullit: one product on a full page  */
 const MOVEMENT_LABELS = { SALE: 'Sale', REFUND: 'Refund', PURCHASE: 'Purchase', ADJUSTMENT: 'Adjustment' };
 const PRICE_SOURCES = { EDIT: 'Edited', PURCHASE: 'Purchase invoice', BULK: 'Bulk change', IMPORT: 'File import' };
+const PROMOTION_TYPES = { PERCENT: 'Percentage off', BUY_X_GET_Y: 'Buy X get Y free' };
+const WEEKDAYS_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const KARTELA_SECTIONS = [
+  ['kr-sales', 'Sales'], ['kr-stock', 'Stock'], ['kr-details', 'Details'], ['kr-boxes', 'Boxes'], ['kr-prices', 'Prices'],
+  ['kr-moves', 'Stock movements'], ['kr-suppliers', 'Suppliers'], ['kr-customers', 'Customers'], ['kr-promos', 'Promotions'],
+  ['kr-history', 'History']
+];
+let productCard = null;
+let kartelaId = null;
+let kartelaPeriod = 90;
+let kartelaAnalysis = null;
+let kartelaMoves = [];
 
-async function openProductCard(productId, tab = 'summary') {
-  try {
-    const res = await req('GET', `/warehouse/products/${productId}`);
-    productCard = res.data;
-    productCardTab = tab;
-    renderProductCard();
-    openModal('modal-card');
-  } catch (e) { toast(e.message, 'error'); }
+/* Magazina rows, boxes and labels open the Kartela. */
+function openProductCard(productId) {
+  return openKartela(productId);
 }
 
-function closeProductCard() {
-  closeModal('modal-card');
-  productCard = null;
+function openKartela(productId) {
+  kartelaId = productId;
+  if ($('view-kartela').classList.contains('on')) return loadKartela(productId);
+  gotoView('kartela');
+}
+
+function initKartela() {
+  if (kartelaId) loadKartela(kartelaId);
+  else renderKartelaEmpty();
+  setTimeout(() => $('kr-search')?.focus(), 50);
+}
+
+async function loadKartela(productId, keepScroll = false) {
+  kartelaId = productId;
+  const page = $('kr-page');
+  const scroll = page.scrollTop;
+  if (!productCard || productCard.product.id !== productId) {
+    page.innerHTML = `<div class="kr-loading">${t('Loading...')}</div>`;
+  }
+  try {
+    const [card, analysis, moves] = await Promise.all([
+      req('GET', `/warehouse/products/${productId}`),
+      req('GET', `/warehouse/products/${productId}/analysis?days=${kartelaPeriod}`),
+      req('GET', `/warehouse/products/${productId}/movements`)
+    ]);
+    productCard = card.data;
+    kartelaAnalysis = analysis.data;
+    kartelaMoves = moves.data || [];
+    rememberKartela(productCard.product);
+    renderKartela();
+    if (keepScroll) page.scrollTop = scroll;
+    updateKartelaNav();
+  } catch (e) {
+    page.innerHTML = `<div class="kr-empty"><strong>${esc(e.message)}</strong></div>`;
+  }
+}
+
+/* The last products opened, to come back to them quickly (this computer only). */
+function rememberKartela(product) {
+  try {
+    const recent = JSON.parse(localStorage.getItem('kartela-recent') || '[]').filter(r => r.id !== product.id);
+    recent.unshift({ id: product.id, name: product.name });
+    localStorage.setItem('kartela-recent', JSON.stringify(recent.slice(0, 8)));
+  } catch {}
+}
+
+function renderKartelaEmpty() {
+  let recent = [];
+  try { recent = JSON.parse(localStorage.getItem('kartela-recent') || '[]'); } catch {}
+  $('kr-page').innerHTML = `<div class="kr-empty">
+    <div class="kr-empty-icon">
+      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h6"/><path d="M7 13h10"/><path d="M7 17h4"/></svg>
+    </div>
+    <strong>${t('Choose a product')}</strong>
+    <span>${t('Search by name above, scan its barcode, or open it from Magazina.')}</span>
+    ${recent.length ? `<div class="kr-recent"><small>${t('Opened recently')}</small>
+      ${recent.map(r => `<button class="btn btn-secondary btn-sm" onclick="openKartela(${r.id})">${esc(r.name)}</button>`).join('')}</div>` : ''}
+  </div>`;
+  updateKartelaNav();
+}
+
+/* Previous / next follow the Magazina list (its filters and order). */
+function kartelaList() {
+  const rows = allProdTable.length ? warehouseRows() : [];
+  return rows.length ? rows : allProdTable;
+}
+
+async function stepKartela(direction) {
+  if (!allProdTable.length) {
+    try { allProdTable = (await req('GET', '/warehouse/products')).data || []; } catch { return; }
+  }
+  const list = kartelaList();
+  if (!list.length) return;
+  const index = list.findIndex(p => p.id === kartelaId);
+  const next = list[(index + direction + list.length) % list.length];
+  if (next) loadKartela(next.id);
+}
+
+function updateKartelaNav() {
+  const disabled = !kartelaId;
+  if ($('kr-prev')) $('kr-prev').disabled = disabled;
+  if ($('kr-next')) $('kr-next').disabled = disabled;
+}
+
+let _krSearchTmr;
+let kartelaResults = [];
+let kartelaResultIndex = -1;
+
+function onKartelaSearch(value) {
+  clearTimeout(_krSearchTmr);
+  const text = value.trim();
+  if (!text || /^\d+$/.test(text)) { hideKartelaResults(); return; }
+  _krSearchTmr = setTimeout(async () => {
+    try {
+      const res = await req('GET', `/products/search?query=${encodeURIComponent(text)}`);
+      if ($('kr-search').value.trim() !== text) return;
+      kartelaResults = (res.data || []).slice(0, 12);
+      kartelaResultIndex = kartelaResults.length ? 0 : -1;
+      renderKartelaResults();
+    } catch {}
+  }, 250);
+}
+
+function renderKartelaResults() {
+  const box = $('kr-results');
+  box.innerHTML = kartelaResults.length ? kartelaResults.map((p, i) => `
+    <div class="sr-item ${i === kartelaResultIndex ? 'on' : ''}" onmousedown="event.preventDefault(); pickKartelaResult(${i})">
+      <span class="sr-main"><span class="sr-name">${esc(p.name)}</span><span class="sr-code">${esc(p.barcode)}</span></span>
+      <span class="sr-stock">${fmtQty(p.stock, p.unit)} ${esc(unitLabel(p.unit))}</span>
+      <span class="sr-price">${fmt(p.price)}</span>
+    </div>`).join('') : `<div class="sr-empty">${t('No products found')}</div>`;
+  box.classList.remove('hidden');
+}
+
+function hideKartelaResults() {
+  kartelaResults = [];
+  $('kr-results')?.classList.add('hidden');
+}
+
+function pickKartelaResult(index) {
+  const p = kartelaResults[index];
+  if (!p) return;
+  hideKartelaResults();
+  $('kr-search').value = '';
+  loadKartela(p.id);
+}
+
+async function onKartelaSearchKey(event) {
+  const open = !$('kr-results').classList.contains('hidden') && kartelaResults.length;
+  if (open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    event.preventDefault();
+    kartelaResultIndex = (kartelaResultIndex + (event.key === 'ArrowDown' ? 1 : -1) + kartelaResults.length) % kartelaResults.length;
+    renderKartelaResults();
+    return;
+  }
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  const text = event.target.value.trim();
+  if (/^\d{3,}$/.test(text)) {
+    try {
+      const res = await req('GET', `/products/scan/${encodeURIComponent(text)}`);
+      event.target.value = '';
+      hideKartelaResults();
+      loadKartela(res.data.product.id);
+    } catch (e) { toast(e.message, 'error'); }
+  } else if (open) {
+    pickKartelaResult(kartelaResultIndex);
+  }
+}
+
+function setKartelaPeriod(days) {
+  kartelaPeriod = days;
+  loadKartela(kartelaId, true);
+}
+
+function scrollKartela(id) {
+  $(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function cardBoxPrice(box) {
   return box.price != null ? parseFloat(box.price) : parseFloat(productCard.product.price) * box.pieces;
 }
 
-function renderProductCard() {
+function renderKartela() {
   const c = productCard;
   const p = c.product;
+  const a = kartelaAnalysis;
   const stock = parseFloat(p.stock);
-  $('card-title').textContent = p.name;
-  $('card-sub').innerHTML = `${esc(p.barcode)} · ${esc(c.category || t('None'))} · ${esc(unitLabel(p.unit))}`
-    + (p.active ? '' : ` · <span class="badge b-red">${t('Inactive')}</span>`);
-  $('card-actions').innerHTML = `
-    <button class="btn btn-secondary btn-sm" onclick="openProdModalById(${p.id})">${t('Edit')}</button>
-    <button class="btn btn-secondary btn-sm" onclick="openAdjust(${p.id})">${t('Adjust stock')}</button>
-    <button class="btn btn-primary btn-sm" onclick="openLabelsForCard()">${t('Print label')}</button>
-    ${p.active ? `<button class="btn btn-danger btn-sm" onclick="confirmDelete(${p.id})">${t('Deactivate')}</button>`
-      : `<button class="btn btn-secondary btn-sm" onclick="activateProd(${p.id})">${t('Reactivate')}</button>`}`;
   const boxes = c.packages.filter(b => b.active);
   const biggest = boxes.reduce((max, b) => (!max || b.pieces > max.pieces ? b : max), null);
-  const kpi = (label, value, sub = '') => `<div class="card-kpi"><span>${label}</span><strong>${value}</strong>${sub ? `<small>${sub}</small>` : ''}</div>`;
-  $('card-kpis').innerHTML =
-    kpi(t('Stock'), `${fmtQty(p.stock, p.unit)} ${esc(unitLabel(p.unit))}`,
-      biggest && stock >= biggest.pieces ? esc('= ' + t('{count} x {box}', { count: Math.floor(stock / biggest.pieces), box: biggest.name })) : '') +
-    kpi(t('Price'), fmtLek(p.price), c.unitPriceLabel ? `${esc(c.unitPriceLabel)} ${fmtLek(c.unitPrice)}` : '') +
-    kpi(t('Cost'), fmtLek(p.purchasePrice), `${t('Margin')} ${parseFloat(c.marginPercent).toFixed(1)}%`) +
-    kpi(t('Stock value'), fmtLek(stock > 0 ? stock * parseFloat(p.purchasePrice) : 0)) +
-    kpi(t('Sold (30 days)'), `${fmtQty(c.sales.soldLast30Days, p.unit)}`, fmtLek(c.sales.revenueLast30Days)) +
-    kpi(t('Days of stock left'), c.sales.daysOfStockLeft == null ? '-' : c.sales.daysOfStockLeft,
-      c.sales.lastSaleAt ? t('Last sale {date}', { date: fmtDate(c.sales.lastSaleAt) }) : t('Never sold'));
-  $('card-tabs').innerHTML = CARD_TABS.map(([id, label]) =>
-    `<button class="btn btn-secondary btn-sm ${id === productCardTab ? 'on' : ''}" onclick="showCardTab('${id}')">${t(label)}${id === 'boxes' && boxes.length ? ` (${boxes.length})` : ''}</button>`).join('');
-  $('card-body').innerHTML = ({
-    summary: cardSummary, boxes: cardBoxes, prices: cardPrices, movements: cardMovements, suppliers: cardSuppliers, history: cardHistory
-  })[productCardTab]();
-}
+  const lastSale = c.sales.lastSaleAt ? new Date(c.sales.lastSaleAt) : null;
+  const deadStock = stock > 0 && (!lastSale || Date.now() - lastSale.getTime() > 60 * 86400000);
+  const changedToday = c.priceHistory.some(ch => ch.newPrice != null && isoDay(new Date(ch.changedAt)) === isoDay(new Date()));
+  const low = p.minStock != null && stock <= parseFloat(p.minStock);
+  const badge = (cls, text) => `<span class="kr-badge ${cls}">${text}</span>`;
+  const badges = [
+    badge('', esc(c.category || t('None'))),
+    badge('', esc(unitLabel(p.unit))),
+    badge('', `${t('VAT')} ${fmtTax(p.taxRate)}`),
+    p.active ? '' : badge('bad', t('Inactive')),
+    stock <= 0 ? badge('bad', t('Out of stock')) : low ? badge('warn', t('Below minimum stock')) : badge('good', t('In stock')),
+    deadStock ? badge('warn', t('No sales in 60 days')) : '',
+    changedToday ? badge('info', t('Price changed today')) : '',
+    boxes.length ? badge('info', t('{count} boxes', { count: boxes.length })) : ''
+  ].join('');
+  const kpi = (label, value, sub = '', tone = '') => `<div class="kr-kpi ${tone}"><span>${label}</span><strong>${value}</strong>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  const margin = parseFloat(c.marginPercent);
+  const period = t('{days} days', { days: a.days });
 
-function showCardTab(tab) {
-  productCardTab = tab;
-  renderProductCard();
-}
-
-function cardSummary() {
-  const c = productCard;
-  const p = c.product;
-  const weeks = c.sales.weeks;
-  const max = Math.max(1, ...weeks.map(w => parseFloat(w.quantity)));
-  const bars = weeks.map(w => {
-    const q = parseFloat(w.quantity);
-    return `<div class="wk-bar" title="${esc(formatDay(w.week))}: ${fmtQty(q, p.unit)}">
-      <span class="wk-fill" style="height:${Math.round(q / max * 100)}%"></span><small>${esc(formatDay(w.week).slice(0, 5))}</small></div>`;
-  }).join('');
-  const line = (label, value) => `<div class="balance-line"><span>${label}</span><strong>${value}</strong></div>`;
-  return `<div class="card-grid">
-    <section><h3 class="section-title">${t('Sold per week')}</h3><div class="wk-chart">${bars}</div></section>
-    <section><h3 class="section-title">${t('Details')}</h3>
-      ${line(t('Category'), esc(c.category || t('None')))}
-      ${line(t('VAT'), fmtTax(p.taxRate))}
-      ${line(t('Content of one piece'), p.contentAmount ? `${parseFloat(p.contentAmount)} ${esc(p.contentUnit)}` : '-')}
-      ${line(t('Minimum stock'), p.minStock != null ? fmtQty(p.minStock, p.unit) : '-')}
-      ${line(t('Reorder quantity'), p.reorderQuantity != null ? fmtQty(p.reorderQuantity, p.unit) : t('Automatic'))}
+  $('kr-page').innerHTML = `
+    <section class="kr-hero">
+      <div class="kr-hero-main">
+        <div class="kr-eyebrow">${esc(p.barcode)}</div>
+        <h1>${esc(p.name)}</h1>
+        <div class="kr-badges">${badges}</div>
+      </div>
+      <div class="kr-hero-price">
+        <span>${t('Selling price')}</span>
+        <strong>${fmtLek(p.price)}</strong>
+        ${c.unitPriceLabel ? `<small>${esc(c.unitPriceLabel)} ${fmtLek(c.unitPrice)}</small>` : ''}
+      </div>
+      <div class="kr-hero-actions">
+        <button class="btn btn-primary btn-sm" onclick="openProdModalById(${p.id})">${t('Edit')}</button>
+        <button class="btn btn-secondary btn-sm" onclick="openAdjust(${p.id})">${t('Adjust stock')}</button>
+        <button class="btn btn-secondary btn-sm" onclick="openLabelsForCard()">${t('Print label')}</button>
+        ${p.unit === 'pcs' ? `<button class="btn btn-secondary btn-sm" onclick="openPackageModal()">${t('Add box')}</button>` : ''}
+        <button class="btn btn-secondary btn-sm" onclick="printKartela()">${t('Print product card')}</button>
+        ${p.active ? `<button class="btn btn-ghost btn-sm kr-danger" onclick="confirmDelete(${p.id})">${t('Deactivate')}</button>`
+          : `<button class="btn btn-secondary btn-sm" onclick="activateProd(${p.id})">${t('Reactivate')}</button>`}
+      </div>
     </section>
+
+    <nav class="kr-nav">${KARTELA_SECTIONS.map(([id, label]) => `<button onclick="scrollKartela('${id}')">${t(label)}</button>`).join('')}</nav>
+
+    <section class="kr-kpis">
+      ${kpi(t('Stock'), `${fmtQty(p.stock, p.unit)} ${esc(unitLabel(p.unit))}`,
+        biggest && stock >= biggest.pieces ? esc('= ' + t('{count} x {box}', { count: Math.floor(stock / biggest.pieces), box: biggest.name })) : '',
+        stock <= 0 ? 'bad' : low ? 'warn' : '')}
+      ${kpi(t('Stock value'), fmtLek(Math.max(0, stock) * parseFloat(p.purchasePrice)), `${t('at selling price')} ${fmtLek(Math.max(0, stock) * parseFloat(p.price))}`)}
+      ${kpi(t('Cost'), fmtLek(p.purchasePrice), `${t('Margin')} ${margin.toFixed(1)}%`, margin < 10 ? 'warn' : '')}
+      ${kpi(t('Sold'), `${fmtQty(a.quantity, p.unit)} ${esc(unitLabel(p.unit))}`, `${period} · ${t('{count} receipts', { count: a.receipts })}`)}
+      ${kpi(t('Revenue'), fmtLek(a.revenue), period)}
+      ${kpi(t('Profit'), fmtLek(a.profit), `${t('Margin')} ${parseFloat(a.marginPercent).toFixed(1)}% · ${period}`, parseFloat(a.profit) < 0 ? 'bad' : 'good')}
+      ${kpi(t('Days of stock left'), c.sales.daysOfStockLeft == null ? '-' : c.sales.daysOfStockLeft,
+        t('{n} per day', { n: parseFloat(a.averagePerDay).toFixed(1) }))}
+      ${kpi(t('Last sale'), lastSale ? fmtDate(c.sales.lastSaleAt) : t('Never sold'),
+        a.lastPurchase ? `${t('Last purchase')} ${formatDay(a.lastPurchase.date)}` : t('Not bought on a purchase invoice yet.'))}
+    </section>
+
+    <div class="kr-period">
+      <span>${t('Period')}</span>
+      <div class="seg">${[30, 90, 365].map(d => `<button class="btn btn-secondary btn-sm ${d === a.days ? 'on' : ''}" onclick="setKartelaPeriod(${d})">${t('{days} days', { days: d })}</button>`).join('')}</div>
+    </div>
+
+    <div class="kr-grid">
+      <section class="kr-card kr-wide" id="kr-sales">
+        <header><h2>${t('Sales')}</h2><p>${t('Quantity sold per day')} · ${period}</p></header>
+        ${svgBars(a.daily.map(d => ({ value: parseFloat(d.quantity), title: `${formatDay(d.day)}: ${fmtQty(d.quantity, p.unit)} · ${fmtLek(d.revenue)}` })), 150)}
+        ${axisDays(a.daily.map(d => d.day))}
+      </section>
+
+      <section class="kr-card kr-wide" id="kr-stock">
+        <header><h2>${t('Stock')}</h2><p>${t('Stock at the end of each day')}${p.minStock != null ? ` · ${t('dashed line: minimum stock')}` : ''}</p></header>
+        ${svgLine(a.stock.map(s => ({ value: parseFloat(s.stock), title: `${formatDay(s.day)}: ${fmtQty(s.stock, p.unit)}` })), p.minStock != null ? parseFloat(p.minStock) : null, 150)}
+        ${axisDays(a.stock.map(s => s.day))}
+      </section>
+
+      <section class="kr-card">
+        <header><h2>${t('Sales by weekday')}</h2><p>${period}</p></header>
+        ${svgBars(a.byWeekday.map((v, i) => ({ value: parseFloat(v), title: `${t(WEEKDAYS_SHORT[i])}: ${fmtQty(v, p.unit)}` })), 120, true)}
+        <div class="kr-axis even">${WEEKDAYS_SHORT.map(d => `<span>${t(d)}</span>`).join('')}</div>
+      </section>
+
+      <section class="kr-card">
+        <header><h2>${t('Sales by hour')}</h2><p>${t('Busiest hours are darker')}</p></header>
+        ${heatHours(a.byHour, p.unit)}
+      </section>
+
+      <section class="kr-card" id="kr-details">
+        <header><h2>${t('Details')}</h2></header>
+        <dl class="kr-dl">
+          <dt>${t('Barcode')}</dt><dd class="td-m">${esc(p.barcode)}</dd>
+          <dt>${t('Category')}</dt><dd>${esc(c.category || t('None'))}</dd>
+          <dt>${t('Unit')}</dt><dd>${esc(unitLabel(p.unit))}</dd>
+          <dt>${t('VAT')}</dt><dd>${fmtTax(p.taxRate)}</dd>
+          <dt>${t('Content of one piece')}</dt><dd>${p.contentAmount ? `${parseFloat(p.contentAmount)} ${esc(p.contentUnit)}` : '-'}</dd>
+          <dt>${t('Purchase price')}</dt><dd>${fmtLek(p.purchasePrice)}</dd>
+          <dt>${t('Minimum stock')}</dt><dd>${p.minStock != null ? fmtQty(p.minStock, p.unit) : '-'}</dd>
+          <dt>${t('Reorder quantity')}</dt><dd>${p.reorderQuantity != null ? fmtQty(p.reorderQuantity, p.unit) : t('Automatic')}</dd>
+        </dl>
+      </section>
+
+      <section class="kr-card" id="kr-suppliers">
+        <header><h2>${t('Suppliers')}</h2>${a.lastPurchase ? `<p>${t('Last purchase')}: ${formatDay(a.lastPurchase.date)} · ${esc(a.lastPurchase.supplier)} · ${esc(a.lastPurchase.invoice)}</p>` : ''}</header>
+        ${krTable([t('Supplier'), t('Last purchase'), t('Last price (piece)'), t('Total bought'), t('Invoices')],
+          c.suppliers.map(s => [`<strong>${esc(s.supplier)}</strong>`, formatDay(s.lastPurchase), fmtLek(s.lastPurchasePrice),
+            fmtQty(s.totalQuantity, p.unit), s.purchases]), t('Not bought on a purchase invoice yet.'))}
+      </section>
+
+      <section class="kr-card kr-wide" id="kr-boxes">
+        <header><h2>${t('Boxes')}</h2><p>${t('A box has its own barcode. Selling or buying a box moves its pieces in and out of the stock of this product.')}</p></header>
+        ${p.unit !== 'pcs' ? `<p class="no-data">${t('Only products sold by the piece can have boxes.')}</p>` : krTable(
+          [t('Box'), t('Barcode'), t('Pieces'), t('Box price'), t('Per piece'), t('Customer saves'), ''],
+          c.packages.map(b => {
+            const price = cardBoxPrice(b);
+            const saving = parseFloat(p.price) * b.pieces - price;
+            return [`<strong>${esc(b.name)}</strong>${b.active ? '' : ` <span class="badge b-red">${t('Inactive')}</span>`}`, `<span class="td-m">${esc(b.barcode)}</span>`,
+              b.pieces, `${fmtLek(price)}${b.price == null ? ` <span class="badge b-muted">${t('auto')}</span>` : ''}`, fmtLek(price / b.pieces),
+              saving > 0.004 ? fmtLek(saving) : '-', `<button class="btn btn-secondary btn-sm" onclick="openPackageModal(${b.id})">${t('Edit')}</button>`];
+          }), t('No boxes yet.'))}
+      </section>
+
+      <section class="kr-card kr-wide" id="kr-prices">
+        <header><h2>${t('Price history')}</h2><p>${t('Every change of the selling or purchase price')}</p></header>
+        ${krTable([t('Date'), t('For'), t('Selling price'), t('Purchase price'), t('Source'), t('User')],
+          c.priceHistory.map(ch => {
+            const box = ch.packageId ? c.packages.find(b => b.id === ch.packageId) : null;
+            const change = (from, to) => to == null ? '' : `${from == null ? '' : fmtLek(from) + ' → '}<strong>${fmtLek(to)}</strong>`;
+            return [fmtDate(ch.changedAt), box ? esc(box.name) : t('Piece'), change(ch.oldPrice, ch.newPrice),
+              change(ch.oldPurchasePrice, ch.newPurchasePrice), esc(t(PRICE_SOURCES[ch.source] || ch.source)), esc(ch.cashierName || '')];
+          }), t('No price changes yet.'))}
+      </section>
+
+      <section class="kr-card kr-wide" id="kr-moves">
+        <header><h2>${t('Stock movements')}</h2><p>${t('Every sale, refund, purchase and adjustment, with the stock after it')}</p></header>
+        <div class="kr-filters">
+          <select class="input" id="krm-type" onchange="filterKartelaMoves()">
+            <option value="">${t('All types')}</option>
+            ${Object.entries(MOVEMENT_LABELS).map(([k, v]) => `<option value="${k}">${t(v)}</option>`).join('')}
+          </select>
+          <input class="input" id="krm-from" type="date" onchange="filterKartelaMoves()" />
+          <input class="input" id="krm-to" type="date" onchange="filterKartelaMoves()" />
+          <span class="tb-count" id="krm-count"></span>
+          <button class="btn btn-secondary btn-sm" onclick="exportKartelaMoves()">${t('Excel')}</button>
+        </div>
+        <div id="krm-table"></div>
+      </section>
+
+      <section class="kr-card" id="kr-customers">
+        <header><h2>${t('Top customers')}</h2><p>${t('Customers with a loyalty card')} · ${period}</p></header>
+        ${krTable([t('Customer'), t('Quantity'), t('Revenue'), t('Receipts')],
+          a.topCustomers.map(cu => [`<strong>${esc(cu.name)}</strong><div class="wh-sub">${esc(cu.cardNumber || '')}</div>`,
+            fmtQty(cu.quantity, p.unit), fmtLek(cu.revenue), cu.purchases]), t('No customer with a card bought it in this period.'))}
+      </section>
+
+      <section class="kr-card" id="kr-promos">
+        <header><h2>${t('Promotions')}</h2><p>${t('Promotions on this product or its category')}</p></header>
+        ${a.promotions.length ? `<ul class="kr-list">${a.promotions.map(pr => `<li>
+            <span class="kr-dot ${pr.runningNow ? 'good' : pr.active ? 'info' : ''}"></span>
+            <div><strong>${esc(pr.name)}</strong><div class="wh-sub">${esc(t(PROMOTION_TYPES[pr.type] || pr.type))} · ${esc(pr.scope)}
+              ${pr.startsOn || pr.endsOn ? ` · ${pr.startsOn ? formatDay(pr.startsOn) : '…'} – ${pr.endsOn ? formatDay(pr.endsOn) : '…'}` : ''}</div></div>
+            <span class="kr-badge ${pr.runningNow ? 'good' : pr.active ? 'info' : ''}">${pr.runningNow ? t('Running now') : pr.active ? t('Active') : t('Inactive')}</span>
+          </li>`).join('')}</ul>` : `<p class="no-data">${t('No promotions.')}</p>`}
+      </section>
+
+      <section class="kr-card kr-wide" id="kr-history">
+        <header><h2>${t('History')}</h2><p>${t('Who changed what on this product')}</p></header>
+        ${c.history.length ? `<ol class="kr-timeline">${c.history.map(e => `<li>
+            <time>${fmtDate(e.createdAt)}</time>
+            <div><strong>${esc(auditActionLabel(e.action))}</strong> · ${esc(e.cashierName || '')}<div class="wh-sub">${esc(e.details || '')}</div></div>
+          </li>`).join('')}</ol>` : `<p class="no-data">-</p>`}
+      </section>
+    </div>`;
+  filterKartelaMoves();
+}
+
+function krTable(header, rows, empty) {
+  return `<div class="tbl-wrap kr-table"><table><thead><tr>${header.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+    <tbody>${rows.length ? rows.map(r => `<tr>${r.map(v => `<td>${v}</td>`).join('')}</tr>`).join('')
+      : `<tr><td colspan="${header.length}" class="no-data">${empty}</td></tr>`}</tbody></table></div>`;
+}
+
+function filterKartelaMoves() {
+  if (!productCard) return;
+  const p = productCard.product;
+  const type = $('krm-type').value;
+  const from = $('krm-from').value;
+  const to = $('krm-to').value;
+  const rows = kartelaMoves.filter(m => (!type || m.type === type)
+    && (!from || m.at.slice(0, 10) >= from) && (!to || m.at.slice(0, 10) <= to));
+  $('krm-count').textContent = t('{count} movements', { count: rows.length });
+  $('krm-table').innerHTML = krTable([t('Date'), t('Type'), t('Document'), t('Quantity change'), t('Stock after'), t('Details'), t('User')],
+    rows.slice(0, 500).map(m => {
+      const change = parseFloat(m.change);
+      const what = m.type === 'ADJUSTMENT' ? t(ADJUST_REASONS[m.reference] || m.reference) : (m.reference || '');
+      return [fmtDate(m.at), `<span class="kr-badge mv-${m.type}">${esc(t(MOVEMENT_LABELS[m.type] || m.type))}</span>`, esc(what),
+        `<strong class="${change < 0 ? 'diff-minus' : 'diff-plus'}">${change > 0 ? '+' : ''}${fmtQty(change, p.unit)}</strong>`,
+        `<span class="td-m">${fmtQty(m.stockAfter, p.unit)}</span>`, esc(m.detail || ''), esc(m.cashier || '')];
+    }), t('No stock movements yet.'));
+}
+
+function exportKartelaMoves() {
+  const params = new URLSearchParams();
+  if ($('krm-type').value) params.set('type', $('krm-type').value);
+  if ($('krm-from').value) params.set('from', $('krm-from').value);
+  if ($('krm-to').value) params.set('to', $('krm-to').value);
+  downloadFile(`/warehouse/products/${productCard.product.id}/movements.xlsx?${params}`);
+}
+
+/* Small SVG charts: they stay sharp at any size and show the value on hover. */
+function svgBars(points, height, spaced = false) {
+  const max = Math.max(1, ...points.map(p => p.value));
+  const w = 100 / Math.max(1, points.length);
+  const gap = spaced ? w * 0.25 : Math.min(0.35, w * 0.2);
+  return `<svg class="kr-chart" viewBox="0 0 100 ${height}" preserveAspectRatio="none" style="height:${height}px">
+    ${[0.25, 0.5, 0.75].map(f => `<line x1="0" x2="100" y1="${height * f}" y2="${height * f}" class="grid" />`).join('')}
+    ${points.map((p, i) => {
+      const h = p.value > 0 ? Math.max(1.5, p.value / max * (height - 6)) : 0;
+      return `<rect x="${i * w + gap / 2}" y="${height - h}" width="${Math.max(0.2, w - gap)}" height="${h}" rx="0.6"><title>${esc(p.title)}</title></rect>
+        <rect class="hit" x="${i * w}" y="0" width="${w}" height="${height}"><title>${esc(p.title)}</title></rect>`;
+    }).join('')}
+  </svg>`;
+}
+
+function svgLine(points, minimum, height) {
+  if (!points.length) return '';
+  const values = points.map(p => p.value);
+  const top = Math.max(1, ...values, minimum || 0) * 1.1;
+  const bottom = Math.min(0, ...values);
+  const y = v => height - (v - bottom) / (top - bottom) * height;
+  const x = i => points.length === 1 ? 50 : i / (points.length - 1) * 100;
+  const line = points.map((p, i) => `${x(i).toFixed(2)},${y(p.value).toFixed(2)}`).join(' ');
+  const w = 100 / points.length;
+  return `<svg class="kr-chart line" viewBox="0 0 100 ${height}" preserveAspectRatio="none" style="height:${height}px">
+    ${[0.25, 0.5, 0.75].map(f => `<line x1="0" x2="100" y1="${height * f}" y2="${height * f}" class="grid" />`).join('')}
+    <polygon class="area" points="0,${height} ${line} 100,${height}" />
+    <polyline class="stroke" points="${line}" vector-effect="non-scaling-stroke" />
+    ${minimum != null ? `<line x1="0" x2="100" y1="${y(minimum)}" y2="${y(minimum)}" class="min" vector-effect="non-scaling-stroke" />` : ''}
+    ${points.map((p, i) => `<rect class="hit" x="${Math.max(0, x(i) - w / 2)}" y="0" width="${w}" height="${height}"><title>${esc(p.title)}</title></rect>`).join('')}
+  </svg>`;
+}
+
+function axisDays(days) {
+  if (!days.length) return '';
+  const pick = [0, Math.floor(days.length / 2), days.length - 1];
+  return `<div class="kr-axis">${pick.map(i => `<span>${formatDay(days[i])}</span>`).join('')}</div>`;
+}
+
+function heatHours(hours, unit) {
+  const values = hours.map(v => parseFloat(v));
+  const max = Math.max(1, ...values);
+  return `<div class="kr-hours">${values.map((v, h) => `<div class="kr-hour" style="--a:${v > 0 ? 0.15 + 0.85 * v / max : 0.04}"
+      title="${String(h).padStart(2, '0')}:00 – ${fmtQty(v, unit)}"><span>${h % 3 === 0 ? String(h).padStart(2, '0') : ''}</span></div>`).join('')}</div>`;
+}
+
+/*  Regjistri i Veprimeve: every operation of the shop  */
+const JOURNAL_TYPES = {
+  SALE: { label: 'Sale', icon: '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/>' },
+  REFUND: { label: 'Refund', icon: '<polyline points="1 4 1 10 7 10"/><path d="M3.5 15a9 9 0 1 0 2.1-9.4L1 10"/>' },
+  PURCHASE: { label: 'Purchase invoice', icon: '<rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>' },
+  ADJUSTMENT: { label: 'Stock adjustment', icon: '<path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 1-1.7z"/>' },
+  COUNT: { label: 'Stock count', icon: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>' },
+  CASH_IN: { label: 'Cash in', icon: '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>' },
+  CASH_OUT: { label: 'Cash out', icon: '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>' },
+  SUPPLIER_PAYMENT: { label: 'Supplier payment', icon: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>' },
+  DEBT_PAYMENT: { label: 'Debt payment', icon: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>' },
+  SHIFT_OPEN: { label: 'Shift opened', icon: '<polygon points="5 3 19 12 5 21 5 3"/>' },
+  SHIFT_CLOSE: { label: 'Shift closed', icon: '<rect x="5" y="5" width="14" height="14" rx="1"/>' },
+  PRICE_CHANGE: { label: 'Price change', icon: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><line x1="7" y1="7" x2="7.01" y2="7"/>' }
+};
+const journalTypes = new Set();
+let journalData = null;
+let journalEntries = [];
+let journalPageNumber = 0;
+let journalUsersLoaded = false;
+
+async function initJournal() {
+  if (!journalUsersLoaded) {
+    try {
+      const users = (await req('GET', '/journal/users')).data || [];
+      $('jr-user').innerHTML = `<option value="">${t('All users')}</option>` + users.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
+      journalUsersLoaded = true;
+    } catch {}
+  }
+  loadJournal();
+}
+
+function onJournalPeriod() {
+  const custom = $('jr-period').value === 'custom';
+  $('jr-from').classList.toggle('hidden', !custom);
+  $('jr-to').classList.toggle('hidden', !custom);
+  loadJournal();
+}
+
+let _jrSearchTmr;
+function onJournalSearch() {
+  clearTimeout(_jrSearchTmr);
+  _jrSearchTmr = setTimeout(() => loadJournal(), 300);
+}
+
+function journalParams(page) {
+  const range = periodRange($('jr-period').value, $('jr-from').value, $('jr-to').value);
+  const params = new URLSearchParams({ from: range.from, to: range.to });
+  if (journalTypes.size) params.set('types', [...journalTypes].join(','));
+  if ($('jr-user').value) params.set('cashierId', $('jr-user').value);
+  if ($('jr-q').value.trim()) params.set('q', $('jr-q').value.trim());
+  if (page !== undefined) { params.set('page', page); params.set('size', 100); }
+  return params;
+}
+
+async function loadJournal(more = false) {
+  const page = more ? journalPageNumber + 1 : 0;
+  if (!more) $('jr-timeline').innerHTML = `<div class="kr-loading">${t('Loading...')}</div>`;
+  try {
+    const res = await req('GET', '/journal?' + journalParams(page));
+    journalData = res.data;
+    journalPageNumber = page;
+    journalEntries = more ? journalEntries.concat(res.data.entries) : res.data.entries;
+    renderJournal();
+  } catch (e) {
+    $('jr-timeline').innerHTML = `<div class="kr-empty"><strong>${esc(e.message)}</strong></div>`;
+  }
+}
+
+function toggleJournalType(type) {
+  if (type === null) journalTypes.clear();
+  else if (journalTypes.has(type)) journalTypes.delete(type);
+  else journalTypes.add(type);
+  loadJournal();
+}
+
+function journalIcon(type) {
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${JOURNAL_TYPES[type].icon}</svg>`;
+}
+
+function renderJournal() {
+  const counts = Object.fromEntries((journalData.totals || []).map(x => [x.type, x]));
+  $('jr-chips').innerHTML = `<button class="jr-chip ${journalTypes.size ? '' : 'on'}" onclick="toggleJournalType(null)">${t('All')}</button>`
+    + Object.keys(JOURNAL_TYPES).map(type => `<button class="jr-chip jt-${type} ${journalTypes.has(type) ? 'on' : ''}" onclick="toggleJournalType('${type}')">
+        ${journalIcon(type)} ${t(JOURNAL_TYPES[type].label)}${counts[type] ? ` <b>${counts[type].count}</b>` : ''}</button>`).join('');
+
+  const card = (types, label, tone) => {
+    const list = types.map(x => counts[x]).filter(Boolean);
+    const count = list.reduce((s, x) => s + x.count, 0);
+    const amount = list.reduce((s, x) => s + parseFloat(x.amount || 0), 0);
+    return `<div class="jr-card ${tone}"><span>${label}</span><strong>${fmtLek(Math.abs(amount))}</strong><small>${t('{count} operations', { count })}</small></div>`;
+  };
+  $('jr-summary').innerHTML = card(['SALE'], t('Sales'), 'good') + card(['REFUND'], t('Refunds'), 'bad')
+    + card(['PURCHASE'], t('Purchase invoices'), 'info') + card(['CASH_IN', 'DEBT_PAYMENT'], t('Cash in and debt payments'), 'good')
+    + card(['CASH_OUT', 'SUPPLIER_PAYMENT'], t('Cash out and supplier payments'), 'bad')
+    + card(['ADJUSTMENT', 'COUNT'], t('Stock adjustments and counts (at cost)'), 'warn');
+
+  const days = Object.fromEntries((journalData.days || []).map(d => [d.day, d]));
+  if (!journalEntries.length) {
+    $('jr-timeline').innerHTML = `<div class="kr-empty"><strong>${t('No operations in this period.')}</strong><span>${t('Choose another period or remove a filter.')}</span></div>`;
+  } else {
+    let html = '';
+    let current = null;
+    journalEntries.forEach((e, i) => {
+      const day = e.at.slice(0, 10);
+      if (day !== current) {
+        if (current) html += '</div>';
+        current = day;
+        const d = days[day];
+        html += `<div class="jr-day"><header><strong>${esc(formatWeekdayDate(new Date(day + 'T12:00:00')))}</strong>
+          ${d ? `<span>${t('{count} operations', { count: d.count })} · <em class="in">+${fmtLek(d.moneyIn)}</em> · <em class="out">−${fmtLek(d.moneyOut)}</em></span>` : ''}</header>`;
+      }
+      html += journalRow(e, i);
+    });
+    $('jr-timeline').innerHTML = html + '</div>';
+  }
+  const rest = journalData.total - journalEntries.length;
+  $('jr-more').innerHTML = rest > 0
+    ? `<button class="btn btn-secondary" onclick="loadJournal(true)">${t('Show {count} more', { count: Math.min(100, rest) })}</button> <span class="tb-count">${t('{shown} of {total}', { shown: journalEntries.length, total: journalData.total })}</span>`
+    : (journalEntries.length ? `<span class="tb-count">${t('{count} operations', { count: journalData.total })}</span>` : '');
+}
+
+/* What one entry says, in words. */
+function journalText(e) {
+  switch (e.type) {
+    case 'SALE': return [`${t('Invoice')} ${e.number}`, [e.counterparty, t('{count} lines', { count: e.lines })].filter(Boolean).join(' · ')];
+    case 'REFUND': return [`${e.number} · ${t('for invoice')} ${e.counterparty || ''}`, e.note];
+    case 'PURCHASE': return [`${e.counterparty || ''} · ${e.number}`, t('{count} lines', { count: e.lines })];
+    case 'ADJUSTMENT': return [`${e.productName} · ${parseFloat(e.quantity) > 0 ? '+' : ''}${parseFloat(e.quantity)}`, [t(ADJUST_REASONS[e.number] || e.number), e.note].filter(Boolean).join(' · ')];
+    case 'COUNT': return [`${t('Stock count')} ${e.number}`, [t('{count} products changed', { count: e.lines }), e.note].filter(Boolean).join(' · ')];
+    case 'CASH_IN': case 'CASH_OUT': return [e.note, ''];
+    case 'SUPPLIER_PAYMENT': return [e.counterparty, e.note];
+    case 'DEBT_PAYMENT': return [e.counterparty, e.note];
+    case 'SHIFT_OPEN': return [`${t('Shift')} ${e.number}`, `${t('Opening cash')} ${fmtLek(e.before)}`];
+    case 'SHIFT_CLOSE': return [`${t('Shift')} ${e.number}`, `${t('Counted')} ${fmtLek(e.before)} · ${t('Difference')} ${fmtLek(e.after)}`];
+    case 'PRICE_CHANGE': return [e.productName, `${t(e.note === 'COST' ? 'Purchase price' : 'Selling price')}: ${e.before != null ? fmtLek(e.before) + ' → ' : ''}${fmtLek(e.after)} · ${t(PRICE_SOURCES[e.number] || e.number)}`];
+    default: return [e.number || '', e.note || ''];
+  }
+}
+
+function journalRow(e, index) {
+  const [main, sub] = journalText(e);
+  const amount = e.amount == null ? '' : parseFloat(e.amount);
+  return `<div class="jr-entry jt-${e.type}" onclick="openJournalEntry(${index})">
+    <time>${formatTime(new Date(e.at))}</time>
+    <span class="jr-icon">${journalIcon(e.type)}</span>
+    <div class="jr-text"><div><b>${t(JOURNAL_TYPES[e.type].label)}</b> ${esc(main || '')}</div>${sub ? `<small>${esc(sub)}</small>` : ''}</div>
+    <span class="jr-user">${esc(e.user || '')}</span>
+    <strong class="jr-amount ${amount === '' ? '' : amount < 0 ? 'out' : 'in'}">${amount === '' ? '' : (amount > 0 ? '+' : '−') + fmtLek(Math.abs(amount))}</strong>
   </div>`;
 }
 
-function cardBoxes() {
-  const c = productCard;
-  const p = c.product;
-  if (p.unit !== 'pcs') return `<p class="no-data">${t('Only products sold by the piece can have boxes.')}</p>`;
-  const rows = c.packages.map(b => {
-    const price = cardBoxPrice(b);
-    const perPiece = price / b.pieces;
-    const saving = parseFloat(p.price) * b.pieces - price;
-    return `<tr class="${b.active ? '' : 'row-inactive'}">
-      <td><strong>${esc(b.name)}</strong>${b.active ? '' : ` <span class="badge b-red">${t('Inactive')}</span>`}</td>
-      <td class="td-m">${esc(b.barcode)}</td>
-      <td class="td-m">${b.pieces}</td>
-      <td class="td-p">${fmtLek(price)}${b.price == null ? ` <span class="badge b-muted">${t('auto')}</span>` : ''}</td>
-      <td class="td-p">${fmtLek(perPiece)}</td>
-      <td class="td-p">${saving > 0.004 ? fmtLek(saving) : '-'}</td>
-      <td><button class="btn btn-secondary btn-sm" onclick="openPackageModal(${b.id})">${t('Edit')}</button></td>
-    </tr>`;
-  }).join('');
-  return `<p class="input-hint">${t('A box has its own barcode. Selling or buying a box moves its pieces in and out of the stock of this product.')}</p>
-    <div class="tbl-wrap"><table><thead><tr><th>${t('Box')}</th><th>${t('Barcode')}</th><th>${t('Pieces')}</th><th>${t('Box price')}</th>
-      <th>${t('Per piece')}</th><th>${t('Customer saves')}</th><th></th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="7" class="no-data">${t('No boxes yet.')}</td></tr>`}</tbody></table></div>
-    <button class="btn btn-primary btn-sm" style="margin-top:12px;" onclick="openPackageModal()">${t('Add box')}</button>`;
+function openJournalEntry(index) {
+  const e = journalEntries[index];
+  const [main, sub] = journalText(e);
+  const row = (label, value) => value == null || value === '' ? '' : `<div class="balance-line"><span>${label}</span><strong>${value}</strong></div>`;
+  $('je-title').innerHTML = `<span class="jr-icon jt-${e.type}">${journalIcon(e.type)}</span> ${t(JOURNAL_TYPES[e.type].label)}`;
+  $('je-body').innerHTML = `<p class="sale-detail-meta">${esc(main || '')}${sub ? `<br><span class="t-muted">${esc(sub)}</span>` : ''}</p>`
+    + row(t('Date'), fmtDate(e.at)) + row(t('Document'), esc(e.number || '')) + row(t('Customer / supplier'), esc(e.counterparty || ''))
+    + row(t('Product'), esc(e.productName || '')) + row(t('User'), esc(e.user || ''))
+    + row(t('Amount'), e.amount == null ? '' : fmtLek(e.amount));
+  const actions = [`<button class="btn btn-secondary" onclick="closeModal('modal-journal')">${t('Close')}</button>`];
+  if (e.type === 'SALE') actions.push(`<button class="btn btn-primary" onclick="closeModal('modal-journal'); viewSale(${e.refId})">${t('Open the sale')}</button>`);
+  if (e.productId) actions.push(`<button class="btn btn-primary" onclick="closeModal('modal-journal'); openKartela(${e.productId})">${t('Product card')}</button>`);
+  if (e.type === 'SHIFT_OPEN' || e.type === 'SHIFT_CLOSE') actions.push(`<button class="btn btn-primary" onclick="closeModal('modal-journal'); showShiftReport(${e.refId})">${t('Shift report')}</button>`);
+  $('je-actions').innerHTML = actions.join('');
+  openModal('modal-journal');
 }
 
-function cardPrices() {
-  const rows = productCard.priceHistory.map(ch => {
-    const box = ch.packageId ? productCard.packages.find(b => b.id === ch.packageId) : null;
-    const change = (from, to) => to == null ? '' : `${from == null ? '' : fmtLek(from) + ' → '}<strong>${fmtLek(to)}</strong>`;
-    return `<tr><td class="td-m">${fmtDate(ch.changedAt)}</td>
-      <td>${box ? esc(box.name) : t('Piece')}</td>
-      <td>${change(ch.oldPrice, ch.newPrice)}</td>
-      <td>${change(ch.oldPurchasePrice, ch.newPurchasePrice)}</td>
-      <td>${esc(t(PRICE_SOURCES[ch.source] || ch.source))}</td>
-      <td>${esc(ch.cashierName || '')}</td></tr>`;
-  }).join('');
-  return `<div class="tbl-wrap"><table><thead><tr><th>${t('Date')}</th><th>${t('For')}</th><th>${t('Selling price')}</th>
-    <th>${t('Purchase price')}</th><th>${t('Source')}</th><th>${t('User')}</th></tr></thead>
-    <tbody>${rows || `<tr><td colspan="6" class="no-data">${t('No price changes yet.')}</td></tr>`}</tbody></table></div>`;
+async function showShiftReport(shiftId) {
+  try {
+    const res = await req('GET', `/shifts/${shiftId}/report`);
+    showReceipt(res.data.printableText);
+  } catch (e) { toast(e.message, 'error'); }
 }
 
-function cardMovements() {
-  const p = productCard.product;
-  const rows = productCard.movements.map(m => {
-    const change = parseFloat(m.change);
-    const what = m.type === 'ADJUSTMENT' ? t(ADJUST_REASONS[m.reference] || m.reference) : (m.reference || '');
-    return `<tr><td class="td-m">${fmtDate(m.at)}</td>
-      <td>${esc(t(MOVEMENT_LABELS[m.type] || m.type))}</td>
-      <td class="td-m">${esc(what)}</td>
-      <td class="${change < 0 ? 'diff-minus' : 'diff-plus'}">${change > 0 ? '+' : ''}${fmtQty(change, p.unit)}</td>
-      <td class="td-m">${fmtQty(m.stockAfter, p.unit)}</td>
-      <td>${esc(m.detail || '')}</td><td>${esc(m.cashier || '')}</td></tr>`;
-  }).join('');
-  return `<div class="tbl-wrap"><table><thead><tr><th>${t('Date')}</th><th>${t('Type')}</th><th>${t('Document')}</th><th>${t('Quantity change')}</th>
-    <th>${t('Stock after')}</th><th>${t('Details')}</th><th>${t('User')}</th></tr></thead>
-    <tbody>${rows || `<tr><td colspan="7" class="no-data">${t('No stock movements yet.')}</td></tr>`}</tbody></table></div>`;
-}
-
-function cardSuppliers() {
-  const p = productCard.product;
-  const rows = productCard.suppliers.map(s => `<tr><td><strong>${esc(s.supplier)}</strong></td><td class="td-m">${formatDay(s.lastPurchase)}</td>
-    <td class="td-p">${fmtLek(s.lastPurchasePrice)}</td><td class="td-m">${fmtQty(s.totalQuantity, p.unit)}</td><td class="td-m">${s.purchases}</td></tr>`).join('');
-  return `<div class="tbl-wrap"><table><thead><tr><th>${t('Supplier')}</th><th>${t('Last purchase')}</th><th>${t('Last price (piece)')}</th>
-    <th>${t('Total bought')}</th><th>${t('Invoices')}</th></tr></thead>
-    <tbody>${rows || `<tr><td colspan="5" class="no-data">${t('Not bought on a purchase invoice yet.')}</td></tr>`}</tbody></table></div>`;
-}
-
-function cardHistory() {
-  const rows = productCard.history.map(e => `<tr><td class="td-m">${fmtDate(e.createdAt)}</td><td>${esc(auditActionLabel(e.action))}</td>
-    <td class="audit-details">${esc(e.details || '')}</td><td>${esc(e.cashierName || '')}</td></tr>`).join('');
-  return `<div class="tbl-wrap"><table><thead><tr><th>${t('Date')}</th><th>${t('Action')}</th><th>${t('Details')}</th><th>${t('User')}</th></tr></thead>
-    <tbody>${rows || `<tr><td colspan="4" class="no-data">-</td></tr>`}</tbody></table></div>`;
+function exportJournal() {
+  downloadFile('/journal/export.xlsx?' + journalParams());
 }
 
 /*  Boxes  */
@@ -1629,7 +2094,7 @@ async function savePackage() {
     else await req('POST', `/warehouse/products/${productCard.product.id}/packages`, body);
     closeModal('modal-package');
     toast(t('Box saved'), 'success');
-    await openProductCard(productCard.product.id, 'boxes');
+    await loadKartela(productCard.product.id, true);
     loadProdsTable();
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -1865,6 +2330,7 @@ function periodRange(period, fromInput, toInput) {
     case 'today': return { from: today, to: today };
     case 'yesterday': return { from: daysAgo(1), to: daysAgo(1) };
     case 'week': return { from: daysAgo((now.getDay() + 6) % 7), to: today };
+    case 'last7': return { from: daysAgo(6), to: today };
     case 'last30': return { from: daysAgo(29), to: today };
     case 'month': return { from: isoDay(new Date(now.getFullYear(), now.getMonth(), 1)), to: today };
     case 'lastMonth': return {
@@ -2746,7 +3212,7 @@ const ADJUST_REASONS = { DAMAGED: 'Damaged', EXPIRED: 'Expired', LOST: 'Lost / s
   COUNT_CORRECTION: 'Stock count', OTHER: 'Other' };
 
 async function openAdjust(productId) {
-  const p = allProdTable.find(x => x.id === productId);
+  const p = allProdTable.find(x => x.id === productId) || (productCard?.product.id === productId ? productCard.product : null);
   if (!p) return;
   $('adj-product').value = productId;
   $('adj-meta').textContent = `${p.name} — ${t('Stock')}: ${fmtQty(p.stock, p.unit)} ${unitLabel(p.unit)}`;
@@ -3597,3 +4063,11 @@ function onLanguageChanged() {
   }
 })();
 
+
+/* Prints the whole Kartela (the print stylesheet hides the menu and buttons). */
+function printKartela() {
+  document.body.classList.add('print-kartela');
+  const done = () => { document.body.classList.remove('print-kartela'); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  window.print();
+}

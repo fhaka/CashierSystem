@@ -52,8 +52,8 @@ class JournalAndKartelaTest extends IntegrationTest {
         postJson("/shifts/" + shift + "/cash-movements", admin, Map.of("type", "OUT", "amount", "40", "reason", "Kafe")).andExpect(status().isOk());
         long supplier = jdbc.queryForObject("SELECT id FROM suppliers", Long.class);
         postJson("/suppliers/" + supplier + "/payments", admin, Map.of("amount", "200", "method", "BANK")).andExpect(status().isOk());
-        postJson("/customers/" + customer + "/payments", admin, Map.of("amount", "100", "method", "CARD")).andExpect(status().isOk());
-        postJson("/shifts/" + shift + "/close", admin, Map.of("closingCash", "660")).andExpect(status().isOk());
+        postJson("/customers/" + customer + "/payments", admin, Map.of("amount", "100", "method", "CASH")).andExpect(status().isOk());
+        postJson("/shifts/" + shift + "/close", admin, Map.of("closingCash", "760")).andExpect(status().isOk());
         return new long[] {milk, bread};
     }
 

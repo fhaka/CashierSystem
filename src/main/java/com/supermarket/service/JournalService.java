@@ -164,6 +164,10 @@ public class JournalService {
                 from CashMovement m left join m.cashier c
                 where m.createdAt >= :from and m.createdAt <= :to""" + r.cashier("c");
         for (Object[] row : r.run(entityManager.createQuery(jpql, Object[].class))) {
+            String reason = (String) row[4];
+            if (reason != null && reason.startsWith(CustomerService.DEBT_PAYMENT_CASH_REASON)) {
+                continue;   // the drawer side of a cash debt payment, already listed as DEBT_PAYMENT
+            }
             boolean in = "IN".equals(String.valueOf(row[2]));
             Type type = in ? Type.CASH_IN : Type.CASH_OUT;
             if (types.contains(type)) {

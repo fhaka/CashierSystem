@@ -34,6 +34,9 @@ import java.util.Objects;
 @Service
 public class CustomerService {
 
+    /** Reason of the till cash movement that a cash debt payment adds; the journal shows the payment itself instead. */
+    public static final String DEBT_PAYMENT_CASH_REASON = "Pagesë borxhi / debt payment: ";
+
     private final CustomerRepository customerRepository;
     private final CustomerTransactionRepository transactionRepository;
     private final ShiftService shiftService;
@@ -141,7 +144,7 @@ public class CustomerService {
         if (method.equals("CASH")) {
             Shift shift = shiftService.findOpenShift(actor.getId()).orElseThrow(() -> new ValidationException("customer.shiftRequired"));
             shiftService.addCashMovement(shift.getId(), new CashMovementRequest("IN", amount,
-                    "Pagesë borxhi / debt payment: " + customer.getFullName()), actor);
+                    DEBT_PAYMENT_CASH_REASON + customer.getFullName()), actor);
         }
         customer.changeBalance(amount.negate());
         transactionRepository.save(new CustomerTransaction(customer, actor, CustomerTransaction.Type.PAYMENT, 0,

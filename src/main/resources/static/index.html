@@ -118,6 +118,12 @@
         </svg>
         <span data-i18n>Suppliers</span>
       </button>
+      <button class="nav-btn manager-only" data-v="expenses" onclick="gotoView('expenses')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/>
+        </svg>
+        <span data-i18n>Expenses</span>
+      </button>
       <button class="nav-btn manager-only" data-v="inventory" onclick="gotoView('inventory')">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
@@ -512,6 +518,36 @@
             <thead><tr><th data-i18n>Name</th><th data-i18n>NIPT</th><th data-i18n>Phone</th><th data-i18n>Invoiced</th><th data-i18n>Paid</th><th data-i18n>Owed</th><th data-i18n>Actions</th></tr></thead>
             <tbody id="suppliers-tbody"></tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="view-expenses" class="view">
+      <div class="page-head" style="flex-shrink:0;">
+        <div>
+          <div class="page-title" data-i18n>Expenses</div>
+          <div class="page-sub" data-i18n>Rent, electricity, salaries and every other cost of the shop</div>
+        </div>
+        <div class="actions reports-actions">
+          <input class="input" id="ex-month" type="month" onchange="loadExpenses()" />
+          <select class="input" id="ex-category" onchange="loadExpenses()"></select>
+          <label class="check-row ex-cancelled"><input type="checkbox" id="ex-cancelled" onchange="renderExpenses()" /> <span data-i18n>Show cancelled</span></label>
+          <button class="btn btn-secondary" onclick="openExpenseCategories()" data-i18n>Categories</button>
+          <button class="btn btn-secondary" onclick="exportExpenses()" data-i18n>Excel</button>
+          <button class="btn btn-primary" onclick="openExpenseModal()" data-i18n>New expense</button>
+        </div>
+      </div>
+      <div class="jr-page">
+        <div class="jr-summary" id="ex-summary"></div>
+        <div class="ex-grid">
+          <section class="kr-card">
+            <header><h2 data-i18n>By category</h2><p data-i18n>Where the money went this month</p></header>
+            <div id="ex-bars"></div>
+          </section>
+          <section class="kr-card">
+            <header><h2 data-i18n>Expenses</h2><p id="ex-count"></p></header>
+            <div id="ex-table"></div>
+          </section>
         </div>
       </div>
     </div>
@@ -1066,15 +1102,20 @@
             <div class="two-col">
               <div class="input-group">
                 <label class="input-label" data-i18n>Type</label>
-                <select class="input" id="cash-type">
+                <select class="input" id="cash-type" onchange="onCashTypeChange()">
                   <option value="IN" data-i18n>Cash in</option>
                   <option value="OUT" data-i18n>Cash out</option>
+                  <option value="EXPENSE" data-i18n>Expense (rent, electricity...)</option>
                 </select>
               </div>
               <div class="input-group">
                 <label class="input-label" data-i18n>Amount (LEK)</label>
                 <input class="input" id="cash-amount" type="number" min="0" step="0.01" />
               </div>
+            </div>
+            <div class="input-group hidden" id="cash-category-wrap">
+              <label class="input-label" data-i18n>Expense category</label>
+              <select class="input" id="cash-category"></select>
             </div>
             <div class="input-group">
               <label class="input-label" data-i18n>Reason</label>
@@ -1462,6 +1503,55 @@
   </div>
 </div>
 
+
+<div id="modal-expense" class="overlay hidden">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-head">
+      <div class="modal-title" data-i18n>New expense</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-expense')">x</button>
+    </div>
+    <div class="modal-body">
+      <div class="two-col">
+        <div class="input-group"><label class="input-label" data-i18n>Category</label><select class="input" id="exm-category"></select></div>
+        <div class="input-group"><label class="input-label" data-i18n>Amount (LEK)</label><input class="input" id="exm-amount" type="number" min="0" step="0.01" /></div>
+      </div>
+      <div class="two-col">
+        <div class="input-group">
+          <label class="input-label" data-i18n>Paid by</label>
+          <select class="input" id="exm-method" onchange="onExpenseMethodChange()">
+            <option value="BANK" data-i18n>Bank</option>
+            <option value="CARD" data-i18n>Card</option>
+            <option value="CASH" data-i18n>Cash from my till</option>
+          </select>
+        </div>
+        <div class="input-group"><label class="input-label" data-i18n>Date</label><input class="input" id="exm-date" type="date" /></div>
+      </div>
+      <div class="input-group"><label class="input-label" data-i18n>Paid to</label><input class="input" id="exm-paidto" data-i18n-placeholder placeholder="e.g. OSHEE, the owner of the shop" /></div>
+      <div class="input-group"><label class="input-label" data-i18n>Note</label><input class="input" id="exm-note" data-i18n-placeholder placeholder="e.g. bill for September" /></div>
+      <small class="input-hint" id="exm-hint"></small>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal('modal-expense')" data-i18n>Cancel</button>
+      <button class="btn btn-primary" onclick="saveExpense()" data-i18n>Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-expense-categories" class="overlay hidden">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-head">
+      <div class="modal-title" data-i18n>Expense categories</div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-expense-categories')">x</button>
+    </div>
+    <div class="modal-body">
+      <div class="exc-add">
+        <input class="input" id="exc-new" data-i18n-placeholder placeholder="New category" onkeydown="if (event.key === 'Enter') addExpenseCategory()" />
+        <button class="btn btn-primary" onclick="addExpenseCategory()" data-i18n>Add</button>
+      </div>
+      <div id="exc-list" class="exc-list"></div>
+    </div>
+  </div>
+</div>
 
 <div id="modal-package" class="overlay hidden">
   <div class="modal" style="max-width:480px;">

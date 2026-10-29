@@ -252,7 +252,7 @@ function applyRolePermissions() {
 
 /*  Navigation  */
 function gotoView(view) {
-  if (['products', 'purchases', 'reports', 'suppliers', 'inventory', 'promotions', 'kartela', 'journal'].includes(view) && !isOperationalManager()) {
+  if (['products', 'purchases', 'reports', 'suppliers', 'inventory', 'promotions', 'kartela', 'journal', 'expenses'].includes(view) && !isOperationalManager()) {
     toast(t('Super Cashier or Super Admin access is required'), 'error');
     view = 'home';
   }
@@ -275,6 +275,7 @@ function gotoView(view) {
   if (view === 'settings') loadSettingsForm();
   if (view === 'kartela') initKartela();
   if (view === 'journal') initJournal();
+  if (view === 'expenses') initExpenses();
   if (view === 'pos') { refreshTillInfo(); setTimeout(focusSearch, 50); }
   if (view === 'reports')  loadReports();
   if (view === 'users') loadUsers();
@@ -1883,6 +1884,7 @@ const JOURNAL_TYPES = {
   DEBT_PAYMENT: { label: 'Debt payment', icon: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>' },
   SHIFT_OPEN: { label: 'Shift opened', icon: '<polygon points="5 3 19 12 5 21 5 3"/>' },
   SHIFT_CLOSE: { label: 'Shift closed', icon: '<rect x="5" y="5" width="14" height="14" rx="1"/>' },
+  EXPENSE: { label: 'Expense', icon: '<path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/>' },
   PRICE_CHANGE: { label: 'Price change', icon: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><line x1="7" y1="7" x2="7.01" y2="7"/>' }
 };
 const journalTypes = new Set();
@@ -1965,6 +1967,7 @@ function renderJournal() {
   $('jr-summary').innerHTML = card(['SALE'], t('Sales'), 'good') + card(['REFUND'], t('Refunds'), 'bad')
     + card(['PURCHASE'], t('Purchase invoices'), 'info') + card(['CASH_IN', 'DEBT_PAYMENT'], t('Cash in and debt payments'), 'good')
     + card(['CASH_OUT', 'SUPPLIER_PAYMENT'], t('Cash out and supplier payments'), 'bad')
+    + card(['EXPENSE'], t('Expenses'), 'bad')
     + card(['ADJUSTMENT', 'COUNT'], t('Stock adjustments and counts (at cost)'), 'warn');
 
   const days = Object.fromEntries((journalData.days || []).map(d => [d.day, d]));
@@ -2005,6 +2008,10 @@ function journalText(e) {
     case 'DEBT_PAYMENT': return [e.counterparty, e.note];
     case 'SHIFT_OPEN': return [`${t('Shift')} ${e.number}`, `${t('Opening cash')} ${fmtLek(e.before)}`];
     case 'SHIFT_CLOSE': return [`${t('Shift')} ${e.number}`, `${t('Counted')} ${fmtLek(e.before)} · ${t('Difference')} ${fmtLek(e.after)}`];
+    case 'EXPENSE': {
+      const [method, ...rest] = (e.note || '').split(' - ');
+      return [[e.number, e.counterparty].filter(Boolean).join(' · '), [t(EXPENSE_METHODS[method] || method), rest.join(' - ')].filter(Boolean).join(' · ')];
+    }
     case 'PRICE_CHANGE': return [e.productName, `${t(e.note === 'COST' ? 'Purchase price' : 'Selling price')}: ${e.before != null ? fmtLek(e.before) + ' → ' : ''}${fmtLek(e.after)} · ${t(PRICE_SOURCES[e.number] || e.number)}`];
     default: return [e.number || '', e.note || ''];
   }
@@ -3647,6 +3654,18 @@ async function printShiftReport() {
   } catch (e) { toast(e.message || t('Could not print receipt'), 'error'); }
 }
 
+/* Movements the program adds itself carry a two-language reason; show it in the language of the screen. */
+const CASH_REASON_PREFIXES = [
+  ['Shpenzim i anuluar / expense cancelled: ', 'Expense cancelled'],
+  ['Shpenzim / expense: ', 'Expense'],
+  ['Pagesë borxhi / debt payment: ', 'Debt payment']
+];
+
+function cashReasonText(reason) {
+  const hit = CASH_REASON_PREFIXES.find(([prefix]) => (reason || '').startsWith(prefix));
+  return hit ? `${t(hit[1])}: ${reason.slice(hit[0].length)}` : (reason || '');
+}
+
 async function loadCashMovements() {
   const list = $('cash-movements-list');
   if (!activeShift) { list.innerHTML = ''; return; }
@@ -3654,7 +3673,7 @@ async function loadCashMovements() {
     const res = await req('GET', `/shifts/${activeShift.id}/cash-movements`);
     list.innerHTML = (res.data || []).map(m => `
       <div class="balance-line">
-        <span>${formatTime(m.createdAt)} · ${esc(m.type === 'IN' ? t('Cash in') : t('Cash out'))} · ${esc(m.reason)}</span>
+        <span>${formatTime(m.createdAt)} · ${esc(m.type === 'IN' ? t('Cash in') : t('Cash out'))} · ${esc(cashReasonText(m.reason))}</span>
         <strong>${m.type === 'IN' ? '+' : '-'}${fmtLek(m.amount)}</strong>
       </div>`).join('');
   } catch { list.innerHTML = ''; }
@@ -3662,6 +3681,17 @@ async function loadCashMovements() {
 
 async function addCashMovement() {
   if (!activeShift?.id) { toast(t('Open a shift first'), 'error'); return; }
+  if ($('cash-type').value === 'EXPENSE') {
+    try {
+      await req('POST', '/expenses', { categoryId: Number($('cash-category').value), amount: parseFloat($('cash-amount').value || '0'),
+        method: 'CASH', note: $('cash-reason').value.trim() });
+      $('cash-amount').value = '';
+      $('cash-reason').value = '';
+      toast(t('Expense saved'), 'success');
+      loadOperations();
+    } catch (e) { toast(e.message || t('Save failed'), 'error'); }
+    return;
+  }
   const body = {
     type: $('cash-type').value,
     amount: parseFloat($('cash-amount').value || '0'),
@@ -4070,4 +4100,188 @@ function printKartela() {
   const done = () => { document.body.classList.remove('print-kartela'); window.removeEventListener('afterprint', done); };
   window.addEventListener('afterprint', done);
   window.print();
+}
+
+/*  Shpenzimet: rent, electricity, salaries...  */
+const EXPENSE_METHODS = { CASH: 'Cash from the till', BANK: 'Bank', CARD: 'Card' };
+let expenseCategories = [];
+let expenseData = null;
+
+async function loadExpenseCategories(all = false) {
+  const res = await req('GET', `/expenses/categories?activeOnly=${!all}`);
+  return res.data || [];
+}
+
+async function initExpenses() {
+  if (!$('ex-month').value) $('ex-month').value = isoDay(new Date()).slice(0, 7);
+  try {
+    expenseCategories = await loadExpenseCategories(true);
+    const chosen = $('ex-category').value;
+    $('ex-category').innerHTML = `<option value="">${t('All categories')}</option>`
+      + expenseCategories.map(c => `<option value="${c.id}">${esc(c.name)}${c.active ? '' : ' (' + t('Inactive') + ')'}</option>`).join('');
+    $('ex-category').value = chosen;
+  } catch (e) { toast(e.message, 'error'); }
+  loadExpenses();
+}
+
+function expenseMonthRange() {
+  const [y, m] = ($('ex-month').value || isoDay(new Date()).slice(0, 7)).split('-').map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return { from: `${y}-${String(m).padStart(2, '0')}-01`, to: `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}` };
+}
+
+function expenseParams() {
+  const range = expenseMonthRange();
+  const params = new URLSearchParams(range);
+  if ($('ex-category').value) params.set('categoryId', $('ex-category').value);
+  return params;
+}
+
+async function loadExpenses() {
+  try {
+    expenseData = (await req('GET', '/expenses?' + expenseParams())).data;
+    renderExpenses();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function renderExpenses() {
+  const d = expenseData;
+  if (!d) return;
+  const card = (label, amount, sub, tone) => `<div class="jr-card ${tone}"><span>${label}</span><strong>${fmtLek(amount)}</strong><small>${sub}</small></div>`;
+  const active = d.expenses.filter(e => !e.cancelled);
+  $('ex-summary').innerHTML = card(t('Total expenses'), d.total, t('{count} expenses', { count: active.length }), 'bad')
+    + card(t('Cash from the till'), d.cash, t('Left the till during a shift'), '')
+    + card(t('Bank'), d.bank, t('Transfers and direct debits'), 'info')
+    + card(t('Card'), d.card, t('Paid with a card'), 'info');
+
+  const max = Math.max(1, ...d.byCategory.map(c => parseFloat(c.amount)));
+  $('ex-bars').innerHTML = d.byCategory.length ? `<div class="ex-bars">${d.byCategory.map(c => `
+      <div class="ex-bar">
+        <div class="ex-bar-head"><span>${esc(c.category)}</span><strong>${fmtLek(c.amount)}</strong></div>
+        <div class="ex-bar-track"><div style="width:${(parseFloat(c.amount) / max * 100).toFixed(1)}%"></div></div>
+        <small>${t('{count} expenses', { count: c.count })} · ${(parseFloat(c.amount) / parseFloat(d.total) * 100).toFixed(1)}%</small>
+      </div>`).join('')}</div>` : `<p class="no-data">${t('No expenses in this month.')}</p>`;
+
+  const showCancelled = $('ex-cancelled').checked;
+  const rows = d.expenses.filter(e => showCancelled || !e.cancelled);
+  $('ex-count').textContent = t('{count} expenses', { count: active.length });
+  $('ex-table').innerHTML = krTable([t('Date'), t('Category'), t('Paid to'), t('Note'), t('Paid by'), t('User'), t('Amount'), ''],
+    rows.map(e => [
+      formatDay(e.paidOn),
+      `<strong>${esc(e.category)}</strong>`,
+      esc(e.paidTo || ''),
+      esc(e.note || ''),
+      `<span class="kr-badge ${e.method === 'CASH' ? 'warn' : 'info'}">${t(EXPENSE_METHODS[e.method])}</span>`,
+      esc(e.user || ''),
+      e.cancelled ? `<s class="t-muted">${fmtLek(e.amount)}</s><div class="wh-sub">${t('Cancelled by {name}', { name: esc(e.cancelledBy || '') })}</div>`
+        : `<strong>${fmtLek(e.amount)}</strong>`,
+      e.cancelled ? '' : `<button class="btn btn-ghost btn-sm kr-danger-text" onclick="cancelExpense(${e.id})">${t('Cancel')}</button>`
+    ]), t('No expenses in this month.'));
+}
+
+async function openExpenseModal() {
+  try {
+    const categories = await loadExpenseCategories();
+    $('exm-category').innerHTML = categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    if ($('ex-category').value && categories.some(c => String(c.id) === $('ex-category').value)) $('exm-category').value = $('ex-category').value;
+  } catch (e) { toast(e.message, 'error'); return; }
+  $('exm-amount').value = '';
+  $('exm-method').value = 'BANK';
+  $('exm-date').value = isoDay(new Date());
+  $('exm-date').max = isoDay(new Date());
+  $('exm-paidto').value = '';
+  $('exm-note').value = '';
+  onExpenseMethodChange();
+  openModal('modal-expense');
+  setTimeout(() => $('exm-amount').focus(), 50);
+}
+
+function onExpenseMethodChange() {
+  const cash = $('exm-method').value === 'CASH';
+  $('exm-date').disabled = cash;
+  if (cash) $('exm-date').value = isoDay(new Date());
+  $('exm-hint').textContent = cash ? t('The money is taken out of the till of your open shift, today.') : '';
+}
+
+async function saveExpense() {
+  const body = {
+    categoryId: Number($('exm-category').value),
+    amount: parseFloat($('exm-amount').value || '0'),
+    method: $('exm-method').value,
+    paidOn: $('exm-date').value || null,
+    paidTo: $('exm-paidto').value.trim(),
+    note: $('exm-note').value.trim()
+  };
+  try {
+    await req('POST', '/expenses', body);
+    closeModal('modal-expense');
+    toast(t('Expense saved'), 'success');
+    const month = body.paidOn ? body.paidOn.slice(0, 7) : isoDay(new Date()).slice(0, 7);
+    if (month !== $('ex-month').value) $('ex-month').value = month;
+    loadExpenses();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function cancelExpense(id) {
+  const e = expenseData.expenses.find(x => x.id === id);
+  const text = e.method === 'CASH' ? t('Cancel this expense? The money goes back into the till it was paid from.') : t('Cancel this expense?');
+  if (!confirm(`${text}\n\n${e.category}: ${fmtLek(e.amount)}`)) return;
+  try {
+    await req('POST', `/expenses/${id}/cancel`);
+    toast(t('Expense cancelled'), 'success');
+    loadExpenses();
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+function exportExpenses() {
+  downloadFile('/expenses/export.xlsx?' + expenseParams());
+}
+
+async function openExpenseCategories() {
+  $('exc-new').value = '';
+  await renderExpenseCategories();
+  openModal('modal-expense-categories');
+}
+
+async function renderExpenseCategories() {
+  try {
+    const all = await loadExpenseCategories(true);
+    $('exc-list').innerHTML = all.map(c => `
+      <div class="exc-row ${c.active ? '' : 'off'}">
+        <input class="input" value="${esc(c.name)}" onchange="saveExpenseCategory(${c.id}, this.value, ${c.active})" />
+        <small>${t('{count} expenses', { count: c.expenses })}</small>
+        <button class="btn btn-secondary btn-sm" onclick="saveExpenseCategory(${c.id}, null, ${!c.active})">${c.active ? t('Deactivate') : t('Reactivate')}</button>
+      </div>`).join('');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function addExpenseCategory() {
+  const name = $('exc-new').value.trim();
+  if (!name) return;
+  try {
+    await req('POST', '/expenses/categories', { name });
+    $('exc-new').value = '';
+    await renderExpenseCategories();
+    initExpenses();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function saveExpenseCategory(id, name, active) {
+  const current = (await loadExpenseCategories(true)).find(c => c.id === id);
+  try {
+    await req('PUT', `/expenses/categories/${id}`, { name: name ?? current.name, active });
+    await renderExpenseCategories();
+    initExpenses();
+  } catch (e) { toast(e.message, 'error'); renderExpenseCategories(); }
+}
+
+/* Till: an expense paid from the drawer is a cash out with a category. */
+async function onCashTypeChange() {
+  const expense = $('cash-type').value === 'EXPENSE';
+  $('cash-category-wrap').classList.toggle('hidden', !expense);
+  if (expense && !$('cash-category').options.length) {
+    try {
+      $('cash-category').innerHTML = (await loadExpenseCategories()).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    } catch (e) { toast(e.message, 'error'); }
+  }
 }

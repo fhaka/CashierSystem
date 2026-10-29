@@ -87,9 +87,10 @@ public class PurchaseInvoiceService {
                     : itemRequest.getPurchasePrice().divide(BigDecimal.valueOf(box.getPieces()), 2, RoundingMode.HALF_UP);
             total = total.add(lineTotal);
 
+            BigDecimal cost = averageCost(product.getStock(), product.getPurchasePrice(), quantity, piecePrice);
             priceHistoryService.record(product.getId(), null, PriceChange.Source.PURCHASE, actor,
-                    product.getPrice(), itemRequest.getSellingPrice(), product.getPurchasePrice(), piecePrice);
-            product.setPurchasePrice(piecePrice);
+                    product.getPrice(), itemRequest.getSellingPrice(), product.getPurchasePrice(), cost);
+            product.setPurchasePrice(cost);
             product.setPrice(itemRequest.getSellingPrice());
             product.setTaxRate(itemRequest.getTaxRate());
             product.setUnit(unit);
@@ -116,6 +117,18 @@ public class PurchaseInvoiceService {
         auditService.record(actor, "PURCHASE_SAVED", "PURCHASE_INVOICE", saved.getInvoiceNumber(),
                 saved.getCompany() + ", " + saved.getItems().size() + " lines, " + saved.getTotalAmount() + " LEK");
         return saved;
+    }
+
+    /**
+     * Weighted average cost per piece after a delivery: the pieces still in stock at the old cost plus the new ones at
+     * the invoice price. With no stock (or less than nothing) the invoice price is the cost.
+     */
+    static BigDecimal averageCost(BigDecimal stock, BigDecimal oldCost, BigDecimal quantity, BigDecimal newCost) {
+        if (stock == null || stock.signum() <= 0 || oldCost == null) {
+            return newCost;
+        }
+        return stock.multiply(oldCost).add(quantity.multiply(newCost))
+                .divide(stock.add(quantity), 2, RoundingMode.HALF_UP);
     }
 
     private void validateRequest(PurchaseInvoiceRequest request) {

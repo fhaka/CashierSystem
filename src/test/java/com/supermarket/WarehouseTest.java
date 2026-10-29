@@ -123,7 +123,8 @@ class WarehouseTest extends IntegrationTest {
                 .andExpect(jsonPath("$.data.totalAmount").value(8400.0));
 
         assertThat(stock(cola)).isEqualByComparingTo("124");
-        assertThat(jdbc.queryForObject("SELECT purchase_price FROM products WHERE id = ?", BigDecimal.class, cola)).isEqualByComparingTo("70.00");
+        // Cost per piece: average of the 4 on the shelf at 50 and the 120 bought at 1680 / 24 = 70.
+        assertThat(jdbc.queryForObject("SELECT purchase_price FROM products WHERE id = ?", BigDecimal.class, cola)).isEqualByComparingTo("69.35");
         assertThat(jdbc.queryForObject("SELECT package_count FROM purchase_items", BigDecimal.class)).isEqualByComparingTo("5");
 
         JsonNode card = data(getJson("/warehouse/products/" + cola, admin).andExpect(status().isOk()));
@@ -136,7 +137,7 @@ class WarehouseTest extends IntegrationTest {
         JsonNode change = card.path("priceHistory").get(0);
         assertThat(change.path("source").asText()).isEqualTo("PURCHASE");
         assertThat(change.path("newPrice").decimalValue()).isEqualByComparingTo("130.00");
-        assertThat(change.path("newPurchasePrice").decimalValue()).isEqualByComparingTo("70.00");
+        assertThat(change.path("newPurchasePrice").decimalValue()).isEqualByComparingTo("69.35");
     }
 
     @Test

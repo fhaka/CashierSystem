@@ -1664,7 +1664,7 @@ function renderKartela() {
         biggest && stock >= biggest.pieces ? esc('= ' + t('{count} x {box}', { count: Math.floor(stock / biggest.pieces), box: biggest.name })) : '',
         stock <= 0 ? 'bad' : low ? 'warn' : '')}
       ${kpi(t('Stock value'), fmtLek(Math.max(0, stock) * parseFloat(p.purchasePrice)), `${t('at selling price')} ${fmtLek(Math.max(0, stock) * parseFloat(p.price))}`)}
-      ${kpi(t('Cost'), fmtLek(p.purchasePrice), `${t('Margin')} ${margin.toFixed(1)}%`, margin < 10 ? 'warn' : '')}
+      ${kpi(t('Average cost'), fmtLek(p.purchasePrice), `${t('Margin')} ${margin.toFixed(1)}%`, margin < 10 ? 'warn' : '')}
       ${kpi(t('Sold'), `${fmtQty(a.quantity, p.unit)} ${esc(unitLabel(p.unit))}`, `${period} · ${t('{count} receipts', { count: a.receipts })}`)}
       ${kpi(t('Revenue'), fmtLek(a.revenue), period)}
       ${kpi(t('Profit'), fmtLek(a.profit), `${t('Margin')} ${parseFloat(a.marginPercent).toFixed(1)}% · ${period}`, parseFloat(a.profit) < 0 ? 'bad' : 'good')}
@@ -1711,7 +1711,7 @@ function renderKartela() {
           <dt>${t('Unit')}</dt><dd>${esc(unitLabel(p.unit))}</dd>
           <dt>${t('VAT')}</dt><dd>${fmtTax(p.taxRate)}</dd>
           <dt>${t('Content of one piece')}</dt><dd>${p.contentAmount ? `${parseFloat(p.contentAmount)} ${esc(p.contentUnit)}` : '-'}</dd>
-          <dt>${t('Purchase price')}</dt><dd>${fmtLek(p.purchasePrice)}</dd>
+          <dt>${t('Average cost')}</dt><dd>${fmtLek(p.purchasePrice)}</dd>
           <dt>${t('Minimum stock')}</dt><dd>${p.minStock != null ? fmtQty(p.minStock, p.unit) : '-'}</dd>
           <dt>${t('Reorder quantity')}</dt><dd>${p.reorderQuantity != null ? fmtQty(p.reorderQuantity, p.unit) : t('Automatic')}</dd>
         </dl>

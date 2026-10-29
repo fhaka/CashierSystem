@@ -241,6 +241,32 @@ class InventoryAndSuppliersTest extends IntegrationTest {
     }
 
     @Test
+    void theCostIsTheWeightedAverageOfTheStockAndEachDelivery() throws Exception {
+        String admin = registerSuperAdmin();
+        long p = product(admin, "700000000030", "100.00", "0", "pcs", null);
+        purchase(admin, "F-A1", "Furnitori", LocalDate.now(), p, "10", "50.00", null);
+        assertThat(cost(p)).isEqualByComparingTo("50.00");          // nothing on the shelf before: the invoice price
+        purchase(admin, "F-A2", "Furnitori", LocalDate.now(), p, "10", "70.00", null);
+        assertThat(cost(p)).isEqualByComparingTo("60.00");          // 10 x 50 + 10 x 70 over 20 pieces
+        purchase(admin, "F-A3", "Furnitori", LocalDate.now(), p, "20", "63.00", null);
+        assertThat(cost(p)).isEqualByComparingTo("61.50");          // 20 x 60 + 20 x 63 over 40 pieces
+
+        // A sale keeps the cost of that moment; the reorder list still shows the last invoice price.
+        openShift(admin, "0");
+        postJson("/sales/cart", admin, Map.of("productId", p, "quantity", 1)).andExpect(status().isOk());
+        postJson("/sales/checkout", admin, null).andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT purchase_price FROM sale_items WHERE product_id = ?", BigDecimal.class, p))
+                .isEqualByComparingTo("61.50");
+        // The price history shows the cost moving to the average.
+        assertThat(jdbc.queryForObject("SELECT new_purchase_price FROM price_changes WHERE product_id = ? ORDER BY id DESC LIMIT 1",
+                BigDecimal.class, p)).isEqualByComparingTo("61.50");
+    }
+
+    private BigDecimal cost(long productId) {
+        return jdbc.queryForObject("SELECT purchase_price FROM products WHERE id = ?", BigDecimal.class, productId);
+    }
+
+    @Test
     void aProductRegisteredDuringAPurchaseGetsOnlyTheInvoiceQuantity() throws Exception {
         String admin = registerSuperAdmin();
         // The purchase screen registers new products with stock 0; the invoice brings the 10 pieces.

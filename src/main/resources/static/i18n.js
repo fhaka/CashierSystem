@@ -861,6 +861,7 @@ const SQ = {
   'There are products that are not sold yet. Are you sure you want to close the till? The tabs will be emptied and the sale will not be registered.': 'Ka produkte që nuk janë shitur ende. Jeni i sigurt që doni të mbyllni arkën? Faqet do të pastrohen dhe shitja nuk do të regjistrohet.',
   'Products thrown away at closing': 'Produkte të hedhura në mbyllje',
   /* Kartela e Artikullit and Regjistri i Veprimeve */
+  'Average cost': 'Kosto mesatare',
   'Product card': 'Kartela e Artikullit',
   'Journal of operations': 'Regjistri i Veprimeve',
   'Everything about one product: stock, sales, prices, boxes, suppliers and history': 'Gjithçka për një artikull: stoku, shitjet, çmimet, kutitë, furnitorët dhe historiku',

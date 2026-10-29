@@ -76,6 +76,7 @@ public class JournalService {
             if (types.contains(Type.SUPPLIER_PAYMENT)) supplierPayments(range, all);
             if (types.contains(Type.DEBT_PAYMENT)) debtPayments(range, all);
             if (types.contains(Type.SHIFT_OPEN) || types.contains(Type.SHIFT_CLOSE)) shifts(range, types, all);
+            if (types.contains(Type.EXPENSE)) expenses(range, all);
         }
         if (types.contains(Type.PRICE_CHANGE)) priceChanges(range, all);
 
@@ -165,8 +166,9 @@ public class JournalService {
                 where m.createdAt >= :from and m.createdAt <= :to""" + r.cashier("c");
         for (Object[] row : r.run(entityManager.createQuery(jpql, Object[].class))) {
             String reason = (String) row[4];
-            if (reason != null && reason.startsWith(CustomerService.DEBT_PAYMENT_CASH_REASON)) {
-                continue;   // the drawer side of a cash debt payment, already listed as DEBT_PAYMENT
+            if (reason != null && (reason.startsWith(CustomerService.DEBT_PAYMENT_CASH_REASON)
+                    || reason.startsWith(ExpenseService.CASH_REASON) || reason.startsWith(ExpenseService.CANCEL_REASON))) {
+                continue;   // the drawer side of a cash debt payment or expense, listed as DEBT_PAYMENT / EXPENSE
             }
             boolean in = "IN".equals(String.valueOf(row[2]));
             Type type = in ? Type.CASH_IN : Type.CASH_OUT;
@@ -199,6 +201,27 @@ public class JournalService {
         for (Object[] row : r.run(entityManager.createQuery(jpql, Object[].class))) {
             out.add(new Entry(Type.DEBT_PAYMENT, (LocalDateTime) row[1], null, (String) row[2], null, null, null, null, (String) row[4],
                     (String) row[5], negate((BigDecimal) row[3]), null, null, (Long) row[0]));
+        }
+    }
+
+    /** Expenses that are not cancelled, on the day they were paid. */
+    private void expenses(Range r, List<Entry> out) {
+        String jpql = """
+                select e.id, e.paidOn, e.createdAt, cat.name, e.paidTo, e.note, e.method, e.amount, c.fullName
+                from Expense e join e.category cat left join e.cashier c
+                where e.cancelled = false and e.paidOn >= :fromDay and e.paidOn <= :toDay""" + r.cashier("c");
+        TypedQuery<Object[]> query = entityManager.createQuery(jpql, Object[].class)
+                .setParameter("fromDay", r.fromDay).setParameter("toDay", r.toDay);
+        if (r.cashierId != null) {
+            query.setParameter("cashierId", r.cashierId);
+        }
+        for (Object[] row : query.getResultList()) {
+            LocalDate paidOn = (LocalDate) row[1];
+            LocalDateTime created = (LocalDateTime) row[2];
+            LocalDateTime at = created.toLocalDate().equals(paidOn) ? created : paidOn.atStartOfDay();
+            String note = row[6] + (row[5] == null ? "" : " - " + row[5]);
+            out.add(new Entry(Type.EXPENSE, at, (String) row[3], (String) row[4], null, null, null, null, note,
+                    (String) row[8], negate((BigDecimal) row[7]), null, null, (Long) row[0]));
         }
     }
 

@@ -35,7 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 public abstract class IntegrationTest {
 
     private static final List<String> TABLES_CHILD_FIRST = List.of(
-            "audit_events", "price_changes", "customer_transactions", "inventory_count_lines", "inventory_counts", "stock_adjustments", "supplier_payments", "refund_items", "refunds", "cart_items", "carts", "sale_logs", "sale_items", "sale_payments", "sales", "cash_movements", "shifts", "promotions", "customers",
+            "audit_events", "price_changes", "customer_transactions", "inventory_count_lines", "inventory_counts", "stock_adjustments", "supplier_payments", "refund_items", "refunds", "cart_items", "carts", "sale_logs", "sale_items", "sale_payments", "sales", "expenses", "cash_movements", "shifts", "promotions", "customers",
             "purchase_items", "purchase_invoices", "suppliers", "product_packages", "products", "auth_sessions", "cashiers", "backup_logs", "shop_settings"
     );
 
@@ -52,6 +52,8 @@ public abstract class IntegrationTest {
     void cleanDatabase() {
         TABLES_CHILD_FIRST.forEach(table -> jdbc.update("DELETE FROM " + table));
         jdbc.update("UPDATE number_sequences SET current_value = 0");
+        jdbc.update("DELETE FROM expense_categories WHERE name NOT IN (SELECT name FROM expense_categories WHERE id <= 12)");
+        jdbc.update("UPDATE expense_categories SET active = TRUE");
     }
 
     protected ResultActions call(MockHttpServletRequestBuilder request, String token, Object body) throws Exception {

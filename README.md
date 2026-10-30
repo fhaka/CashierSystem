@@ -1,4 +1,4 @@
-# Haka Market POS
+# Market POS
 
 Supermarket cashier system: selling at the till with a barcode scanner, shifts and cash reconciliation, products and stock, supplier purchase invoices, reports, users with roles, thermal receipt printing and automatic backups.
 

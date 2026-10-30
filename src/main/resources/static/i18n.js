@@ -952,6 +952,7 @@ const SQ = {
   'Cancel this expense?': 'Ta anuloni këtë shpenzim?',
   'Expense cancelled': 'Shpenzimi u anulua',
   /* Kontabiliteti */
+  'Printed': 'Printuar',
   'Invoice numbers': 'Nr. i faturave',
   'Accounting': 'Kontabiliteti',
   'Profit and loss, sales and purchase books and stock value of a month, for the accountant': 'Fitimi dhe humbja, librat e shitjeve dhe blerjeve dhe vlera e magazinës për një muaj, për kontabilistin',

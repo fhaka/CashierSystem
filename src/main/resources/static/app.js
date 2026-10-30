@@ -4095,12 +4095,100 @@ function onLanguageChanged() {
 })();
 
 
-/* Prints the whole Kartela (the print stylesheet hides the menu and buttons). */
+/* Prints the Kartela on one A4 page: a summary made for paper, not the screen (which would take 4-5 pages). */
+const A4_CONTENT_HEIGHT = 1040;   // 277 mm (A4 minus 10 mm margins) at 96 px per inch, a little to spare
+const A4_CONTENT_WIDTH = 718;     // 190 mm
+
 function printKartela() {
+  if (!productCard || !kartelaAnalysis) return;
+  let sheet = $('kr-print');
+  if (!sheet) {
+    sheet = document.createElement('div');
+    sheet.id = 'kr-print';
+    document.body.appendChild(sheet);
+  }
+  sheet.innerHTML = kartelaPrintHtml();
+  // Measure off screen at A4 width; a long card is scaled down so it still fits one page.
+  sheet.style.zoom = 1;
+  sheet.classList.add('measuring');
+  const height = sheet.scrollHeight;
+  sheet.classList.remove('measuring');
+  sheet.style.zoom = height > A4_CONTENT_HEIGHT ? (A4_CONTENT_HEIGHT / height).toFixed(3) : 1;
+
   document.body.classList.add('print-kartela');
   const done = () => { document.body.classList.remove('print-kartela'); window.removeEventListener('afterprint', done); };
   window.addEventListener('afterprint', done);
   window.print();
+}
+
+function kartelaPrintHtml() {
+  const c = productCard;
+  const p = c.product;
+  const a = kartelaAnalysis;
+  const unit = esc(unitLabel(p.unit));
+  const stock = parseFloat(p.stock);
+  const period = t('{days} days', { days: a.days });
+  const shop = shopSettings?.shopName || $('sb-shop-name')?.textContent || '';
+  const cell = (label, value, sub = '') => `<div class="kp-cell"><span>${label}</span><strong>${value}</strong>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  const table = (header, rows, empty) => `<table><thead><tr>${header.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+    <tbody>${rows.length ? rows.map(r => `<tr>${r.map(v => `<td>${v}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${header.length}" class="kp-empty">${empty}</td></tr>`}</tbody></table>`;
+  const section = (title, body) => `<section><h3>${title}</h3>${body}</section>`;
+  const status = stock <= 0 ? t('Out of stock') : (p.minStock != null && stock <= parseFloat(p.minStock)) ? t('Below minimum stock') : t('In stock');
+  const boxes = c.packages.filter(b => b.active);
+
+  return `
+    <header class="kp-head">
+      <div>
+        <div class="kp-shop">${esc(shop)} · ${t('Product card')}</div>
+        <h1>${esc(p.name)}</h1>
+        <div class="kp-meta">${esc(p.barcode)} · ${esc(c.category || t('None'))} · ${unit} · ${t('VAT')} ${fmtTax(p.taxRate)} · ${status}${p.active ? '' : ' · ' + t('Inactive')}</div>
+      </div>
+      <div class="kp-price"><span>${t('Selling price')}</span><strong>${fmtLek(p.price)}</strong>
+        ${c.unitPriceLabel ? `<small>${esc(c.unitPriceLabel)} ${fmtLek(c.unitPrice)}</small>` : ''}</div>
+    </header>
+
+    <div class="kp-cells">
+      ${cell(t('Stock'), `${fmtQty(p.stock, p.unit)} ${unit}`, p.minStock != null ? `${t('Minimum stock')} ${fmtQty(p.minStock, p.unit)}` : '')}
+      ${cell(t('Average cost'), fmtLek(p.purchasePrice), `${t('Margin')} ${parseFloat(c.marginPercent).toFixed(1)}%`)}
+      ${cell(t('Stock value'), fmtLek(Math.max(0, stock) * parseFloat(p.purchasePrice)), `${t('at selling price')} ${fmtLek(Math.max(0, stock) * parseFloat(p.price))}`)}
+      ${cell(t('Days of stock left'), c.sales.daysOfStockLeft == null ? '-' : c.sales.daysOfStockLeft, t('{n} per day', { n: parseFloat(a.averagePerDay).toFixed(1) }))}
+      ${cell(t('Sold'), `${fmtQty(a.quantity, p.unit)} ${unit}`, `${period} · ${t('{count} receipts', { count: a.receipts })}`)}
+      ${cell(t('Revenue'), fmtLek(a.revenue), period)}
+      ${cell(t('Profit'), fmtLek(a.profit), `${t('Margin')} ${parseFloat(a.marginPercent).toFixed(1)}%`)}
+      ${cell(t('Last sale'), c.sales.lastSaleAt ? fmtDate(c.sales.lastSaleAt) : t('Never sold'),
+        a.lastPurchase ? `${t('Last purchase')} ${formatDay(a.lastPurchase.date)}` : '')}
+    </div>
+
+    <div class="kp-charts">
+      <div><h3>${t('Quantity sold per day')} · ${period}</h3>
+        ${svgBars(a.daily.map(d => ({ value: parseFloat(d.quantity), title: '' })), 60)}${axisDays(a.daily.map(d => d.day))}</div>
+      <div><h3>${t('Stock at the end of each day')}</h3>
+        ${svgLine(a.stock.map(s => ({ value: parseFloat(s.stock), title: '' })), p.minStock != null ? parseFloat(p.minStock) : null, 60)}${axisDays(a.stock.map(s => s.day))}</div>
+    </div>
+
+    <div class="kp-cols">
+      ${section(t('Boxes'), table([t('Box'), t('Barcode'), t('Pieces'), t('Box price'), t('Per piece')],
+        boxes.map(b => { const price = cardBoxPrice(b); return [esc(b.name), esc(b.barcode), b.pieces, fmtLek(price), fmtLek(price / b.pieces)]; }),
+        p.unit === 'pcs' ? t('No boxes yet.') : '-'))}
+      ${section(t('Suppliers'), table([t('Supplier'), t('Last purchase'), t('Last price (piece)'), t('Total bought')],
+        c.suppliers.slice(0, 4).map(s => [esc(s.supplier), formatDay(s.lastPurchase), fmtLek(s.lastPurchasePrice), fmtQty(s.totalQuantity, p.unit)]),
+        t('Not bought on a purchase invoice yet.')))}
+      ${section(t('Price history'), table([t('Date'), t('Selling price'), t('Purchase price'), t('Source')],
+        c.priceHistory.filter(ch => !ch.packageId).slice(0, 6).map(ch => [formatDay(ch.changedAt.slice(0, 10)),
+          ch.newPrice == null ? '' : `${ch.oldPrice == null ? '' : fmtLek(ch.oldPrice) + ' → '}${fmtLek(ch.newPrice)}`,
+          ch.newPurchasePrice == null ? '' : `${ch.oldPurchasePrice == null ? '' : fmtLek(ch.oldPurchasePrice) + ' → '}${fmtLek(ch.newPurchasePrice)}`,
+          esc(t(PRICE_SOURCES[ch.source] || ch.source))]), t('No price changes yet.')))}
+      ${section(`${t('Top customers')} · ${period}`, table([t('Customer'), t('Quantity'), t('Revenue')],
+        a.topCustomers.slice(0, 4).map(cu => [esc(cu.name), fmtQty(cu.quantity, p.unit), fmtLek(cu.revenue)]), '-'))}
+    </div>
+
+    ${section(t('Stock movements'), table([t('Date'), t('Type'), t('Document'), t('Quantity change'), t('Stock after'), t('User')],
+      kartelaMoves.slice(0, 12).map(m => [fmtDate(m.at), esc(t(MOVEMENT_LABELS[m.type] || m.type)),
+        esc(m.type === 'ADJUSTMENT' ? t(ADJUST_REASONS[m.reference] || m.reference) : (m.reference || '')),
+        `${parseFloat(m.change) > 0 ? '+' : ''}${fmtQty(m.change, p.unit)}`, fmtQty(m.stockAfter, p.unit), esc(m.cashier || '')]),
+      t('No stock movements yet.')))}
+
+    <footer class="kp-foot">${t('Printed')} ${fmtDate(new Date().toISOString())} · ${esc(currentUser?.fullName || '')}</footer>`;
 }
 
 /*  Shpenzimet: rent, electricity, salaries...  */

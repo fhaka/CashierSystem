@@ -252,7 +252,7 @@ function applyRolePermissions() {
 
 /*  Navigation  */
 function gotoView(view) {
-  if (['products', 'purchases', 'reports', 'suppliers', 'inventory', 'promotions', 'kartela', 'journal', 'expenses'].includes(view) && !isOperationalManager()) {
+  if (['products', 'purchases', 'reports', 'suppliers', 'inventory', 'promotions', 'kartela', 'journal', 'expenses', 'accounting'].includes(view) && !isOperationalManager()) {
     toast(t('Super Cashier or Super Admin access is required'), 'error');
     view = 'home';
   }
@@ -276,6 +276,7 @@ function gotoView(view) {
   if (view === 'kartela') initKartela();
   if (view === 'journal') initJournal();
   if (view === 'expenses') initExpenses();
+  if (view === 'accounting') initAccounting();
   if (view === 'pos') { refreshTillInfo(); setTimeout(focusSearch, 50); }
   if (view === 'reports')  loadReports();
   if (view === 'users') loadUsers();
@@ -4284,4 +4285,206 @@ async function onCashTypeChange() {
       $('cash-category').innerHTML = (await loadExpenseCategories()).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
     } catch (e) { toast(e.message, 'error'); }
   }
+}
+
+/*  Kontabiliteti: one month for the accountant  */
+const LOSS_LABELS = { DAMAGED: 'Damaged', EXPIRED: 'Expired', LOST: 'Lost / stolen', INTERNAL_USE: 'Internal use', OTHER: 'Other',
+  COUNT: 'Stock count differences' };
+let accountingData = null;
+let accountingTab = 'pl';
+let accountingDocuments = false;
+/* Amounts of the books: always LEK, two decimals, thousands apart. */
+const acNum = n => (parseFloat(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/,/g, ' ');
+
+function initAccounting() {
+  if (!$('ac-month').value) $('ac-month').value = isoDay(new Date()).slice(0, 7);
+  $('ac-month').max = isoDay(new Date()).slice(0, 7);
+  loadAccounting();
+}
+
+async function loadAccounting() {
+  $('ac-body').innerHTML = `<div class="kr-loading">${t('Loading...')}</div>`;
+  try {
+    accountingData = (await req('GET', `/accounting?month=${encodeURIComponent($('ac-month').value)}`)).data;
+    renderAccounting();
+  } catch (e) {
+    $('ac-body').innerHTML = `<div class="kr-empty"><strong>${esc(e.message)}</strong></div>`;
+  }
+}
+
+function showAccountingTab(tab) {
+  accountingTab = tab;
+  document.querySelectorAll('.ac-tabs .btn').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  renderAccounting();
+}
+
+function renderAccounting() {
+  if (!accountingData) return;
+  if (accountingTab === 'pl') renderProfitAndLoss();
+  if (accountingTab === 'sales') renderSalesBook();
+  if (accountingTab === 'purchases') renderPurchaseBook();
+  if (accountingTab === 'stock') renderStockValue();
+}
+
+function exportAccounting() {
+  downloadFile(`/accounting/export.xlsx?month=${encodeURIComponent($('ac-month').value)}`);
+}
+
+function printAccounting() {
+  document.body.classList.add('print-accounting');
+  const done = () => { document.body.classList.remove('print-accounting'); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  window.print();
+}
+
+function monthName(month) {
+  return formatMonthYear(new Date(month + '-15T12:00:00'));
+}
+
+/* Change against last month: arrow and percent, green when it is good news. */
+function changeBadge(now, before, higherIsGood = true) {
+  const a = parseFloat(now), b = parseFloat(before);
+  if (!b) return '';
+  const pct = (a - b) / Math.abs(b) * 100;
+  if (Math.abs(pct) < 0.05) return `<span class="ac-change">0%</span>`;
+  const good = (pct > 0) === higherIsGood;
+  return `<span class="ac-change ${good ? 'up' : 'down'}">${pct > 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(1)}%</span>`;
+}
+
+function renderProfitAndLoss() {
+  const { current: c, previous: p } = accountingData.profitAndLoss;
+  const kpi = (label, value, sub, tone, badge = '') => `<div class="jr-card ${tone}"><span>${label}</span><strong>${fmtLek(value)}</strong><small>${sub} ${badge}</small></div>`;
+  const prevName = monthName(p.from.slice(0, 7));
+  const amountOf = (lines, key) => (lines.find(l => l.key === key) || {}).amount;
+  const row = (label, now, before, cls = '', sign = '', higherIsGood = true) => `<tr class="${cls}">
+      <td>${label}</td>
+      <td class="num">${now == null ? '' : (parseFloat(now) ? sign : '') + fmtLek(now)}</td>
+      <td class="num t-muted">${before == null ? '-' : (parseFloat(before) ? sign : '') + fmtLek(before)}</td>
+      <td class="num">${now == null || before == null ? '' : changeBadge(now, before, higherIsGood)}</td>
+    </tr>`;
+  const stock = accountingData;
+  const net = parseFloat(c.netProfit);
+
+  $('ac-body').innerHTML = `
+    <div class="jr-summary">
+      ${kpi(t('Revenue without VAT'), c.revenueWithoutVat, t('{count} receipts', { count: c.salesCount }), 'info', changeBadge(c.revenueWithoutVat, p.revenueWithoutVat))}
+      ${kpi(t('Gross profit'), c.grossProfit, `${t('Margin')} ${parseFloat(c.grossMargin).toFixed(1)}%`, 'good', changeBadge(c.grossProfit, p.grossProfit))}
+      ${kpi(t('Expenses and stock losses'), parseFloat(c.expenseTotal) + parseFloat(c.stockLossTotal), t('{count} expenses', { count: c.expenses.reduce((s, l) => s + l.count, 0) }), 'bad', changeBadge(parseFloat(c.expenseTotal) + parseFloat(c.stockLossTotal), parseFloat(p.expenseTotal) + parseFloat(p.stockLossTotal), false))}
+      ${kpi(t('Net profit'), c.netProfit, `${t('Margin')} ${parseFloat(c.netMargin).toFixed(1)}%`, net < 0 ? 'bad' : 'good', changeBadge(c.netProfit, p.netProfit))}
+    </div>
+    <div class="ac-grid">
+      <section class="kr-card ac-statement">
+        <header><h2>${t('Profit and loss')} · ${esc(monthName(accountingData.month))}</h2><p>${t('Without VAT; the cost of goods is the average cost at the moment of each sale')}</p></header>
+        <table class="ac-table">
+          <thead><tr><th></th><th class="num">${esc(monthName(accountingData.month))}</th><th class="num">${esc(prevName)}</th><th></th></tr></thead>
+          <tbody>
+            ${row(t('Sales with VAT'), c.grossSales, p.grossSales)}
+            ${row(t('Refunds'), c.refunds, p.refunds, '', '−', false)}
+            ${row(t('VAT'), c.vat, p.vat, '', '−', false)}
+            ${row(t('Revenue without VAT'), c.revenueWithoutVat, p.revenueWithoutVat, 'ac-sum')}
+            ${row(t('Cost of goods sold'), c.costOfGoods, p.costOfGoods, '', '−', false)}
+            ${row(`${t('Gross profit')} <small>${parseFloat(c.grossMargin).toFixed(1)}%</small>`, c.grossProfit, p.grossProfit, 'ac-sum')}
+            ${c.stockLosses.map(l => row(`<span class="ac-sub">${t(LOSS_LABELS[l.key] || l.key)} <small>(${l.count})</small></span>`, l.amount, amountOf(p.stockLosses, l.key), '', '−', false)).join('')}
+            ${row(t('Stock losses'), c.stockLossTotal, p.stockLossTotal, 'ac-group', '−', false)}
+            ${c.expenses.map(l => row(`<span class="ac-sub">${esc(l.label)} <small>(${l.count})</small></span>`, l.amount, amountOf(p.expenses, l.key), '', '−', false)).join('')}
+            ${row(t('Expenses'), c.expenseTotal, p.expenseTotal, 'ac-group', '−', false)}
+            ${row(`${t('Net profit')} <small>${parseFloat(c.netMargin).toFixed(1)}%</small>`, c.netProfit, p.netProfit, `ac-total ${net < 0 ? 'neg' : ''}`)}
+          </tbody>
+        </table>
+      </section>
+      <section class="kr-card">
+        <header><h2>${t('Stock movement of the month')}</h2><p>${t('Without VAT, at cost: for the accountant to check the cost of goods')}</p></header>
+        <dl class="kr-dl">
+          <dt>${t('Stock at the start')} (${formatDay(stock.stockAtStart.at)})</dt><dd>${fmtLek(stock.stockAtStart.valueWithoutVat)}</dd>
+          <dt>+ ${t('Purchases')}</dt><dd>${fmtLek(stock.purchases.base)}</dd>
+          <dt>− ${t('Stock at the end')} (${formatDay(stock.stockAtEnd.at)})</dt><dd>${fmtLek(stock.stockAtEnd.valueWithoutVat)}</dd>
+          <dt><strong>= ${t('Goods used')}</strong></dt><dd><strong>${fmtLek(parseFloat(stock.stockAtStart.valueWithoutVat) + parseFloat(stock.purchases.base) - parseFloat(stock.stockAtEnd.valueWithoutVat))}</strong></dd>
+          <dt class="t-muted">${t('Cost of goods sold + stock losses')}</dt><dd class="t-muted">${fmtLek(parseFloat(c.costOfGoods) + parseFloat(c.stockLossTotal))}</dd>
+        </dl>
+        <p class="input-hint">${t('The two numbers are close when every delivery is entered as a purchase invoice. A big difference means goods came in or went out without being recorded.')}</p>
+      </section>
+    </div>`;
+}
+
+function rateHeaders(rates) {
+  return rates.map(r => `<th class="num">${t('Without VAT')} ${parseFloat(r)}%</th><th class="num">${t('VAT')} ${parseFloat(r)}%</th>`).join('')
+    + `<th class="num">${t('Without VAT')}</th><th class="num">${t('VAT')}</th><th class="num">${t('Total')}</th>`;
+}
+
+function rateCells(rates, base, vat, total) {
+  return rates.map(r => `<td class="num">${acNum(r.base)}</td><td class="num">${acNum(r.vat)}</td>`).join('')
+    + `<td class="num">${acNum(base)}</td><td class="num">${acNum(vat)}</td><td class="num"><strong>${acNum(total)}</strong></td>`;
+}
+
+function bookTotals(book) {
+  return `<div class="jr-summary">${book.totals.map(r => `<div class="jr-card info"><span>${t('VAT')} ${parseFloat(r.rate)}%</span>
+      <strong>${fmtLek(r.total)}</strong><small>${t('Without VAT')} ${acNum(r.base)} · ${t('VAT')} ${acNum(r.vat)}</small></div>`).join('')}
+    <div class="jr-card good"><span>${t('Total')}</span><strong>${fmtLek(book.total)}</strong><small>${t('Without VAT')} ${acNum(book.base)} · ${t('VAT')} ${acNum(book.vat)}</small></div></div>`;
+}
+
+function renderSalesBook() {
+  const b = accountingData.sales;
+  const toggle = `<div class="seg"><button class="btn btn-secondary btn-sm ${accountingDocuments ? '' : 'on'}" onclick="accountingDocuments = false; renderSalesBook()">${t('By day')}</button>
+    <button class="btn btn-secondary btn-sm ${accountingDocuments ? 'on' : ''}" onclick="accountingDocuments = true; renderSalesBook()">${t('By invoice')}</button></div>`;
+  let table;
+  if (!accountingDocuments) {
+    table = `<table><thead><tr><th>${t('Date')}</th><th class="num">${t('Receipts')}</th><th>${t('Invoice numbers')}</th><th class="num">${t('Refunds')}</th>${rateHeaders(b.rates)}</tr></thead>
+      <tbody>${b.days.length ? b.days.map(d => `<tr><td>${formatDay(d.day)}</td><td class="num">${d.receipts}</td>
+          <td class="td-m">${d.firstInvoice ? esc(d.firstInvoice) + (d.lastInvoice !== d.firstInvoice ? ' – ' + esc(d.lastInvoice) : '') : ''}</td>
+          <td class="num">${d.refunds || ''}</td>${rateCells(d.rates, d.base, d.vat, d.total)}</tr>`).join('')
+        : `<tr><td colspan="${7 + b.rates.length * 2}" class="no-data">${t('No sales in this month.')}</td></tr>`}</tbody>
+      <tfoot><tr><td>${t('Total')}</td><td class="num">${b.days.reduce((s, d) => s + d.receipts, 0)}</td><td></td>
+        <td class="num">${b.days.reduce((s, d) => s + d.refunds, 0) || ''}</td>${rateCells(b.totals, b.base, b.vat, b.total)}</tr></tfoot></table>`;
+  } else {
+    const docs = b.documents;
+    table = `<table><thead><tr><th>${t('Date')}</th><th>${t('Document')}</th><th>${t('Customer')}</th>${rateHeaders(b.rates)}</tr></thead>
+      <tbody>${docs.slice(0, 1000).map(d => `<tr class="${d.kind === 'REFUND' ? 'ac-refund' : ''}"><td>${fmtDate(d.at)}</td>
+          <td class="td-m">${esc(d.number || '')}${d.kind === 'REFUND' ? ` <span class="kr-badge bad">${t('Refund')}</span> <small>${t('for invoice')} ${esc(d.forInvoice || '')}</small>` : ''}</td>
+          <td>${esc(d.customer || '')}</td>${rateCells(d.rates, d.base, d.vat, d.total)}</tr>`).join('')
+        || `<tr><td colspan="${6 + b.rates.length * 2}" class="no-data">${t('No sales in this month.')}</td></tr>`}</tbody></table>
+      ${docs.length > 1000 ? `<p class="input-hint">${t('The first {count} are shown; the Excel file has all of them.', { count: 1000 })}</p>` : ''}`;
+  }
+  $('ac-body').innerHTML = bookTotals(b) + `<section class="kr-card"><header class="ac-head"><div><h2>${t('Sales book')} · ${esc(monthName(accountingData.month))}</h2>
+      <p>${t('Receipts minus refunds, by VAT rate')}</p></div>${toggle}</header><div class="tbl-wrap ac-book">${table}</div></section>`;
+}
+
+function renderPurchaseBook() {
+  const b = accountingData.purchases;
+  $('ac-body').innerHTML = bookTotals(b) + `<section class="kr-card"><header><h2>${t('Purchase book')} · ${esc(monthName(accountingData.month))}</h2>
+      <p>${t('Purchase invoices by their date, by VAT rate')}</p></header>
+    <div class="tbl-wrap ac-book"><table><thead><tr><th>${t('Date')}</th><th>${t('Invoice')}</th><th>${t('Supplier')}</th><th>NIPT</th>${rateHeaders(b.rates)}</tr></thead>
+      <tbody>${b.invoices.length ? b.invoices.map(r => `<tr><td>${formatDay(r.date)}</td><td class="td-m">${esc(r.invoice)}</td><td>${esc(r.supplier || '')}</td>
+          <td class="td-m">${r.taxNumber ? esc(r.taxNumber) : `<span class="t-muted" title="${esc(t('Add the NIPT of the supplier in Suppliers'))}">-</span>`}</td>${rateCells(r.rates, r.base, r.vat, r.total)}</tr>`).join('')
+        : `<tr><td colspan="${7 + b.rates.length * 2}" class="no-data">${t('No purchase invoices in this month.')}</td></tr>`}</tbody>
+      <tfoot><tr><td>${t('Total')}</td><td class="num">${b.invoices.length}</td><td></td><td></td>${rateCells(b.totals, b.base, b.vat, b.total)}</tr></tfoot></table></div></section>`;
+}
+
+let accountingStockFilter = '';
+function renderStockValue() {
+  const s = accountingData.stockAtEnd;
+  const a = accountingData.stockAtStart;
+  const max = Math.max(1, ...s.categories.map(c => parseFloat(c.valueWithoutVat)));
+  const filter = accountingStockFilter.toLowerCase();
+  const products = s.products.filter(p => !filter || p.name.toLowerCase().includes(filter) || p.barcode.includes(filter))
+    .sort((x, y) => parseFloat(y.value) - parseFloat(x.value));
+  $('ac-body').innerHTML = `
+    <div class="jr-summary">
+      <div class="jr-card"><span>${t('Stock at the start')} · ${formatDay(a.at)}</span><strong>${fmtLek(a.valueWithoutVat)}</strong><small>${t('Without VAT')} · ${t('with VAT')} ${acNum(a.value)}</small></div>
+      <div class="jr-card info"><span>${t('Stock at the end')} · ${formatDay(s.at)}</span><strong>${fmtLek(s.valueWithoutVat)}</strong><small>${t('Without VAT')} · ${t('with VAT')} ${acNum(s.value)}</small></div>
+      <div class="jr-card"><span>${t('Products in stock')}</span><strong>${s.products.length}</strong><small>${t('{count} categories', { count: s.categories.length })}</small></div>
+    </div>
+    <div class="ex-grid">
+      <section class="kr-card"><header><h2>${t('By category')}</h2><p>${t('Without VAT')}</p></header>
+        <div class="ex-bars">${s.categories.map(c => `<div class="ex-bar"><div class="ex-bar-head"><span>${esc(c.category)}</span><strong>${fmtLek(c.valueWithoutVat)}</strong></div>
+          <div class="ex-bar-track ac-track"><div style="width:${(parseFloat(c.valueWithoutVat) / max * 100).toFixed(1)}%"></div></div>
+          <small>${t('{count} products', { count: c.products })}</small></div>`).join('') || `<p class="no-data">-</p>`}</div>
+      </section>
+      <section class="kr-card"><header class="ac-head"><div><h2>${t('Products')}</h2><p>${t('Stock at the end of the month at the cost of that day')}</p></div>
+          <input class="input ac-filter" placeholder="${esc(t('Search'))}" value="${esc(accountingStockFilter)}" oninput="accountingStockFilter = this.value; clearTimeout(window._acTmr); window._acTmr = setTimeout(() => { renderStockValue(); const i = document.querySelector('.ac-filter'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 250)" /></header>
+        ${krTable([t('Product'), t('Category'), t('Quantity'), t('Cost'), t('Value'), t('Without VAT')], products.slice(0, 300).map(p => [
+          `<a class="ac-link" onclick="openKartela(${p.id})">${esc(p.name)}</a><div class="wh-sub td-m">${esc(p.barcode)}</div>`, esc(p.category),
+          `${fmtQty(p.stock, p.unit)} ${esc(unitLabel(p.unit))}`, fmtLek(p.cost), fmtLek(p.value), fmtLek(p.valueWithoutVat)]), t('No products in stock.'))}
+        ${products.length > 300 ? `<p class="input-hint">${t('The first {count} are shown; the Excel file has all of them.', { count: 300 })}</p>` : ''}
+      </section>
+    </div>`;
 }

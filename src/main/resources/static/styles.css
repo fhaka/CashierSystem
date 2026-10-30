@@ -974,3 +974,42 @@ em.out, .jr-amount.out { color: #B91C1C; }
 .exc-row small { color: var(--muted); font-size: .72rem; white-space: nowrap; }
 .exc-row.off .input { color: var(--muted); text-decoration: line-through; }
 @media (max-width: 1000px) { .ex-grid { grid-template-columns: 1fr; } }
+
+/* Kontabiliteti */
+#view-accounting { flex-direction: column; overflow: hidden; }
+#ac-month { width: auto; }
+.ac-tabs { flex-wrap: wrap; }
+#ac-body { display: flex; flex-direction: column; gap: 16px; }
+.ac-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
+.ac-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.ac-table th { text-align: left; font-size: .68rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.ac-table td { padding: 7px 8px; border-bottom: 1px solid var(--s2); }
+.ac-table .num, .ac-book .num { text-align: right; font-family: var(--mono); white-space: nowrap; }
+.ac-table small { color: var(--muted); font-weight: 400; margin-left: 4px; }
+.ac-sub { padding-left: 18px; color: var(--muted); }
+.ac-sum td { font-weight: 700; background: var(--s1); }
+.ac-group td { font-weight: 600; }
+.ac-total td { font-weight: 800; font-size: 1rem; border-top: 2px solid var(--text); border-bottom: none; color: #047857; }
+.ac-total.neg td { color: var(--red); }
+.ac-change { font-size: .72rem; font-family: var(--mono); color: var(--muted); white-space: nowrap; }
+.ac-change.up { color: #047857; }
+.ac-change.down { color: var(--red); }
+.ac-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.ac-book { max-height: 560px; overflow: auto; }
+.ac-book table { font-size: .82rem; }
+.ac-book tfoot td { font-weight: 800; background: var(--s2); position: sticky; bottom: 0; }
+.ac-refund td { color: #B91C1C; }
+.ac-filter { width: 220px; }
+.ac-track div { background: linear-gradient(90deg, #60A5FA, #2563EB); }
+.ac-link { color: var(--amber); cursor: pointer; font-weight: 600; }
+.ac-link:hover { text-decoration: underline; }
+@media (max-width: 1100px) { .ac-grid { grid-template-columns: 1fr; } }
+@media print {
+  body.print-accounting .sidebar, body.print-accounting .page-head .actions, body.print-accounting .ac-tabs, body.print-accounting .ac-head .seg,
+  body.print-accounting .ac-filter, body.print-accounting .overlay, body.print-accounting .view:not(#view-accounting) { display: none !important; }
+  body.print-accounting, body.print-accounting #app-screen, body.print-accounting .main, body.print-accounting #view-accounting,
+  body.print-accounting .jr-page { display: block !important; overflow: visible !important; height: auto !important; background: #fff !important; }
+  body.print-accounting .ac-grid, body.print-accounting .ex-grid { display: block; }
+  body.print-accounting .kr-card, body.print-accounting .jr-card { break-inside: avoid; margin-bottom: 10px; }
+  body.print-accounting .ac-book, body.print-accounting .kr-table { max-height: none !important; overflow: visible !important; }
+}

@@ -160,6 +160,12 @@
         </svg>
         <span data-i18n>Reports</span>
       </button>
+      <button class="nav-btn manager-only" data-v="accounting" onclick="gotoView('accounting')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="8" y2="10.01"/><line x1="12" y1="10" x2="12" y2="10.01"/><line x1="16" y1="10" x2="16" y2="10.01"/><line x1="8" y1="14" x2="8" y2="14.01"/><line x1="12" y1="14" x2="12" y2="14.01"/><line x1="16" y1="14" x2="16" y2="18"/><line x1="8" y1="18" x2="12" y2="18"/>
+        </svg>
+        <span data-i18n>Accounting</span>
+      </button>
       <button class="nav-btn super-admin-only" data-v="users" onclick="gotoView('users')">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
@@ -549,6 +555,29 @@
             <div id="ex-table"></div>
           </section>
         </div>
+      </div>
+    </div>
+
+    <div id="view-accounting" class="view">
+      <div class="page-head" style="flex-shrink:0;">
+        <div>
+          <div class="page-title" data-i18n>Accounting</div>
+          <div class="page-sub" id="ac-sub" data-i18n>Profit and loss, sales and purchase books and stock value of a month, for the accountant</div>
+        </div>
+        <div class="actions reports-actions">
+          <input class="input" id="ac-month" type="month" onchange="loadAccounting()" />
+          <button class="btn btn-secondary" onclick="printAccounting()" data-i18n>Print</button>
+          <button class="btn btn-primary" onclick="exportAccounting()" data-i18n>Excel for the accountant</button>
+        </div>
+      </div>
+      <div class="jr-page" id="ac-page">
+        <div class="seg ac-tabs">
+          <button class="btn btn-secondary btn-sm on" data-tab="pl" onclick="showAccountingTab('pl')" data-i18n>Profit and loss</button>
+          <button class="btn btn-secondary btn-sm" data-tab="sales" onclick="showAccountingTab('sales')" data-i18n>Sales book</button>
+          <button class="btn btn-secondary btn-sm" data-tab="purchases" onclick="showAccountingTab('purchases')" data-i18n>Purchase book</button>
+          <button class="btn btn-secondary btn-sm" data-tab="stock" onclick="showAccountingTab('stock')" data-i18n>Stock value</button>
+        </div>
+        <div id="ac-body"></div>
       </div>
     </div>
 

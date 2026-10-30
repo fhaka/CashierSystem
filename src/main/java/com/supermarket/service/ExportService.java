@@ -106,6 +106,24 @@ public class ExportService {
         }
     }
 
+    /** One sheet of a workbook: its name, header and rows. */
+    public record SheetData(String name, List<String> header, List<Object[]> rows) {
+    }
+
+    /** Several tables in one workbook, one per sheet. */
+    public byte[] sheetsXlsx(List<SheetData> sheets) {
+        try (Workbook book = new XSSFWorkbook()) {
+            Styles styles = new Styles(book);
+            for (SheetData sheet : sheets) {
+                String name = sheet.name().length() > 31 ? sheet.name().substring(0, 31) : sheet.name();
+                table(book.createSheet(name), styles, sheet.header(), sheet.rows());
+            }
+            return bytes(book);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Could not create the Excel file", exception);
+        }
+    }
+
     public byte[] salesXlsx(List<SalesPage.Row> sales, LocalDate from, LocalDate to) {
         try (Workbook book = new XSSFWorkbook()) {
             Styles styles = new Styles(book);

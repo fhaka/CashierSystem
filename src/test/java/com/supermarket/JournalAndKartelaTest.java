@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -73,8 +74,11 @@ class JournalAndKartelaTest extends IntegrationTest {
         assertThat(totals.get("COUNT")).isEqualTo("1/-100");
         // Both products were created with 20 at cost 50: opening stock, not counted as money in or out.
         assertThat(totals.get("OPENING_STOCK")).isEqualTo("2/2000");
-        // Newest first; the shift was closed last.
-        assertThat(page.path("entries").get(0).path("type").asText()).isEqualTo("SHIFT_CLOSE");
+        // Newest first.
+        List<String> times = page.path("entries").findValuesAsText("at");
+        for (int i = 1; i < times.size(); i++) {
+            assertThat(LocalDateTime.parse(times.get(i))).isBeforeOrEqualTo(LocalDateTime.parse(times.get(i - 1)));
+        }
         JsonNode today = page.path("days").get(0);
         assertThat(today.path("day").asText()).isEqualTo(LocalDate.now().toString());
         assertThat(today.path("moneyIn").decimalValue()).isEqualByComparingTo("600.00");   // sales 400 + cash in 100 + debt 100

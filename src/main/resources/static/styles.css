@@ -1086,3 +1086,12 @@ em.out, .jr-amount.out { color: #B91C1C; }
   body.print-order #order-print { display: block; }
 }
 @media (max-width: 760px) { .ord-card { grid-template-columns: 1fr; } .ord-card-actions { justify-content: flex-start; } }
+.jt-SUPPLIER_RETURN { --c: #EA580C; }
+.ret-kinds { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 4px 0 12px; }
+.ret-kind { text-align: left; padding: 12px 14px; border-radius: var(--rl); border: 2px solid var(--border); background: var(--bg); cursor: pointer;
+  font-family: var(--sans); display: flex; flex-direction: column; gap: 4px; color: var(--text); }
+.ret-kind small { color: var(--muted); font-size: .76rem; }
+.ret-kind.on { border-color: var(--amber); background: var(--amber-lo); }
+.ret-kind:disabled { cursor: default; opacity: .8; }
+.sd-returns { margin-top: 16px; }
+@media (max-width: 760px) { .ret-kinds { grid-template-columns: 1fr; } }

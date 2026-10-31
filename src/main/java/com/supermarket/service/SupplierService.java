@@ -12,6 +12,7 @@ import com.supermarket.model.SupplierPayment;
 import com.supermarket.repository.PurchaseInvoiceRepository;
 import com.supermarket.repository.SupplierPaymentRepository;
 import com.supermarket.repository.SupplierRepository;
+import com.supermarket.repository.SupplierReturnRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,8 +34,12 @@ public class SupplierService {
     private final PurchaseInvoiceRepository invoiceRepository;
     private final AuditService auditService;
 
+    private final SupplierReturnRepository returnRepository;
+
     public SupplierService(SupplierRepository supplierRepository, SupplierPaymentRepository paymentRepository,
-                           PurchaseInvoiceRepository invoiceRepository, AuditService auditService) {
+                           PurchaseInvoiceRepository invoiceRepository, AuditService auditService,
+                           SupplierReturnRepository returnRepository) {
+        this.returnRepository = returnRepository;
         this.supplierRepository = supplierRepository;
         this.paymentRepository = paymentRepository;
         this.invoiceRepository = invoiceRepository;
@@ -51,7 +56,8 @@ public class SupplierService {
         Supplier supplier = find(id);
         return new SupplierDetail(summary(supplier),
                 invoiceRepository.findForSupplier(id).stream().map(InvoiceLine::of).toList(),
-                paymentRepository.findForSupplier(id));
+                paymentRepository.findForSupplier(id),
+                returnRepository.findForSupplier(id).stream().map(SupplierReturnService::row).toList());
     }
 
     @Transactional
@@ -113,7 +119,7 @@ public class SupplierService {
 
     private SupplierSummary summary(Supplier supplier) {
         return SupplierSummary.of(supplier, invoiceRepository.sumForSupplier(supplier.getId()),
-                paymentRepository.sumForSupplier(supplier.getId()));
+                paymentRepository.sumForSupplier(supplier.getId()), returnRepository.sumCreditForSupplier(supplier.getId()));
     }
 
     private Supplier find(Long id) {

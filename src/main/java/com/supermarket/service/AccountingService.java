@@ -115,7 +115,9 @@ public class AccountingService {
         for (Object[] r : entityManager.createQuery("""
                         select a.reason, a.inventoryCountId, a.quantityChange, coalesce(a.unitCost, p.purchasePrice), p.taxRate
                         from StockAdjustment a join a.product p where a.createdAt >= :from and a.createdAt <= :to
-                          and a.reason <> com.supermarket.model.StockAdjustment.Reason.OPENING_STOCK""", Object[].class)
+                          and a.reason not in (com.supermarket.model.StockAdjustment.Reason.OPENING_STOCK,
+                                               com.supermarket.model.StockAdjustment.Reason.SUPPLIER_RETURN,
+                                               com.supermarket.model.StockAdjustment.Reason.REPLACEMENT)""", Object[].class)
                 .setParameter("from", from.atStartOfDay()).setParameter("to", to.atTime(LocalTime.MAX)).getResultList()) {
             StockAdjustment.Reason reason = (StockAdjustment.Reason) r[0];
             String key = r[1] != null || reason == StockAdjustment.Reason.COUNT_CORRECTION ? "COUNT" : reason.name();
@@ -235,8 +237,35 @@ public class AccountingService {
         heads.forEach((id, r) -> {
             RateAcc a = amounts.get(id);
             totals.addAll(a);
-            rows.add(new PurchaseRow(id, (LocalDate) r[1], (String) r[2], (String) r[3], (String) r[4], a.list(rates), a.base(), a.vat(), a.total()));
+            rows.add(new PurchaseRow(id, "INVOICE", (LocalDate) r[1], (String) r[2], (String) r[3], (String) r[4], a.list(rates), a.base(), a.vat(), a.total()));
         });
+        // Goods returned for credit lower the purchases of the month they were returned in.
+        Map<Long, Object[]> credits = new LinkedHashMap<>();
+        Map<Long, RateAcc> creditAmounts = new HashMap<>();
+        for (Object[] r : entityManager.createQuery("""
+                        select sr.id, sr.createdAt, sr.number, s.name, s.taxNumber, l.taxRate, sum(l.lineTotal)
+                        from SupplierReturnLine l join l.supplierReturn sr join sr.supplier s
+                        where sr.kind = com.supermarket.model.SupplierReturn.Kind.CREDIT and sr.createdAt >= :from and sr.createdAt <= :to
+                        group by sr.id, sr.createdAt, sr.number, s.name, s.taxNumber, l.taxRate
+                        order by sr.createdAt, sr.id""", Object[].class)
+                .setParameter("from", month.atDay(1).atStartOfDay()).setParameter("to", month.atEndOfMonth().atTime(LocalTime.MAX))
+                .getResultList()) {
+            Long id = (Long) r[0];
+            credits.putIfAbsent(id, r);
+            BigDecimal rate = rate((BigDecimal) r[5]);
+            rates.add(rate);
+            BigDecimal amount = (BigDecimal) r[6];
+            BigDecimal base = costIncludesVat ? withoutVat(amount, rate) : amount;
+            BigDecimal total = costIncludesVat ? amount : money(amount.multiply(HUNDRED.add(rate)).divide(HUNDRED, 4, RoundingMode.HALF_UP));
+            creditAmounts.computeIfAbsent(id, x -> new RateAcc()).add(rate, total.negate(), total.subtract(base).negate());
+        }
+        credits.forEach((id, r) -> {
+            RateAcc a = creditAmounts.get(id);
+            totals.addAll(a);
+            rows.add(new PurchaseRow(id, "CREDIT", ((LocalDateTime) r[1]).toLocalDate(), (String) r[2], (String) r[3], (String) r[4],
+                    a.list(rates), a.base(), a.vat(), a.total()));
+        });
+        rows.sort(Comparator.comparing(PurchaseRow::date));
         return new PurchaseBook(month.atDay(1), month.atEndOfMonth(), new ArrayList<>(rates), rows, totals.list(rates),
                 totals.base(), totals.vat(), totals.total());
     }

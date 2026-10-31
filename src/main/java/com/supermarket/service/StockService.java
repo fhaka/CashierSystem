@@ -37,8 +37,11 @@ public class StockService {
     private final PurchaseItemRepository purchaseItemRepository;
     private final AuditService auditService;
 
+    private final PurchaseOrderService orderService;
+
     public StockService(ProductRepository productRepository, StockAdjustmentRepository adjustmentRepository,
-                        PurchaseItemRepository purchaseItemRepository, AuditService auditService) {
+                        PurchaseItemRepository purchaseItemRepository, AuditService auditService, PurchaseOrderService orderService) {
+        this.orderService = orderService;
         this.productRepository = productRepository;
         this.adjustmentRepository = adjustmentRepository;
         this.purchaseItemRepository = purchaseItemRepository;
@@ -135,6 +138,7 @@ public class StockService {
                 lastDelivery.putIfAbsent(item.getProduct().getId(), item);
             }
         }
+        Map<Long, BigDecimal> onOrder = orderService.onOrder();
         Map<Long, List<ReorderLine>> bySupplier = new LinkedHashMap<>();
         Map<Long, String> supplierNames = new LinkedHashMap<>();
         for (Product product : low) {
@@ -142,11 +146,12 @@ public class StockService {
             Supplier supplier = last == null ? null : last.getInvoice().getSupplier();
             Long key = supplier == null ? null : supplier.getId();
             supplierNames.put(key, supplier == null ? null : supplier.getName());
-            BigDecimal suggested = suggestedQuantity(product);
+            BigDecimal ordered = onOrder.getOrDefault(product.getId(), BigDecimal.ZERO);
+            BigDecimal suggested = suggestedQuantity(product).subtract(ordered).max(BigDecimal.ZERO);
             BigDecimal cost = last == null ? product.getPurchasePrice() : last.getPurchasePrice();
             bySupplier.computeIfAbsent(key, k -> new ArrayList<>()).add(new ReorderLine(product.getId(), product.getName(),
                     product.getBarcode(), product.getUnit(), product.getStock(), product.getMinStock(), suggested, cost,
-                    cost.multiply(suggested).setScale(2, RoundingMode.HALF_UP)));
+                    cost.multiply(suggested).setScale(2, RoundingMode.HALF_UP), ordered.stripTrailingZeros()));
         }
         List<ReorderGroup> groups = new ArrayList<>();
         bySupplier.forEach((supplierId, lines) -> groups.add(new ReorderGroup(supplierId, supplierNames.get(supplierId), lines,

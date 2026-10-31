@@ -38,7 +38,8 @@ class WarehouseTest extends IntegrationTest {
         String admin = registerSuperAdmin();
         long water = createProduct(admin, "950000000001", "100.00", 30);
         long cheese = data(postJson("/products", admin, Map.of("name", "Djathë", "barcode", "950000000002", "price", "900",
-                "purchasePrice", "500", "taxRate", "20", "stock", "3.5", "unit", "kg", "categoryId", 7))).path("id").asLong();
+                "purchasePrice", "500", "taxRate", "20", "unit", "kg", "categoryId", 7))).path("id").asLong();
+        giveStock(cheese, "3.5");
 
         box(admin, water, "950000000011", 10, "900.00");
         // One code, one thing: neither another box nor a product may use it, and a box cannot take a product's code.
@@ -47,7 +48,7 @@ class WarehouseTest extends IntegrationTest {
         postJson("/warehouse/products/" + water + "/packages", admin, Map.of("barcode", "950000000002", "name", "X", "pieces", 6))
                 .andExpect(jsonPath("$.code").value("product.barcodeExists"));
         postJson("/products", admin, Map.of("name", "Tjetër", "barcode", "950000000011", "price", "1", "purchasePrice", "1",
-                "taxRate", "20", "stock", "0", "unit", "pcs", "categoryId", 7)).andExpect(jsonPath("$.code").value("product.barcodeIsPackage"));
+                "taxRate", "20", "unit", "pcs", "categoryId", 7)).andExpect(jsonPath("$.code").value("product.barcodeIsPackage"));
         postJson("/warehouse/products/" + cheese + "/packages", admin, Map.of("barcode", "950000000012", "name", "X", "pieces", 6))
                 .andExpect(jsonPath("$.code").value("package.onlyPieces"));
         postJson("/warehouse/products/" + water + "/packages", admin, Map.of("barcode", "950000000013", "name", "X", "pieces", 1))
@@ -168,7 +169,7 @@ class WarehouseTest extends IntegrationTest {
     void shelfLabelsShowThePricePerLitreAndPerPieceOfABox() throws Exception {
         String admin = registerSuperAdmin();
         long water = data(postJson("/products", admin, Map.of("name", "Ujë 0.5 l", "barcode", "5901234123457", "price", "60",
-                "purchasePrice", "30", "taxRate", "20", "stock", "50", "unit", "pcs", "categoryId", 7,
+                "purchasePrice", "30", "taxRate", "20", "unit", "pcs", "categoryId", 7,
                 "contentAmount", "500", "contentUnit", "ml"))).path("id").asLong();
         long six = box(admin, water, "950000000061", 6, "300.00");
 
@@ -181,7 +182,7 @@ class WarehouseTest extends IntegrationTest {
         assertThat(labels.get(1).path("barcode").asText()).isEqualTo("950000000061");
 
         postJson("/products", admin, Map.of("name", "X", "barcode", "950000000062", "price", "1", "purchasePrice", "1", "taxRate", "20",
-                "stock", "0", "unit", "pcs", "categoryId", 7, "contentAmount", "1", "contentUnit", "cup"))
+                "unit", "pcs", "categoryId", 7, "contentAmount", "1", "contentUnit", "cup"))
                 .andExpect(jsonPath("$.code").value("product.invalidContent"));
     }
 }

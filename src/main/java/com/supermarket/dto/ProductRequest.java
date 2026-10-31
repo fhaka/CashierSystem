@@ -9,7 +9,6 @@ public class ProductRequest {
     private BigDecimal price;
     private BigDecimal purchasePrice;
     private BigDecimal taxRate;
-    private BigDecimal stock;
     private String unit;
     private Long categoryId;
     private String categoryName;
@@ -58,13 +57,7 @@ public class ProductRequest {
         this.taxRate = taxRate;
     }
 
-    public BigDecimal getStock() {
-        return stock;
-    }
 
-    public void setStock(BigDecimal stock) {
-        this.stock = stock;
-    }
 
     public String getUnit() {
         return unit;

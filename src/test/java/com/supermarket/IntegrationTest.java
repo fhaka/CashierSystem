@@ -14,7 +14,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -119,11 +122,28 @@ public abstract class IntegrationTest {
                 "price", price,
                 "purchasePrice", "50.00",
                 "taxRate", "20",
-                "stock", stock,
                 "unit", "pcs",
                 "categoryId", 7
         )).andExpect(status().isOk());
-        return data(result).path("id").asLong();
+        long id = data(result).path("id").asLong();
+        giveStock(id, stock);
+        return id;
+    }
+
+    /**
+     * Goods that were on the shelf before the program knew them (Gjendja fillestare). The program creates products
+     * without stock; the tests use this to start from goods on the shelf.
+     */
+    protected void giveStock(long productId, Object quantity) {
+        BigDecimal change = new BigDecimal(String.valueOf(quantity));
+        if (change.signum() <= 0) {
+            return;
+        }
+        jdbc.update("UPDATE products SET stock = stock + ? WHERE id = ?", change, productId);
+        jdbc.update("""
+                INSERT INTO stock_adjustments (product_id, cashier_id, created_at, quantity_change, stock_after, reason, unit_cost)
+                SELECT id, (SELECT MIN(id) FROM cashiers), ?, ?, stock, 'OPENING_STOCK', purchase_price FROM products WHERE id = ?""",
+                Timestamp.valueOf(LocalDateTime.now()), change, productId);
     }
 
     protected long openShift(String token, String openingCash) throws Exception {

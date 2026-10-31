@@ -26,7 +26,8 @@ class SupplierReturnsTest extends IntegrationTest {
     /** 10 on the shelf at 60, then 10 bought from Lufra at 72 (with 20% VAT). */
     private long[] setUp(String admin) throws Exception {
         long p = data(postJson("/products", admin, Map.of("name", "Kos Lufra", "barcode", "991000000001", "price", "100.00",
-                "purchasePrice", "60.00", "taxRate", "20", "stock", 10, "unit", "pcs", "categoryId", 7))).path("id").asLong();
+                "purchasePrice", "60.00", "taxRate", "20", "unit", "pcs", "categoryId", 7))).path("id").asLong();
+        giveStock(p, 10);
         postJson("/purchases", admin, Map.of("invoiceNumber", "F-300", "company", "Lufra", "invoiceDate", LocalDate.now().toString(),
                 "items", List.of(Map.of("productId", p, "quantity", 10, "purchasePrice", "72.00", "sellingPrice", "100.00",
                         "taxRate", "20", "unit", "pcs")))).andExpect(status().isOk());

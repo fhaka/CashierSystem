@@ -19,8 +19,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AccountingTest extends IntegrationTest {
 
     private long product(String token, String barcode, String price, String cost, String vat, int stock) throws Exception {
-        return data(postJson("/products", token, Map.of("name", "Artikull " + barcode, "barcode", barcode, "price", price,
-                "purchasePrice", cost, "taxRate", vat, "stock", stock, "unit", "pcs", "categoryId", 7))).path("id").asLong();
+        long id = data(postJson("/products", token, Map.of("name", "Artikull " + barcode, "barcode", barcode, "price", price,
+                "purchasePrice", cost, "taxRate", vat, "unit", "pcs", "categoryId", 7))).path("id").asLong();
+        giveStock(id, stock);
+        return id;
     }
 
     private static JsonNode rate(JsonNode rates, String rate) {

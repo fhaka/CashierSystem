@@ -20,10 +20,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class SellingTest extends IntegrationTest {
 
     private long createProduct(String token, String barcode, String price, String stock, String unit, String taxRate) throws Exception {
-        return data(postJson("/products", token, Map.of(
+        long id = data(postJson("/products", token, Map.of(
                 "name", "Produkt " + barcode, "barcode", barcode, "price", price, "purchasePrice", "1.00",
-                "taxRate", taxRate, "stock", stock, "unit", unit, "categoryId", 7
+                "taxRate", taxRate, "unit", unit, "categoryId", 7
         )).andExpect(status().isOk())).path("id").asLong();
+        giveStock(id, stock);
+        return id;
     }
 
     private BigDecimal stock(long productId) {
@@ -57,8 +59,6 @@ class SellingTest extends IntegrationTest {
                 .andExpect(jsonPath("$.message").value("Produktet me copë shiten vetëm me numra të plotë"));
         postJson("/sales/cart", admin, Map.of("productId", cheese, "quantity", "0.3505"))
                 .andExpect(status().isBadRequest());
-        postJson("/products", admin, Map.of("name", "X", "barcode", "400000000004", "price", "1", "purchasePrice", "1",
-                "taxRate", "20", "stock", "2.5", "unit", "pcs")).andExpect(status().isBadRequest());
     }
 
     @Test
@@ -227,7 +227,7 @@ class SellingTest extends IntegrationTest {
                 .andExpect(jsonPath("$.message").value("Produkti \"Produkt 400000000015\" nuk shitet më (është çaktivizuar)"));
         getJson("/products/in-stock", admin).andExpect(jsonPath("$.data").isEmpty());
         postJson("/products", admin, Map.of("name", "New", "barcode", "400000000015", "price", "1", "purchasePrice", "1",
-                "taxRate", "20", "stock", "1", "unit", "pcs")).andExpect(status().isBadRequest());
+                "taxRate", "20", "unit", "pcs")).andExpect(status().isBadRequest());
 
         postJson("/products/" + product + "/activate", admin, null).andExpect(status().isOk());
         postJson("/sales/cart", admin, Map.of("productId", product, "quantity", 1)).andExpect(status().isOk());

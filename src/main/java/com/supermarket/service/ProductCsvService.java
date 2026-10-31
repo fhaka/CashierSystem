@@ -40,15 +40,13 @@ public class ProductCsvService {
     private final ProductService productService;
     private final AuditService auditService;
     private final MessageSource messageSource;
-    private final StockService stockService;
 
     public ProductCsvService(ProductRepository productRepository, ProductService productService, AuditService auditService,
-                             MessageSource messageSource, StockService stockService) {
+                             MessageSource messageSource) {
         this.productRepository = productRepository;
         this.productService = productService;
         this.auditService = auditService;
         this.messageSource = messageSource;
-        this.stockService = stockService;
     }
 
     public String export() {
@@ -94,9 +92,8 @@ public class ProductCsvService {
                 Optional<Product> existing = productRepository.findByBarcode(barcode);
                 ProductRequest request = toRequest(cells, index, existing.orElse(null), separator);
                 if (existing.isPresent()) {
+                    // The stock column is only information: stock changes with invoices, sales and stock counts.
                     productService.update(existing.get().getId(), request, actor, PriceChange.Source.IMPORT);
-                    // A different stock in the file counts as a stock count, kept in the product's stock history.
-                    stockService.correctTo(existing.get().getId(), request.getStock(), "CSV import", actor);
                     updated++;
                 } else {
                     productService.create(request, actor);
@@ -124,7 +121,6 @@ public class ProductCsvService {
         request.setPurchasePrice(number(cells, index, "purchase_price", separator, current == null ? BigDecimal.ZERO : current.getPurchasePrice()));
         request.setPrice(number(cells, index, "price", separator, current == null ? null : current.getPrice()));
         request.setTaxRate(number(cells, index, "tax_rate", separator, current == null ? BigDecimal.valueOf(20) : current.getTaxRate()));
-        request.setStock(number(cells, index, "stock", separator, current == null ? BigDecimal.ZERO : current.getStock()));
         request.setMinStock(number(cells, index, "min_stock", separator, current == null ? null : current.getMinStock()));
         request.setReorderQuantity(number(cells, index, "reorder_quantity", separator, current == null ? null : current.getReorderQuantity()));
         return request;

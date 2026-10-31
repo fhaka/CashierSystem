@@ -37,12 +37,8 @@ public class ProductService {
 
     private static final Set<String> CONTENT_UNITS = Set.of("g", "kg", "ml", "l");
 
-    private final StockService stockService;
-
     public ProductService(ProductRepository productRepository, CategoryRepository categoryRepository, AuditService auditService,
-                          ProductPackageRepository packageRepository, PriceHistoryService priceHistoryService,
-                          StockService stockService) {
-        this.stockService = stockService;
+                          ProductPackageRepository packageRepository, PriceHistoryService priceHistoryService) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.auditService = auditService;
@@ -108,16 +104,14 @@ public class ProductService {
         requireFreeBarcode(request.getBarcode().trim(), null);
         Category category = resolveCategory(request);
         String unit = normalizeUnit(request.getUnit());
-        BigDecimal openingStock = Quantities.requireStock(request.getStock(), unit);
         Product product = new Product(request.getName().trim(), request.getBarcode().trim(), request.getPrice(), request.getPurchasePrice(),
                 request.getTaxRate(), BigDecimal.ZERO, unit, category);
         applyReorderSettings(product, request, unit);
         applyContent(product, request);
         Product saved = productRepository.save(product);
         priceHistoryService.record(saved.getId(), null, PriceChange.Source.EDIT, actor, null, saved.getPrice(), null, saved.getPurchasePrice());
-        stockService.openingStock(saved, openingStock, actor);
-        auditService.record(actor, "PRODUCT_CREATED", "PRODUCT", saved.getId(),
-                saved.getName() + ", price " + saved.getPrice() + ", stock " + saved.getStock().stripTrailingZeros().toPlainString());
+        // A new product has no stock: its goods come in with the supplier's purchase invoice.
+        auditService.record(actor, "PRODUCT_CREATED", "PRODUCT", saved.getId(), saved.getName() + ", price " + saved.getPrice());
         return saved;
     }
 

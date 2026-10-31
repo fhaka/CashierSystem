@@ -14,9 +14,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PurchaseOrdersTest extends IntegrationTest {
 
     private long product(String token, String barcode, int stock, String minStock) throws Exception {
-        return data(postJson("/products", token, Map.of("name", "Artikull " + barcode, "barcode", barcode, "price", "100.00",
-                "purchasePrice", "60.00", "taxRate", "20", "stock", stock, "unit", "pcs", "categoryId", 7, "minStock", minStock)))
-                .path("id").asLong();
+        long id = data(postJson("/products", token, Map.of("name", "Artikull " + barcode, "barcode", barcode, "price", "100.00",
+                "purchasePrice", "60.00", "taxRate", "20", "unit", "pcs", "categoryId", 7, "minStock", minStock))).path("id").asLong();
+        giveStock(id, stock);
+        return id;
     }
 
     private static Map<String, Object> line(long productId, Object packageId, String quantity, String price) {

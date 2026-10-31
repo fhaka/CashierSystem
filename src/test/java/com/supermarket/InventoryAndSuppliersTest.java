@@ -22,11 +22,13 @@ class InventoryAndSuppliersTest extends IntegrationTest {
 
     private long product(String token, String barcode, String price, String stock, String unit, String minStock) throws Exception {
         Map<String, Object> body = new HashMap<>(Map.of("name", "Produkt " + barcode, "barcode", barcode, "price", price,
-                "purchasePrice", "1.00", "taxRate", "20", "stock", stock, "unit", unit, "categoryId", 7));
+                "purchasePrice", "1.00", "taxRate", "20", "unit", unit, "categoryId", 7));
         if (minStock != null) {
             body.put("minStock", minStock);
         }
-        return data(postJson("/products", token, body).andExpect(status().isOk())).path("id").asLong();
+        long id = data(postJson("/products", token, body).andExpect(status().isOk())).path("id").asLong();
+        giveStock(id, stock);
+        return id;
     }
 
     private void purchase(String token, String number, String company, LocalDate date, long productId, String quantity,
@@ -219,7 +221,9 @@ class InventoryAndSuppliersTest extends IntegrationTest {
         assertThat(jdbc.queryForObject("SELECT price FROM products WHERE barcode = '700000000011'", BigDecimal.class)).isEqualByComparingTo("120.50");
         assertThat(jdbc.queryForObject("SELECT min_stock FROM products WHERE barcode = '700000000011'", BigDecimal.class)).isEqualByComparingTo("4");
         assertThat(jdbc.queryForObject("SELECT name FROM products WHERE barcode = '700000000012'", String.class)).isEqualTo("Djathë; i bardhë");
-        assertThat(stock(jdbc.queryForObject("SELECT id FROM products WHERE barcode = '700000000012'", Long.class))).isEqualByComparingTo("12.5");
+        // The stock column is only information: a new product starts at 0, its goods come with the invoice.
+        assertThat(stock(jdbc.queryForObject("SELECT id FROM products WHERE barcode = '700000000012'", Long.class))).isEqualByComparingTo("0");
+        assertThat(stock(jdbc.queryForObject("SELECT id FROM products WHERE barcode = '700000000011'", Long.class))).isEqualByComparingTo("5");
     }
 
     @Test
@@ -232,7 +236,7 @@ class InventoryAndSuppliersTest extends IntegrationTest {
         postJson("/sales/checkout", admin, null).andExpect(status().isOk());
 
         putJson("/products/" + p, admin, Map.of("name", "Emër i ri", "barcode", "700000000021", "price", "120.00",
-                "purchasePrice", "1.00", "taxRate", "20", "stock", "10", "unit", "pcs", "categoryId", 7))
+                "purchasePrice", "1.00", "taxRate", "20", "unit", "pcs", "categoryId", 7))
                 .andExpect(status().isOk());
         assertThat(stock(p)).isEqualByComparingTo("8");
         assertThat(jdbc.queryForObject("SELECT price FROM products WHERE id = ?", BigDecimal.class, p)).isEqualByComparingTo("120.00");
@@ -280,22 +284,21 @@ class InventoryAndSuppliersTest extends IntegrationTest {
     }
 
     @Test
-    void aDifferentStockInAnImportedFileIsRecordedAsAStockCount() throws Exception {
+    void productsAreCreatedWithoutStockAndAnImportNeverChangesIt() throws Exception {
         String admin = registerSuperAdmin();
-        long p = product(admin, "700000000024", "100.00", "5", "pcs", null);
-        String upload = "barcode;name;price;stock\n700000000024;Produkt;100;7\n";
+        // A quantity sent with a new product is ignored: the goods come in with the supplier's invoice.
+        long p = data(postJson("/products", admin, Map.of("name", "Lëng", "barcode", "700000000024", "price", "100.00",
+                "purchasePrice", "60.00", "taxRate", "20", "stock", 20, "unit", "pcs", "categoryId", 7))).path("id").asLong();
+        assertThat(stock(p)).isEqualByComparingTo("0");
+        purchase(admin, "F-24", "Furnitori", LocalDate.now(), p, "20", "60.00", null);
+        assertThat(stock(p)).isEqualByComparingTo("20");
+
+        String upload = "barcode;name;price;stock\n700000000024;Lëng;110;7\n";
         mvc.perform(post("/products/import").header("X-Auth-Token", admin)
                 .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8)).content(upload.getBytes(StandardCharsets.UTF_8)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.updated").value(1));
-        assertThat(stock(p)).isEqualByComparingTo("7");
-        assertThat(jdbc.queryForObject("SELECT quantity_change FROM stock_adjustments WHERE product_id = ? AND reason = 'COUNT_CORRECTION'",
-                BigDecimal.class, p)).isEqualByComparingTo("2");
-
-        // The same file again changes nothing and records nothing.
-        mvc.perform(post("/products/import").header("X-Auth-Token", admin)
-                .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8)).content(upload.getBytes(StandardCharsets.UTF_8)))
-                .andExpect(status().isOk());
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM stock_adjustments WHERE product_id = ? AND reason <> 'OPENING_STOCK'",
-                Integer.class, p)).isEqualTo(1);
+        assertThat(stock(p)).isEqualByComparingTo("20");
+        assertThat(jdbc.queryForObject("SELECT price FROM products WHERE id = ?", BigDecimal.class, p)).isEqualByComparingTo("110");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM stock_adjustments WHERE product_id = ?", Integer.class, p)).isZero();
     }
 }

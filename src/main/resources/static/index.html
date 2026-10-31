@@ -477,20 +477,19 @@
             <div class="balance-line"><span data-i18n>Items</span><strong id="purchase-items-count">0</strong></div>
             <div class="balance-line"><span data-i18n>Total</span><strong id="purchase-total">0.00 LEK</strong></div>
           </div>
-          <div class="invoice-panel">
-            <div class="invoice-panel-title" data-i18n>Scan Product</div>
-            <div class="search-wrap">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-              <input class="input" id="purchase-scan" data-i18n-placeholder placeholder="Scan barcode, then press Enter..." onkeydown="handlePurchaseScanKey(event)" />
-            </div>
-            <div class="purchase-scan-actions">
-              <button class="btn btn-primary btn-sm" onclick="scanPurchaseField()" data-i18n>Add Barcode</button>
-              <button class="btn btn-secondary btn-sm" onclick="openProdModal(null, $('purchase-scan')?.value.trim())" data-i18n>Register Product</button>
-              <button class="btn btn-secondary btn-sm" onclick="clearPurchaseInvoice()" data-i18n>Clear Form</button>
-            </div>
+        </div>
+
+        <!-- Like the till: one wide bar for the scanner or a product name; Enter adds the product. -->
+        <div class="pos-toolbar">
+          <div class="search-wrap">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input class="input" id="purchase-scan" autocomplete="off" data-i18n-placeholder placeholder="Scan a barcode or type a product name" oninput="onPurchaseSearch(this.value)" onkeydown="handlePurchaseScanKey(event)" onblur="setTimeout(hidePurchaseResults, 150)" />
+            <div class="search-results hidden" id="purchase-results"></div>
           </div>
+          <button class="btn btn-secondary btn-sm" onclick="openProdModal(null, $('purchase-scan')?.value.trim(), true)" data-i18n>Register Product</button>
+          <button class="btn btn-secondary btn-sm" onclick="clearPurchaseInvoice()" data-i18n>Clear Form</button>
         </div>
 
         <div class="invoice-table-wrap purchase-table-wrap">

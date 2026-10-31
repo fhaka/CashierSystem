@@ -1441,6 +1441,7 @@ let kartelaId = null;
 let kartelaPeriod = 90;
 let kartelaAnalysis = null;
 let kartelaMoves = [];
+let kartelaTab = 'kr-sales';
 
 /* Magazina rows, boxes and labels open the Kartela. */
 function openProductCard(productId) {
@@ -1602,8 +1603,11 @@ function setKartelaPeriod(days) {
   loadKartela(kartelaId, true);
 }
 
-function scrollKartela(id) {
-  $(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+/* One part of the Kartela at a time, like a page of its own; the tab stays when another product is opened. */
+function showKartelaTab(id) {
+  kartelaTab = id;
+  document.querySelectorAll('#kr-page .tab-nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === id));
+  document.querySelectorAll('#kr-page .kr-grid > section').forEach(sec => sec.classList.toggle('hidden', (sec.dataset.kr || sec.id) !== id));
 }
 
 function cardBoxPrice(box) {
@@ -1659,8 +1663,6 @@ function renderKartela() {
       </div>
     </section>
 
-    <nav class="kr-nav">${KARTELA_SECTIONS.map(([id, label]) => `<button onclick="scrollKartela('${id}')">${t(label)}</button>`).join('')}</nav>
-
     <section class="kr-kpis">
       ${kpi(t('Stock'), `${fmtQty(p.stock, p.unit)} ${esc(unitLabel(p.unit))}`,
         biggest && stock >= biggest.pieces ? esc('= ' + t('{count} x {box}', { count: Math.floor(stock / biggest.pieces), box: biggest.name })) : '',
@@ -1681,6 +1683,8 @@ function renderKartela() {
       <div class="seg">${[30, 90, 365].map(d => `<button class="btn btn-secondary btn-sm ${d === a.days ? 'on' : ''}" onclick="setKartelaPeriod(${d})">${t('{days} days', { days: d })}</button>`).join('')}</div>
     </div>
 
+    <nav class="tab-nav">${KARTELA_SECTIONS.map(([id, label]) => `<button data-tab="${id}" onclick="showKartelaTab('${id}')">${t(label)}</button>`).join('')}</nav>
+
     <div class="kr-grid">
       <section class="kr-card kr-wide" id="kr-sales">
         <header><h2>${t('Sales')}</h2><p>${t('Quantity sold per day')} · ${period}</p></header>
@@ -1694,13 +1698,13 @@ function renderKartela() {
         ${axisDays(a.stock.map(s => s.day))}
       </section>
 
-      <section class="kr-card">
+      <section class="kr-card" data-kr="kr-sales">
         <header><h2>${t('Sales by weekday')}</h2><p>${period}</p></header>
         ${svgBars(a.byWeekday.map((v, i) => ({ value: parseFloat(v), title: `${t(WEEKDAYS_SHORT[i])}: ${fmtQty(v, p.unit)}` })), 120, true)}
         <div class="kr-axis even">${WEEKDAYS_SHORT.map(d => `<span>${t(d)}</span>`).join('')}</div>
       </section>
 
-      <section class="kr-card">
+      <section class="kr-card" data-kr="kr-sales">
         <header><h2>${t('Sales by hour')}</h2><p>${t('Busiest hours are darker')}</p></header>
         ${heatHours(a.byHour, p.unit)}
       </section>
@@ -1790,6 +1794,7 @@ function renderKartela() {
           </li>`).join('')}</ol>` : `<p class="no-data">-</p>`}
       </section>
     </div>`;
+  showKartelaTab(kartelaTab);
   filterKartelaMoves();
 }
 
@@ -2534,6 +2539,7 @@ function exportSalesExcel() {
 
 /*  Reports: calculated on the server for the chosen period  */
 let analytics = null;
+let reportTab = 'overview';
 let reportProductMode = 'top';
 
 function reportRange() {
@@ -2610,6 +2616,14 @@ function revenueSeries() {
     months.set(key, (months.get(key) || 0) + parseFloat(d.revenue));
   });
   return Array.from(months.entries()).map(([key, value]) => ({ label: formatMonthYear(new Date(key + '-01T00:00:00')), value }));
+}
+
+/* One part of the reports at a time. Charts are drawn again when shown, since a hidden chart has no size. */
+function showReportTab(tab) {
+  reportTab = tab;
+  document.querySelectorAll('#report-tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  document.querySelectorAll('#view-reports [data-rp]').forEach(sec => sec.classList.toggle('hidden', sec.dataset.rp !== tab));
+  if (analytics) renderReportCharts();
 }
 
 function renderReportCharts() {

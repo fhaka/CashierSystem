@@ -812,7 +812,15 @@
       <div class="reports-page">
         <div class="report-kpis" id="report-kpis"></div>
 
-        <section class="report-card">
+        <nav class="tab-nav" id="report-tabs">
+          <button class="on" data-tab="overview" onclick="showReportTab('overview')" data-i18n>Income</button>
+          <button data-tab="products" onclick="showReportTab('products')" data-i18n>Products</button>
+          <button data-tab="people" onclick="showReportTab('people')" data-i18n>Cashiers and categories</button>
+          <button data-tab="dead" onclick="showReportTab('dead')" data-i18n>Dead stock</button>
+          <button data-tab="z" onclick="showReportTab('z')" data-i18n>Daily Z report</button>
+        </nav>
+
+        <section class="report-card hidden" data-rp="z">
           <div class="report-card-head">
             <div>
               <h2 data-i18n>Daily Z report</h2>
@@ -830,7 +838,7 @@
         </section>
 
         <div class="report-grid">
-          <section class="report-card report-wide">
+          <section class="report-card report-wide" data-rp="overview">
             <div class="report-card-head">
               <div>
                 <h2 data-i18n>Revenue Trend</h2>
@@ -841,7 +849,7 @@
             <canvas id="chart-revenue" height="240"></canvas>
           </section>
 
-          <section class="report-card">
+          <section class="report-card" data-rp="overview">
             <div class="report-card-head">
               <div>
                 <h2 data-i18n>Tax Split</h2>
@@ -851,7 +859,7 @@
             <canvas id="chart-tax" height="240"></canvas>
           </section>
 
-          <section class="report-card">
+          <section class="report-card" data-rp="overview">
             <div class="report-card-head">
               <div>
                 <h2 data-i18n>Payments</h2>
@@ -861,7 +869,7 @@
             <canvas id="chart-payments" height="240"></canvas>
           </section>
 
-          <section class="report-card report-wide">
+          <section class="report-card report-wide" data-rp="overview">
             <div class="report-card-head">
               <div>
                 <h2 data-i18n>Busy hours</h2>
@@ -871,7 +879,7 @@
             <canvas id="chart-hours" height="220"></canvas>
           </section>
 
-          <section class="report-card">
+          <section class="report-card hidden" data-rp="people">
             <div class="report-card-head">
               <div>
                 <h2 data-i18n>Cashier Sales</h2>
@@ -881,7 +889,7 @@
             <canvas id="chart-cashiers" height="260"></canvas>
           </section>
 
-          <section class="report-card">
+          <section class="report-card hidden" data-rp="people">
             <div class="report-card-head">
               <div>
                 <h2 data-i18n>Categories</h2>
@@ -891,7 +899,7 @@
             <canvas id="chart-categories" height="260"></canvas>
           </section>
 
-          <section class="report-card report-wide">
+          <section class="report-card report-wide hidden" data-rp="products">
             <div class="report-card-head">
               <div>
                 <h2 data-i18n>Top Products</h2>
@@ -902,7 +910,7 @@
           </section>
         </div>
 
-        <section class="report-card">
+        <section class="report-card hidden" data-rp="products">
           <div class="report-card-head">
             <div>
               <h2 data-i18n>Products</h2>
@@ -925,7 +933,7 @@
           </div>
         </section>
 
-        <section class="report-card">
+        <section class="report-card hidden" data-rp="dead">
           <div class="report-card-head">
             <div>
               <h2 data-i18n>Dead stock</h2>

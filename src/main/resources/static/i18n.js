@@ -666,6 +666,7 @@ const SQ = {
   'Slow movers': 'Më pak të shiturat',
   'Margin': 'Marzhi',
   'Dead stock': 'Mallra pa lëvizje',
+  'Cashiers and categories': 'Arkëtarët dhe kategoritë',
   'Products in stock that did not sell in this period, most money tied up first': 'Produkte në stok që nuk u shitën në këtë periudhë, sipas vlerës së bllokuar',
   'Value': 'Vlera',
   '{count} lines': '{count} rreshta',

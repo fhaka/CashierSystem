@@ -727,6 +727,7 @@ const SQ = {
   'Sell 3 pieces of the scanned product': 'Shit 3 copë nga produkti i skanuar',
   'Close the window': 'Mbyll dritaren',
   'Scan a barcode or type a product name (F2)': 'Skano barkodin ose shkruaj emrin e produktit (F2)',
+  'Scan a barcode or type a product name': 'Skano barkodin ose shkruaj emrin e produktit',
   'Open since {time}': 'Hapur që nga ora {time}',
   'Cash register': 'Paneli i Shitjeve',
   'Settings saved': 'Cilësimet u ruajtën',

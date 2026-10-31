@@ -476,9 +476,7 @@
     .purchase-page {
       flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg);
     }
-    .purchase-header { grid-template-columns: 1.1fr .9fr 1fr; }
-    .purchase-header .search-wrap { margin-bottom: 10px; }
-    .purchase-scan-actions { display: flex; gap: 8px; align-items: center; }
+    .purchase-header { grid-template-columns: 1.1fr .9fr; }
     .purchase-table-wrap { flex: 1; }
     .purchase-table { min-width: 1120px; }
     .purchase-cell {

@@ -121,6 +121,14 @@ public class WarehouseController {
         return messageSource.getMessage(code, null, code, LocaleContextHolder.getLocale());
     }
 
+    /** The boxes of a product (for choosing one on an order). */
+    @GetMapping("/products/{id}/packages")
+    public ApiResponse<List<ProductPackage>> packages(@RequestHeader(value = "X-Auth-Token", required = false) String token,
+                                                      @PathVariable Long id) {
+        sessionService.requireOperationalManager(token);
+        return ApiResponse.ok("Boxes", packageService.forProduct(id));
+    }
+
     @PostMapping("/products/{id}/packages")
     public ApiResponse<ProductPackage> createPackage(@RequestHeader(value = "X-Auth-Token", required = false) String token,
                                                      @PathVariable Long id, @RequestBody PackageService.PackageRequest request) {

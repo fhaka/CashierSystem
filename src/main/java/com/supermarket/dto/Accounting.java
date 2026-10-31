@@ -49,8 +49,8 @@ public final class Accounting {
                             List<RateAmount> totals, BigDecimal base, BigDecimal vat, BigDecimal total) {
     }
 
-    /** Purchase book: one row per supplier invoice by VAT rate. */
-    public record PurchaseRow(Long id, LocalDate date, String invoice, String supplier, String taxNumber, List<RateAmount> rates,
+    /** Purchase book: one row per supplier invoice by VAT rate; kind CREDIT for goods returned for credit (negative). */
+    public record PurchaseRow(Long id, String kind, LocalDate date, String invoice, String supplier, String taxNumber, List<RateAmount> rates,
                               BigDecimal base, BigDecimal vat, BigDecimal total) {
     }
 
@@ -70,8 +70,8 @@ public final class Accounting {
                              BigDecimal valueWithoutVat) {
     }
 
-    /** Everything for one month in one answer. */
+    /** Everything for one month in one answer. openingStock: stock new products were created with, at cost without VAT. */
     public record Month(String month, ProfitAndLossCompare profitAndLoss, SalesBook sales, PurchaseBook purchases,
-                        StockValue stockAtEnd, StockValue stockAtStart) {
+                        StockValue stockAtEnd, StockValue stockAtStart, BigDecimal openingStock) {
     }
 }

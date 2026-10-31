@@ -5,6 +5,7 @@ import com.supermarket.exception.ValidationException;
 import com.supermarket.model.Cashier;
 import com.supermarket.model.PriceChange;
 import com.supermarket.model.Product;
+import com.supermarket.model.PurchaseInvoice;
 import com.supermarket.model.Promotion;
 import com.supermarket.model.ProductPackage;
 import com.supermarket.repository.AuditEventRepository;
@@ -231,6 +232,16 @@ public class WarehouseService {
                 .toList();
     }
 
+    private static int sameMomentRank(Warehouse.Movement m) {
+        return switch (m.type()) {
+            case "ADJUSTMENT" -> "OPENING_STOCK".equals(m.reference()) ? 0 : 4;
+            case "PURCHASE" -> 1;
+            case "SALE" -> 2;
+            case "REFUND" -> 3;
+            default -> 5;
+        };
+    }
+
     /** The newest movements, for the product card. */
     private List<Warehouse.Movement> movements(Product product) {
         List<Warehouse.Movement> all = allMovements(product);
@@ -256,11 +267,11 @@ public class WarehouseService {
             all.add(new Warehouse.Movement((LocalDateTime) r[0], "REFUND", (String) r[1], (BigDecimal) r[2], null, (String) r[3], (String) r[4]));
         }
         for (Object[] r : list("""
-                select inv.invoiceDate, inv.invoiceNumber, pi.quantity, inv.company, pi.packageCount, pi.id
+                select inv.invoiceDate, inv.invoiceNumber, pi.quantity, inv.company, pi.packageCount, pi.id, inv.createdAt
                 from PurchaseItem pi join pi.invoice inv where pi.product.id = :id order by inv.invoiceDate desc, pi.id desc
                 """, id)) {
             String detail = (String) r[3] + (r[4] == null ? "" : " (" + ((BigDecimal) r[4]).stripTrailingZeros().toPlainString() + " " + text("warehouse.boxes") + ")");
-            all.add(new Warehouse.Movement(((LocalDate) r[0]).atStartOfDay(), "PURCHASE", (String) r[1], (BigDecimal) r[2], null, detail, null));
+            all.add(new Warehouse.Movement(PurchaseInvoice.movementTime((LocalDate) r[0], (LocalDateTime) r[6]), "PURCHASE", (String) r[1], (BigDecimal) r[2], null, detail, null));
         }
         for (Object[] r : list("""
                 select a.createdAt, a.reason, a.quantityChange, a.note, c.fullName
@@ -269,7 +280,9 @@ public class WarehouseService {
             all.add(new Warehouse.Movement((LocalDateTime) r[0], "ADJUSTMENT", String.valueOf(r[1]), (BigDecimal) r[2], null,
                     (String) r[3], (String) r[4]));
         }
-        all.sort(Comparator.comparing(Warehouse.Movement::at).reversed());
+        // Newest first. Two movements at the same moment (the clock of Windows can step in ~15 ms) keep the natural
+        // order: opening stock, purchases, sales, refunds, then other adjustments.
+        all.sort(Comparator.comparing(Warehouse.Movement::at).thenComparing(WarehouseService::sameMomentRank).reversed());
         // Walk back from today's stock: the stock after each movement.
         List<Warehouse.Movement> shown = new ArrayList<>();
         BigDecimal stock = product.getStock();

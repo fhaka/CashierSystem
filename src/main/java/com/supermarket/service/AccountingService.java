@@ -82,7 +82,23 @@ public class AccountingService {
     @Transactional(readOnly = true)
     public Month month(YearMonth month) {
         return new Month(month.toString(), new ProfitAndLossCompare(profitAndLoss(month), profitAndLoss(month.minusMonths(1))),
-                salesBook(month), purchaseBook(month), stockValue(month.atEndOfMonth()), stockValue(month.atDay(1).minusDays(1)));
+                salesBook(month), purchaseBook(month), stockValue(month.atEndOfMonth()), stockValue(month.atDay(1).minusDays(1)),
+                openingStockEntered(month));
+    }
+
+    /** Opening stock of the products created in the month, at cost without VAT: goods that came in without a purchase invoice. */
+    @Transactional(readOnly = true)
+    public BigDecimal openingStockEntered(YearMonth month) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (Object[] r : entityManager.createQuery("""
+                        select a.quantityChange, coalesce(a.unitCost, p.purchasePrice), p.taxRate
+                        from StockAdjustment a join a.product p where a.createdAt >= :from and a.createdAt <= :to
+                          and a.reason = com.supermarket.model.StockAdjustment.Reason.OPENING_STOCK""", Object[].class)
+                .setParameter("from", month.atDay(1).atStartOfDay()).setParameter("to", month.atEndOfMonth().atTime(LocalTime.MAX))
+                .getResultList()) {
+            total = total.add(((BigDecimal) r[0]).multiply(costWithoutVat((BigDecimal) r[1], (BigDecimal) r[2])));
+        }
+        return money(total);
     }
 
     // --- Profit and loss -----------------------------------------------------------------------------------------
@@ -93,11 +109,15 @@ public class AccountingService {
         LocalDate to = month.atEndOfMonth();
         Analytics.Kpis k = analyticsService.analyze(from, to).kpis();
 
-        // Stock that left the shelf without being sold, and count differences, at today's cost of each product.
+        // Stock that left the shelf without being sold, and count differences, at the cost of that day (today's cost for
+        // adjustments made before 1.4). The opening stock of new products is not a loss.
         Map<String, BigDecimal[]> losses = new LinkedHashMap<>();
         for (Object[] r : entityManager.createQuery("""
-                        select a.reason, a.inventoryCountId, a.quantityChange, p.purchasePrice, p.taxRate
-                        from StockAdjustment a join a.product p where a.createdAt >= :from and a.createdAt <= :to""", Object[].class)
+                        select a.reason, a.inventoryCountId, a.quantityChange, coalesce(a.unitCost, p.purchasePrice), p.taxRate
+                        from StockAdjustment a join a.product p where a.createdAt >= :from and a.createdAt <= :to
+                          and a.reason not in (com.supermarket.model.StockAdjustment.Reason.OPENING_STOCK,
+                                               com.supermarket.model.StockAdjustment.Reason.SUPPLIER_RETURN,
+                                               com.supermarket.model.StockAdjustment.Reason.REPLACEMENT)""", Object[].class)
                 .setParameter("from", from.atStartOfDay()).setParameter("to", to.atTime(LocalTime.MAX)).getResultList()) {
             StockAdjustment.Reason reason = (StockAdjustment.Reason) r[0];
             String key = r[1] != null || reason == StockAdjustment.Reason.COUNT_CORRECTION ? "COUNT" : reason.name();
@@ -217,8 +237,35 @@ public class AccountingService {
         heads.forEach((id, r) -> {
             RateAcc a = amounts.get(id);
             totals.addAll(a);
-            rows.add(new PurchaseRow(id, (LocalDate) r[1], (String) r[2], (String) r[3], (String) r[4], a.list(rates), a.base(), a.vat(), a.total()));
+            rows.add(new PurchaseRow(id, "INVOICE", (LocalDate) r[1], (String) r[2], (String) r[3], (String) r[4], a.list(rates), a.base(), a.vat(), a.total()));
         });
+        // Goods returned for credit lower the purchases of the month they were returned in.
+        Map<Long, Object[]> credits = new LinkedHashMap<>();
+        Map<Long, RateAcc> creditAmounts = new HashMap<>();
+        for (Object[] r : entityManager.createQuery("""
+                        select sr.id, sr.createdAt, sr.number, s.name, s.taxNumber, l.taxRate, sum(l.lineTotal)
+                        from SupplierReturnLine l join l.supplierReturn sr join sr.supplier s
+                        where sr.kind = com.supermarket.model.SupplierReturn.Kind.CREDIT and sr.createdAt >= :from and sr.createdAt <= :to
+                        group by sr.id, sr.createdAt, sr.number, s.name, s.taxNumber, l.taxRate
+                        order by sr.createdAt, sr.id""", Object[].class)
+                .setParameter("from", month.atDay(1).atStartOfDay()).setParameter("to", month.atEndOfMonth().atTime(LocalTime.MAX))
+                .getResultList()) {
+            Long id = (Long) r[0];
+            credits.putIfAbsent(id, r);
+            BigDecimal rate = rate((BigDecimal) r[5]);
+            rates.add(rate);
+            BigDecimal amount = (BigDecimal) r[6];
+            BigDecimal base = costIncludesVat ? withoutVat(amount, rate) : amount;
+            BigDecimal total = costIncludesVat ? amount : money(amount.multiply(HUNDRED.add(rate)).divide(HUNDRED, 4, RoundingMode.HALF_UP));
+            creditAmounts.computeIfAbsent(id, x -> new RateAcc()).add(rate, total.negate(), total.subtract(base).negate());
+        }
+        credits.forEach((id, r) -> {
+            RateAcc a = creditAmounts.get(id);
+            totals.addAll(a);
+            rows.add(new PurchaseRow(id, "CREDIT", ((LocalDateTime) r[1]).toLocalDate(), (String) r[2], (String) r[3], (String) r[4],
+                    a.list(rates), a.base(), a.vat(), a.total()));
+        });
+        rows.sort(Comparator.comparing(PurchaseRow::date));
         return new PurchaseBook(month.atDay(1), month.atEndOfMonth(), new ArrayList<>(rates), rows, totals.list(rates),
                 totals.base(), totals.vat(), totals.total());
     }

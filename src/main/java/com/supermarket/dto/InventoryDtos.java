@@ -15,9 +15,10 @@ public final class InventoryDtos {
     public record AdjustmentRequest(Long productId, BigDecimal quantityChange, String reason, String note) {
     }
 
+    /** onOrder: already on an order still waiting for its goods; the suggestion leaves that out. */
     public record ReorderLine(Long productId, String productName, String barcode, String unit, BigDecimal stock,
                               BigDecimal minStock, BigDecimal suggestedQuantity, BigDecimal lastPurchasePrice,
-                              BigDecimal estimatedCost) {
+                              BigDecimal estimatedCost, BigDecimal onOrder) {
     }
 
     /** Products to order from one supplier (the one they were last bought from). supplierId is null if unknown. */

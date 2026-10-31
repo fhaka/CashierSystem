@@ -15,6 +15,7 @@ import jakarta.persistence.Table;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -43,6 +44,9 @@ public class PurchaseInvoice {
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal totalAmount;
 
+    /** When the invoice was entered (null for invoices entered before 1.4 and not found in the audit log). */
+    private LocalDateTime createdAt;
+
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<PurchaseItem> items = new ArrayList<>();
 
@@ -54,6 +58,19 @@ public class PurchaseInvoice {
         this.company = company;
         this.invoiceDate = invoiceDate;
         this.totalAmount = totalAmount;
+        this.createdAt = LocalDateTime.now();
+    }
+
+    /**
+     * When the goods of an invoice count as arrived: the moment it was entered if that was on the invoice date (so it
+     * sorts right among the sales of that day), otherwise the start of the invoice date.
+     */
+    public static LocalDateTime movementTime(LocalDate invoiceDate, LocalDateTime createdAt) {
+        return createdAt != null && createdAt.toLocalDate().equals(invoiceDate) ? createdAt : invoiceDate.atStartOfDay();
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
     }
 
     public void addItem(PurchaseItem item) {

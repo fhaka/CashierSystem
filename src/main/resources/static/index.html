@@ -589,6 +589,8 @@
         </div>
         <div class="actions">
           <button class="btn btn-secondary inv-tab on" data-tab="reorder" onclick="showInventoryTab('reorder')" data-i18n>Reorder</button>
+          <button class="btn btn-secondary inv-tab" data-tab="orders" onclick="showInventoryTab('orders')" data-i18n>Supplier orders</button>
+          <button class="btn btn-secondary inv-tab" data-tab="returns" onclick="showInventoryTab('returns')" data-i18n>Supplier returns</button>
           <button class="btn btn-secondary inv-tab" data-tab="expiring" onclick="showInventoryTab('expiring')" data-i18n>Expiring</button>
           <button class="btn btn-secondary inv-tab" data-tab="count" onclick="showInventoryTab('count')" data-i18n>Stock count</button>
         </div>
@@ -603,6 +605,42 @@
             <button class="btn btn-secondary btn-sm" onclick="loadReorder()" data-i18n>Refresh</button>
           </div>
           <div id="reorder-groups"></div>
+        </section>
+
+        <section class="report-card inv-panel hidden" id="inv-orders">
+          <div class="report-card-head">
+            <div>
+              <h2 data-i18n>Supplier orders</h2>
+              <p data-i18n>What you asked suppliers to bring: send it by WhatsApp or Viber, then mark it received when the goods come</p>
+            </div>
+            <div class="actions">
+              <div class="seg" id="ord-filter">
+                <button class="btn btn-secondary btn-sm on" data-s="ACTIVE" onclick="setOrderFilter('ACTIVE')" data-i18n>Waiting</button>
+                <button class="btn btn-secondary btn-sm" data-s="RECEIVED" onclick="setOrderFilter('RECEIVED')" data-i18n>Received</button>
+                <button class="btn btn-secondary btn-sm" data-s="CANCELLED" onclick="setOrderFilter('CANCELLED')" data-i18n>Cancelled</button>
+                <button class="btn btn-secondary btn-sm" data-s="" onclick="setOrderFilter('')" data-i18n>All</button>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="openOrder()" data-i18n>New order</button>
+            </div>
+          </div>
+          <div id="orders-list" class="ord-list"></div>
+        </section>
+
+        <section class="report-card inv-panel hidden" id="inv-returns">
+          <div class="report-card-head">
+            <div>
+              <h2 data-i18n>Supplier returns</h2>
+              <p data-i18n>Goods given back to a supplier: taken off what you owe, or replaced with the same goods</p>
+            </div>
+            <div class="actions">
+              <div class="seg" id="ret-filter">
+                <button class="btn btn-secondary btn-sm on" data-p="false" onclick="setReturnFilter(false)" data-i18n>All</button>
+                <button class="btn btn-secondary btn-sm" data-p="true" onclick="setReturnFilter(true)" data-i18n>Waiting for replacement</button>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="openReturn()" data-i18n>New return</button>
+            </div>
+          </div>
+          <div id="returns-list" class="ord-list"></div>
         </section>
 
         <section class="report-card inv-panel hidden" id="inv-expiring">
@@ -1240,7 +1278,7 @@
           <label class="input-label" data-i18n>Purchase Price (LEK)</label>
           <input class="input" id="pm-purchase" type="number" placeholder="0.00" step="0.01" min="0" />
         </div>
-        <div class="input-group">
+        <div class="input-group" id="pm-stock-group">
           <label class="input-label" data-i18n>Stock Qty</label>
           <input class="input" id="pm-stock" type="number" placeholder="0" min="0" step="any" />
           <small class="input-hint hidden" id="pm-stock-hint"></small>
@@ -1474,6 +1512,10 @@
         <div class="tbl-wrap"><table><thead><tr><th data-i18n>Date</th><th data-i18n>Method</th><th data-i18n>Amount</th><th data-i18n>Note</th></tr></thead><tbody id="sd-payments"></tbody></table></div>
       </div>
     </div>
+    <div class="sd-returns">
+      <h3 class="section-title" data-i18n>Returns to this supplier</h3>
+      <div class="tbl-wrap"><table><thead><tr><th data-i18n>Return</th><th data-i18n>Date</th><th data-i18n>Kind</th><th data-i18n>Status</th><th data-i18n>Amount</th></tr></thead><tbody id="sd-returns"></tbody></table></div>
+    </div>
   </div>
 </div>
 
@@ -1579,6 +1621,75 @@
       </div>
       <div id="exc-list" class="exc-list"></div>
     </div>
+  </div>
+</div>
+
+<div id="modal-order" class="overlay hidden">
+  <div class="modal ord-modal">
+    <div class="modal-head">
+      <div class="modal-title" id="ord-title"></div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-order')">x</button>
+    </div>
+    <div class="modal-body">
+      <div class="two-col">
+        <div class="input-group"><label class="input-label" data-i18n>Supplier</label><select class="input" id="ord-supplier"></select></div>
+        <div class="input-group"><label class="input-label" data-i18n>Note for the supplier</label><input class="input" id="ord-note" data-i18n-placeholder placeholder="e.g. bring it on Monday morning" /></div>
+      </div>
+      <div class="search-wrap ord-search">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input class="input" id="ord-search" autocomplete="off" data-i18n-placeholder placeholder="Add a product: name or barcode"
+               oninput="onOrderSearch(this.value)" onkeydown="onOrderSearchKey(event)" onblur="setTimeout(hideOrderResults, 150)" />
+        <div class="search-results hidden" id="ord-results"></div>
+      </div>
+      <div class="tbl-wrap ord-lines"><table>
+        <thead><tr><th data-i18n>Product</th><th data-i18n>Stock</th><th data-i18n>Box</th><th data-i18n>Quantity</th><th data-i18n>Price</th><th data-i18n>Total</th><th></th></tr></thead>
+        <tbody id="ord-lines"></tbody>
+      </table></div>
+      <div class="ord-total" id="ord-total"></div>
+    </div>
+    <div class="modal-foot ord-foot" id="ord-actions"></div>
+  </div>
+</div>
+
+<div id="modal-return" class="overlay hidden">
+  <div class="modal ord-modal">
+    <div class="modal-head">
+      <div class="modal-title" id="ret-title"></div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeModal('modal-return')">x</button>
+    </div>
+    <div class="modal-body">
+      <div class="two-col">
+        <div class="input-group"><label class="input-label" data-i18n>Supplier</label><select class="input" id="ret-supplier"></select></div>
+        <div class="input-group">
+          <label class="input-label" data-i18n>Reason</label>
+          <select class="input" id="ret-reason">
+            <option value="DAMAGED" data-i18n>Damaged</option>
+            <option value="EXPIRED" data-i18n>Expired</option>
+            <option value="WRONG" data-i18n>Wrong goods</option>
+            <option value="OTHER" data-i18n>Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="ret-kinds" id="ret-kinds">
+        <button type="button" class="ret-kind on" data-k="CREDIT" onclick="setReturnKind('CREDIT')">
+          <strong data-i18n>Taken off what I owe</strong><small data-i18n>The supplier gives a credit note: the amount is taken off the debt</small></button>
+        <button type="button" class="ret-kind" data-k="REPLACEMENT" onclick="setReturnKind('REPLACEMENT')">
+          <strong data-i18n>Replaced with the same goods</strong><small data-i18n>No money moves; the goods come back into stock when they arrive</small></button>
+      </div>
+      <div class="input-group"><label class="input-label" data-i18n>Note</label><input class="input" id="ret-note" data-i18n-placeholder placeholder="e.g. broken bottles in the delivery of Monday" /></div>
+      <div class="search-wrap ord-search" id="ret-search-wrap">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input class="input" id="ret-search" autocomplete="off" data-i18n-placeholder placeholder="Add a product: name or barcode"
+               oninput="onReturnSearch(this.value)" onkeydown="onReturnSearchKey(event)" onblur="setTimeout(hideReturnResults, 150)" />
+        <div class="search-results hidden" id="ret-results"></div>
+      </div>
+      <div class="tbl-wrap ord-lines"><table>
+        <thead><tr><th data-i18n>Product</th><th data-i18n>Stock</th><th data-i18n>Quantity</th><th data-i18n>Price</th><th data-i18n>Total</th><th></th></tr></thead>
+        <tbody id="ret-lines"></tbody>
+      </table></div>
+      <div class="ord-total" id="ret-total"></div>
+    </div>
+    <div class="modal-foot ord-foot" id="ret-actions"></div>
   </div>
 </div>
 

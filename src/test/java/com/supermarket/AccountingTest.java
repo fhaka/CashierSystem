@@ -106,6 +106,8 @@ class AccountingTest extends IntegrationTest {
         assertThat(end.path("value").decimalValue()).isEqualByComparingTo("930");          // 480 + 450
         assertThat(end.path("valueWithoutVat").decimalValue()).isEqualByComparingTo("850"); // 400 + 450
         assertThat(m.path("stockAtStart").path("products")).isEmpty();
+        // A came in as opening stock (10 at 60 = 500 without VAT): not a loss, but goods in for the stock check.
+        assertThat(m.path("openingStock").decimalValue()).isEqualByComparingTo("500");
 
         // Errors and permissions.
         getJson("/accounting?month=2026-13", admin).andExpect(jsonPath("$.code").value("accounting.invalidMonth"));
@@ -130,6 +132,7 @@ class AccountingTest extends IntegrationTest {
         long c = product(admin, "980000000003", "20.00", "12.00", "20", 5);
         LocalDateTime longAgo = LocalDate.now().withDayOfMonth(1).minusDays(20).atTime(9, 0);
         jdbc.update("UPDATE price_changes SET changed_at = ? WHERE product_id = ?", longAgo, c);
+        jdbc.update("UPDATE stock_adjustments SET created_at = ? WHERE product_id = ?", longAgo, c);   // its opening stock
         // A delivery this month changes the cost to the average: (5 x 12 + 5 x 18) / 10 = 15.
         postJson("/purchases", admin, Map.of("invoiceNumber", "F-9", "company", "Furnitori", "invoiceDate", LocalDate.now().toString(),
                 "items", List.of(Map.of("productId", c, "quantity", 5, "purchasePrice", "18.00", "sellingPrice", "20.00",
@@ -148,5 +151,24 @@ class AccountingTest extends IntegrationTest {
         assertThat(end.path("products").get(0).path("stock").decimalValue()).isEqualByComparingTo("7");
         assertThat(end.path("value").decimalValue()).isEqualByComparingTo("105");                        // 7 x 15
 
+    }
+
+    /** A loss keeps the cost of its day: a later delivery at another price does not change it. */
+    @Test
+    void aStockLossKeepsTheCostOfItsDay() throws Exception {
+        String admin = registerSuperAdmin();
+        long d = product(admin, "980000000004", "100.00", "60.00", "20", 10);
+        postJson("/inventory/adjustments", admin, Map.of("productId", d, "quantityChange", "-2", "reason", "EXPIRED")).andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT unit_cost FROM stock_adjustments WHERE reason = 'EXPIRED'", java.math.BigDecimal.class))
+                .isEqualByComparingTo("60");
+        // 8 at 60 + 8 at 90 = cost 75 from now on.
+        postJson("/purchases", admin, Map.of("invoiceNumber", "F-10", "company", "Furnitori", "invoiceDate", LocalDate.now().toString(),
+                "items", List.of(Map.of("productId", d, "quantity", 8, "purchasePrice", "90.00", "sellingPrice", "100.00",
+                        "taxRate", "20", "unit", "pcs")))).andExpect(status().isOk());
+
+        JsonNode pl = data(getJson("/accounting", admin)).path("profitAndLoss").path("current");
+        assertThat(pl.path("stockLosses").get(0).path("key").asText()).isEqualTo("EXPIRED");
+        assertThat(pl.path("stockLossTotal").decimalValue()).isEqualByComparingTo("100");   // 2 x 60 / 1.2, not 2 x 75 / 1.2
+        assertThat(pl.path("stockLosses")).hasSize(1);                                       // the opening stock is not a loss
     }
 }

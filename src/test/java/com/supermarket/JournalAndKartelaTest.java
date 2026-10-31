@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,8 +72,13 @@ class JournalAndKartelaTest extends IntegrationTest {
         // The adjustment made by the stock count shows once, as the count: 17 bread left, 15 counted, 2 x 50 at cost.
         assertThat(totals.get("ADJUSTMENT")).isEqualTo("1/-50");
         assertThat(totals.get("COUNT")).isEqualTo("1/-100");
-        // Newest first; the shift was closed last.
-        assertThat(page.path("entries").get(0).path("type").asText()).isEqualTo("SHIFT_CLOSE");
+        // Both products were created with 20 at cost 50: opening stock, not counted as money in or out.
+        assertThat(totals.get("OPENING_STOCK")).isEqualTo("2/2000");
+        // Newest first.
+        List<String> times = page.path("entries").findValuesAsText("at");
+        for (int i = 1; i < times.size(); i++) {
+            assertThat(LocalDateTime.parse(times.get(i))).isBeforeOrEqualTo(LocalDateTime.parse(times.get(i - 1)));
+        }
         JsonNode today = page.path("days").get(0);
         assertThat(today.path("day").asText()).isEqualTo(LocalDate.now().toString());
         assertThat(today.path("moneyIn").decimalValue()).isEqualByComparingTo("600.00");   // sales 400 + cash in 100 + debt 100
@@ -81,7 +87,7 @@ class JournalAndKartelaTest extends IntegrationTest {
         // Filters: kind, product, text, paging.
         assertThat(data(getJson("/journal?types=SALE,REFUND", admin)).path("total").asInt()).isEqualTo(3);
         JsonNode milkOnly = data(getJson("/journal?productId=" + products[0], admin));
-        assertThat(milkOnly.path("entries").findValuesAsText("type")).containsOnly("SALE", "REFUND", "PURCHASE", "PRICE_CHANGE");
+        assertThat(milkOnly.path("entries").findValuesAsText("type")).containsOnly("SALE", "REFUND", "PURCHASE", "PRICE_CHANGE", "OPENING_STOCK");
         assertThat(data(getJson("/journal?q=besnik", admin)).path("entries").findValuesAsText("type")).contains("SALE", "DEBT_PAYMENT");
         assertThat(data(getJson("/journal?size=2&page=1", admin)).path("entries")).hasSize(2);
 
@@ -115,21 +121,25 @@ class JournalAndKartelaTest extends IntegrationTest {
         assertThat(a.path("receipts").asInt()).isEqualTo(1);
         assertThat(a.path("topCustomers").get(0).path("name").asText()).isEqualTo("Klient Besnik");
         assertThat(a.path("lastPurchase").path("invoice").asText()).isEqualTo("F-77");
-        // Stock: 20 - 3 sold + 1 back + 10 bought = 28 at the end of today.
+        // Stock: created today with 20, - 3 sold + 1 back + 10 bought = 28 at the end of today; nothing before.
         JsonNode stock = a.path("stock");
         assertThat(stock.get(stock.size() - 1).path("stock").decimalValue()).isEqualByComparingTo("28");
-        assertThat(stock.get(0).path("stock").decimalValue()).isEqualByComparingTo("20");
+        assertThat(stock.get(0).path("stock").decimalValue()).isEqualByComparingTo("0");
         int weekday = LocalDate.now().getDayOfWeek().getValue() - 1;
         assertThat(a.path("byWeekday").get(weekday).decimalValue()).isEqualByComparingTo("3");
 
         JsonNode moves = data(getJson("/warehouse/products/" + milk + "/movements", admin));
-        assertThat(moves.findValuesAsText("type")).containsExactlyInAnyOrder("SALE", "REFUND", "PURCHASE");
+        assertThat(moves.findValuesAsText("type")).containsExactlyInAnyOrder("SALE", "REFUND", "PURCHASE", "ADJUSTMENT");
+        // The history starts at zero: the oldest movement is the opening stock, after it 20.
+        JsonNode first = moves.get(moves.size() - 1);
+        assertThat(first.path("reference").asText()).isEqualTo("OPENING_STOCK");
+        assertThat(first.path("stockAfter").decimalValue()).isEqualByComparingTo("20");
         assertThat(data(getJson("/warehouse/products/" + milk + "/movements?type=SALE", admin))).hasSize(1);
         assertThat(data(getJson("/warehouse/products/" + milk + "/movements?from=2020-01-01&to=2020-01-31", admin))).isEmpty();
         byte[] xlsx = getJson("/warehouse/products/" + milk + "/movements.xlsx", admin).andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsByteArray();
         try (XSSFWorkbook book = new XSSFWorkbook(new ByteArrayInputStream(xlsx))) {
-            assertThat(book.getSheetAt(0).getLastRowNum()).isEqualTo(3);
+            assertThat(book.getSheetAt(0).getLastRowNum()).isEqualTo(4);
         }
     }
 }

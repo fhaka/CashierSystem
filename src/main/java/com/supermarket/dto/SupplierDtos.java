@@ -22,13 +22,14 @@ public final class SupplierDtos {
     }
 
     /** A supplier with what was bought from them, what was paid, and what is still owed. */
+    /** balance: invoiced - paid - credit notes (goods returned for credit). */
     public record SupplierSummary(Long id, String name, String taxNumber, String phone, String email, String address,
                                   String notes, boolean active, BigDecimal totalInvoiced, BigDecimal totalPaid,
-                                  BigDecimal balance) {
+                                  BigDecimal totalCredited, BigDecimal balance) {
 
-        public static SupplierSummary of(Supplier s, BigDecimal invoiced, BigDecimal paid) {
+        public static SupplierSummary of(Supplier s, BigDecimal invoiced, BigDecimal paid, BigDecimal credited) {
             return new SupplierSummary(s.getId(), s.getName(), s.getTaxNumber(), s.getPhone(), s.getEmail(), s.getAddress(),
-                    s.getNotes(), s.isActive(), invoiced, paid, invoiced.subtract(paid));
+                    s.getNotes(), s.isActive(), invoiced, paid, credited, invoiced.subtract(paid).subtract(credited));
         }
     }
 
@@ -40,6 +41,7 @@ public final class SupplierDtos {
         }
     }
 
-    public record SupplierDetail(SupplierSummary supplier, List<InvoiceLine> invoices, List<SupplierPayment> payments) {
+    public record SupplierDetail(SupplierSummary supplier, List<InvoiceLine> invoices, List<SupplierPayment> payments,
+                                 List<ReturnDtos.ReturnRow> returns) {
     }
 }

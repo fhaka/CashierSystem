@@ -232,6 +232,16 @@ public class WarehouseService {
                 .toList();
     }
 
+    private static int sameMomentRank(Warehouse.Movement m) {
+        return switch (m.type()) {
+            case "ADJUSTMENT" -> "OPENING_STOCK".equals(m.reference()) ? 0 : 4;
+            case "PURCHASE" -> 1;
+            case "SALE" -> 2;
+            case "REFUND" -> 3;
+            default -> 5;
+        };
+    }
+
     /** The newest movements, for the product card. */
     private List<Warehouse.Movement> movements(Product product) {
         List<Warehouse.Movement> all = allMovements(product);
@@ -270,7 +280,9 @@ public class WarehouseService {
             all.add(new Warehouse.Movement((LocalDateTime) r[0], "ADJUSTMENT", String.valueOf(r[1]), (BigDecimal) r[2], null,
                     (String) r[3], (String) r[4]));
         }
-        all.sort(Comparator.comparing(Warehouse.Movement::at).reversed());
+        // Newest first. Two movements at the same moment (the clock of Windows can step in ~15 ms) keep the natural
+        // order: opening stock, purchases, sales, refunds, then other adjustments.
+        all.sort(Comparator.comparing(Warehouse.Movement::at).thenComparing(WarehouseService::sameMomentRank).reversed());
         // Walk back from today's stock: the stock after each movement.
         List<Warehouse.Movement> shown = new ArrayList<>();
         BigDecimal stock = product.getStock();

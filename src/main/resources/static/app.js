@@ -465,7 +465,7 @@ function renderTillTabs(tabs) {
     const busy = tab.lines > 0;
     return `<button class="till-tab ${tab.tab === activeTab ? 'on' : ''} ${busy ? 'busy' : ''}" onclick="switchTillTab(${tab.tab})">
       <strong>${t('Customer {n}', { n: tab.tab })}</strong>
-      <span>${busy ? `${tab.lines === 1 ? t('1 line') : t('{count} lines', { count: tab.lines })} · ${fmt(tab.total)}` : t('empty')}</span>
+      <span>${busy ? `${linesText(tab.lines)} · ${fmt(tab.total)}` : t('empty')}</span>
       ${tab.customer ? `<small>${esc(tab.customer)}</small>` : ''}
       <kbd>Alt+${tab.tab}</kbd>
     </button>`;
@@ -1885,6 +1885,7 @@ const JOURNAL_TYPES = {
   DEBT_PAYMENT: { label: 'Debt payment', icon: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>' },
   SHIFT_OPEN: { label: 'Shift opened', icon: '<polygon points="5 3 19 12 5 21 5 3"/>' },
   SHIFT_CLOSE: { label: 'Shift closed', icon: '<rect x="5" y="5" width="14" height="14" rx="1"/>' },
+  SUPPLIER_RETURN: { label: 'Return to supplier', icon: '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>' },
   OPENING_STOCK: { label: 'Opening stock', icon: '<path d="M12 2v20"/><path d="M5 9l7-7 7 7"/><rect x="3" y="18" width="18" height="4" rx="1"/>' },
   EXPENSE: { label: 'Expense', icon: '<path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/>' },
   PRICE_CHANGE: { label: 'Price change', icon: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><line x1="7" y1="7" x2="7.01" y2="7"/>' }
@@ -2000,10 +2001,16 @@ function renderJournal() {
 /* What one entry says, in words. */
 function journalText(e) {
   switch (e.type) {
-    case 'SALE': return [`${t('Invoice')} ${e.number}`, [e.counterparty, t('{count} lines', { count: e.lines })].filter(Boolean).join(' · ')];
+    case 'SALE': return [`${t('Invoice')} ${e.number}`, [e.counterparty, linesText(e.lines)].filter(Boolean).join(' · ')];
     case 'REFUND': return [`${e.number} · ${t('for invoice')} ${e.counterparty || ''}`, e.note];
-    case 'PURCHASE': return [`${e.counterparty || ''} · ${e.number}`, t('{count} lines', { count: e.lines })];
+    case 'PURCHASE': return [`${e.counterparty || ''} · ${e.number}`, linesText(e.lines)];
     case 'ADJUSTMENT': return [`${e.productName} · ${parseFloat(e.quantity) > 0 ? '+' : ''}${parseFloat(e.quantity)}`, [t(ADJUST_REASONS[e.number] || e.number), e.note].filter(Boolean).join(' · ')];
+    case 'SUPPLIER_RETURN': {
+      if (e.note === 'REPLACED') return [`${e.number} · ${e.counterparty}`, t('Replacement received')];
+      const [kind, reason] = (e.note || '').split(' ');
+      const rest = (e.note || '').split(' - ').slice(1).join(' - ');
+      return [`${e.number} · ${e.counterparty}`, [t(RETURN_KINDS[kind] || kind), t(RETURN_REASONS[reason] || reason), linesText(e.lines), rest].filter(Boolean).join(' · ')];
+    }
     case 'OPENING_STOCK': return [`${e.productName} · +${parseFloat(e.quantity)}`, e.note || ''];
     case 'COUNT': return [`${t('Stock count')} ${e.number}`, [t('{count} products changed', { count: e.lines }), e.note].filter(Boolean).join(' · ')];
     case 'CASH_IN': case 'CASH_OUT': return [e.note, ''];
@@ -2416,7 +2423,7 @@ function renderSalesTable() {
       <td>${fmtDate(sale.date)}</td>
       <td>${esc(sale.cashierName || t('Unknown cashier'))}</td>
       <td>${esc(sale.customerName || '')}</td>
-      <td><span class="badge b-muted">${t('{count} lines', { count: sale.lines })}</span></td>
+      <td><span class="badge b-muted">${linesText(sale.lines)}</span></td>
       <td>${(sale.paymentMethods || []).map(m => esc(paymentLabel(m))).join(', ')}</td>
       <td class="td-p">${fmt(sale.totalAmount)}</td>
       <td>
@@ -3073,6 +3080,7 @@ async function openSupplierDetail(id) {
     $('sd-kpis').innerHTML = `
       <div class="report-kpi"><span>${t('Invoiced')}</span><strong>${fmtLek(s.totalInvoiced)}</strong></div>
       <div class="report-kpi"><span>${t('Paid')}</span><strong>${fmtLek(s.totalPaid)}</strong></div>
+      <div class="report-kpi"><span>${t('Credit notes')}</span><strong>${fmtLek(s.totalCredited)}</strong></div>
       <div class="report-kpi"><span>${t('Owed')}</span><strong>${fmtLek(s.balance)}</strong></div>`;
     $('sd-invoices').innerHTML = d.invoices.map(i => `
       <tr><td class="td-m">${esc(i.invoiceNumber)}</td><td>${esc(i.invoiceDate)}</td><td class="td-p">${fmtLek(i.totalAmount)}</td></tr>`).join('')
@@ -3080,6 +3088,10 @@ async function openSupplierDetail(id) {
     $('sd-payments').innerHTML = d.payments.map(p => `
       <tr><td>${esc(p.paidOn)}</td><td>${esc(p.method === 'CASH' ? t('Cash') : t('Bank'))}</td><td class="td-p">${fmtLek(p.amount)}</td><td>${esc(p.note || '')}</td></tr>`).join('')
       || `<tr><td colspan="4" class="no-data">-</td></tr>`;
+    $('sd-returns').innerHTML = (d.returns || []).map(r => `
+      <tr><td class="td-m">${esc(r.number)}</td><td>${fmtDate(r.createdAt)}</td><td>${t(RETURN_KINDS[r.kind])}</td>
+        <td><span class="kr-badge ${RETURN_STATUS[r.status][1]}">${t(RETURN_STATUS[r.status][0])}</span></td><td class="td-p">${fmtLek(r.total)}</td></tr>`).join('')
+      || `<tr><td colspan="5" class="no-data">-</td></tr>`;
     $('sp-amount').value = '';
     $('sp-note').value = '';
     $('sp-date').value = new Date().toISOString().slice(0, 10);
@@ -3108,6 +3120,8 @@ function showInventoryTab(tab) {
   document.querySelectorAll('.inv-tab').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   document.querySelectorAll('.inv-panel').forEach(p => p.classList.toggle('hidden', p.id !== 'inv-' + tab));
   if (tab === 'reorder') loadReorder();
+  if (tab === 'orders') loadOrders();
+  if (tab === 'returns') loadReturns();
   if (tab === 'expiring') loadExpiring();
   if (tab === 'count') loadCount();
 }
@@ -3118,15 +3132,18 @@ async function loadReorder() {
   try {
     const res = await req('GET', '/inventory/reorder');
     const groups = res.data || [];
-    box.innerHTML = groups.length ? groups.map(g => `
+    lastReorderGroups = groups;
+    box.innerHTML = groups.length ? groups.map((g, gi) => `
       <div class="reorder-group">
-        <h3>${esc(g.supplierName || t('No supplier yet'))} — ${t('estimated {amount}', { amount: fmtLek(g.estimatedTotal) })}</h3>
+        <div class="reorder-head"><h3>${esc(g.supplierName || t('No supplier yet'))} — ${t('estimated {amount}', { amount: fmtLek(g.estimatedTotal) })}</h3>
+          <button class="btn btn-primary btn-sm" onclick="createOrderFromReorder(${gi})">${t('Create order')}</button></div>
         <div class="tbl-wrap"><table>
           <thead><tr><th>${t('Product')}</th><th>${t('Barcode')}</th><th>${t('Stock')}</th><th>${t('Minimum stock')}</th><th>${t('To order')}</th><th>${t('Last cost')}</th><th>${t('Total')}</th></tr></thead>
           <tbody>${g.lines.map(l => `
             <tr><td><strong>${esc(l.productName)}</strong></td><td class="td-m">${esc(l.barcode)}</td>
               <td><span class="badge b-amber">${fmtQty(l.stock, l.unit)}</span></td><td class="td-m">${fmtQty(l.minStock, l.unit)}</td>
-              <td><strong>${fmtQty(l.suggestedQuantity, l.unit)} ${esc(unitLabel(l.unit))}</strong></td>
+              <td><strong>${fmtQty(l.suggestedQuantity, l.unit)} ${esc(unitLabel(l.unit))}</strong>
+                ${parseFloat(l.onOrder) > 0 ? `<div class="wh-sub">${t('{qty} already ordered', { qty: fmtQty(l.onOrder, l.unit) })}</div>` : ''}</td>
               <td class="td-p">${fmtLek(l.lastPurchasePrice)}</td><td class="td-p">${fmtLek(l.estimatedCost)}</td></tr>`).join('')}
           </tbody></table></div>
       </div>`).join('') : `<p class="no-data">${t('Nothing to reorder: every product is above its minimum stock.')}</p>`;
@@ -3219,7 +3236,8 @@ async function cancelCount() {
 
 /* Stock adjustment from the product list */
 const ADJUST_REASONS = { DAMAGED: 'Damaged', EXPIRED: 'Expired', LOST: 'Lost / stolen', INTERNAL_USE: 'Internal use',
-  COUNT_CORRECTION: 'Stock count', OTHER: 'Other', OPENING_STOCK: 'Opening stock' };
+  COUNT_CORRECTION: 'Stock count', OTHER: 'Other', OPENING_STOCK: 'Opening stock', SUPPLIER_RETURN: 'Returned to supplier',
+  REPLACEMENT: 'Replacement received' };
 
 async function openAdjust(productId) {
   const p = allProdTable.find(x => x.id === productId) || (productCard?.product.id === productId ? productCard.product : null);
@@ -3663,6 +3681,11 @@ const CASH_REASON_PREFIXES = [
   ['Shpenzim / expense: ', 'Expense'],
   ['Pagesë borxhi / debt payment: ', 'Debt payment']
 ];
+
+/* "1 rresht", "2 rreshta": the singular is its own text. */
+function linesText(count) {
+  return Number(count) === 1 ? t('1 line') : t('{count} lines', { count });
+}
 
 function cashReasonText(reason) {
   const hit = CASH_REASON_PREFIXES.find(([prefix]) => (reason || '').startsWith(prefix));
@@ -4130,7 +4153,7 @@ function kartelaPrintHtml() {
   const unit = esc(unitLabel(p.unit));
   const stock = parseFloat(p.stock);
   const period = t('{days} days', { days: a.days });
-  const shop = shopSettings?.shopName || $('sb-shop-name')?.textContent || '';
+  const shop = shopSettings?.name || $('sb-shop-name')?.textContent || '';
   const cell = (label, value, sub = '') => `<div class="kp-cell"><span>${label}</span><strong>${value}</strong>${sub ? `<small>${sub}</small>` : ''}</div>`;
   const table = (header, rows, empty) => `<table><thead><tr>${header.map(h => `<th>${h}</th>`).join('')}</tr></thead>
     <tbody>${rows.length ? rows.map(r => `<tr>${r.map(v => `<td>${v}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${header.length}" class="kp-empty">${empty}</td></tr>`}</tbody></table>`;
@@ -4544,7 +4567,7 @@ function renderPurchaseBook() {
   $('ac-body').innerHTML = bookTotals(b) + `<section class="kr-card"><header><h2>${t('Purchase book')} · ${esc(monthName(accountingData.month))}</h2>
       <p>${t('Purchase invoices by their date, by VAT rate')}</p></header>
     <div class="tbl-wrap ac-book"><table><thead><tr><th>${t('Date')}</th><th>${t('Invoice')}</th><th>${t('Supplier')}</th><th>NIPT</th>${rateHeaders(b.rates)}</tr></thead>
-      <tbody>${b.invoices.length ? b.invoices.map(r => `<tr><td>${formatDay(r.date)}</td><td class="td-m">${esc(r.invoice)}</td><td>${esc(r.supplier || '')}</td>
+      <tbody>${b.invoices.length ? b.invoices.map(r => `<tr class="${r.kind === 'CREDIT' ? 'ac-refund' : ''}"><td>${formatDay(r.date)}</td><td class="td-m">${esc(r.invoice)}${r.kind === 'CREDIT' ? ` <span class="kr-badge bad">${t('Credit note')}</span>` : ''}</td><td>${esc(r.supplier || '')}</td>
           <td class="td-m">${r.taxNumber ? esc(r.taxNumber) : `<span class="t-muted" title="${esc(t('Add the NIPT of the supplier in Suppliers'))}">-</span>`}</td>${rateCells(r.rates, r.base, r.vat, r.total)}</tr>`).join('')
         : `<tr><td colspan="${7 + b.rates.length * 2}" class="no-data">${t('No purchase invoices in this month.')}</td></tr>`}</tbody>
       <tfoot><tr><td>${t('Total')}</td><td class="num">${b.invoices.length}</td><td></td><td></td>${rateCells(b.totals, b.base, b.vat, b.total)}</tr></tfoot></table></div></section>`;
@@ -4578,4 +4601,528 @@ function renderStockValue() {
         ${products.length > 300 ? `<p class="input-hint">${t('The first {count} are shown; the Excel file has all of them.', { count: 300 })}</p>` : ''}
       </section>
     </div>`;
+}
+
+/*  Porositë te furnitorët: orders sent to suppliers by WhatsApp or Viber  */
+const ORDER_STATUS = { OPEN: ['Being prepared', 'warn'], SENT: ['Sent', 'info'], RECEIVED: ['Received', 'good'], CANCELLED: ['Cancelled', ''] };
+let orderFilter = 'ACTIVE';
+let ordersCache = [];
+let lastReorderGroups = [];
+let orderDraft = null;
+
+function setOrderFilter(status) {
+  orderFilter = status;
+  document.querySelectorAll('#ord-filter .btn').forEach(b => b.classList.toggle('on', b.dataset.s === status));
+  loadOrders();
+}
+
+async function loadOrders() {
+  const box = $('orders-list');
+  box.innerHTML = `<p class="no-data">${t('Loading...')}</p>`;
+  try {
+    ordersCache = (await req('GET', `/purchase-orders?status=${encodeURIComponent(orderFilter)}`)).data || [];
+    box.innerHTML = ordersCache.length ? ordersCache.map(o => {
+      const [label, tone] = ORDER_STATUS[o.status];
+      const open = o.status === 'OPEN' || o.status === 'SENT';
+      return `<div class="ord-card">
+        <div class="ord-card-main" onclick="openOrder(${o.id})">
+          <div><strong>${esc(o.supplierName)}</strong> <span class="kr-badge ${tone}">${t(label)}</span></div>
+          <div class="wh-sub">${esc(o.number)} · ${linesText(o.lineCount)} · ${fmtDate(o.createdAt)}${o.sentAt ? ` · ${t('sent')} ${fmtDate(o.sentAt)}` : ''}${o.closedAt ? ` · ${esc(o.closedBy || '')} ${fmtDate(o.closedAt)}` : ''}</div>
+          ${o.note ? `<div class="wh-sub">${esc(o.note)}</div>` : ''}
+        </div>
+        <strong class="ord-card-total">${fmtLek(o.total)}</strong>
+        <div class="ord-card-actions">
+          <button class="btn btn-secondary btn-sm" onclick="openOrder(${o.id})">${t('Open the order')}</button>
+          ${open ? `<button class="btn btn-secondary btn-sm" onclick="sendOrderBy(${o.id}, 'whatsapp')">WhatsApp</button>
+            <button class="btn btn-primary btn-sm" onclick="closeOrder(${o.id}, 'received')">${t('Mark received')}</button>` : ''}
+        </div>
+      </div>`;
+    }).join('') : `<p class="no-data">${orderFilter === 'ACTIVE' ? t('No orders waiting for goods.') : t('No orders.')}</p>`;
+  } catch (e) { box.innerHTML = `<p class="no-data" style="color:var(--red)">${esc(e.message)}</p>`; }
+}
+
+/* The reorder list of one supplier becomes a new order (not saved until Save or Send). */
+async function createOrderFromReorder(index) {
+  const g = lastReorderGroups[index];
+  const lines = g.lines.filter(l => parseFloat(l.suggestedQuantity) > 0);
+  if (!lines.length) { toast(t('Everything in this group is already on order.'), 'info'); return; }
+  orderDraft = { id: null, status: 'OPEN', supplierId: g.supplierId, note: '', lines: [] };
+  for (const l of lines) {
+    orderDraft.lines.push({ productId: l.productId, productName: l.productName, barcode: l.barcode, unit: l.unit, stock: l.stock,
+      packageId: null, quantity: parseFloat(l.suggestedQuantity), piecePrice: parseFloat(l.lastPurchasePrice), price: parseFloat(l.lastPurchasePrice), boxes: null });
+  }
+  await showOrderModal();
+}
+
+async function openOrder(id) {
+  try {
+    if (!id) {
+      orderDraft = { id: null, status: 'OPEN', supplierId: null, note: '', lines: [] };
+    } else {
+      const o = (await req('GET', `/purchase-orders/${id}`)).data;
+      orderDraft = { id: o.id, number: o.number, status: o.status, supplierId: o.supplierId, note: o.note || '', createdAt: o.createdAt,
+        lines: o.lines.map(l => ({ productId: l.productId, productName: l.productName, barcode: l.barcode, unit: l.unit, stock: l.stock,
+          packageId: l.packageId, quantity: parseFloat(l.quantity), price: parseFloat(l.price),
+          piecePrice: l.packageId ? parseFloat(l.price) / l.pieces : parseFloat(l.price), boxes: null })) };
+    }
+    await showOrderModal();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function showOrderModal() {
+  try {
+    if (!allSuppliers.length) allSuppliers = (await req('GET', '/suppliers')).data || [];
+    await Promise.all(orderDraft.lines.map(loadLineBoxes));
+  } catch (e) { toast(e.message, 'error'); }
+  const editable = orderDraft.status === 'OPEN' || orderDraft.status === 'SENT';
+  $('ord-supplier').innerHTML = `<option value="">${t('Choose the supplier')}</option>` + allSuppliers
+    .filter(s => s.active || s.id === orderDraft.supplierId).map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  $('ord-supplier').value = orderDraft.supplierId || '';
+  $('ord-note').value = orderDraft.note || '';
+  $('ord-supplier').disabled = !editable;
+  $('ord-note').disabled = !editable;
+  document.querySelector('.ord-search').classList.toggle('hidden', !editable);
+  renderOrderLines();
+  openModal('modal-order');
+  if (editable) setTimeout(() => $('ord-search').focus(), 60);
+}
+
+async function loadLineBoxes(line) {
+  if (line.boxes) return;
+  line.boxes = line.unit === 'pcs' ? ((await req('GET', `/warehouse/products/${line.productId}/packages`)).data || []).filter(b => b.active || b.id === line.packageId) : [];
+}
+
+function renderOrderLines() {
+  const d = orderDraft;
+  const editable = d.status === 'OPEN' || d.status === 'SENT';
+  const [label, tone] = ORDER_STATUS[d.status];
+  $('ord-title').innerHTML = d.id ? `${t('Order')} ${esc(d.number)} <span class="kr-badge ${tone}">${t(label)}</span>` : t('New order');
+  const dis = editable ? '' : 'disabled';
+  $('ord-lines').innerHTML = d.lines.length ? d.lines.map((l, i) => {
+    const box = l.boxes?.find(b => b.id === l.packageId);
+    return `<tr>
+      <td><strong>${esc(l.productName)}</strong><div class="wh-sub td-m">${esc(l.barcode)}</div></td>
+      <td class="td-m">${fmtQty(l.stock, l.unit)}</td>
+      <td>${l.boxes && l.boxes.length ? `<select class="input ord-in" ${dis} onchange="setOrderBox(${i}, this.value)">
+          <option value="">${esc(unitLabel(l.unit))}</option>${l.boxes.map(b => `<option value="${b.id}" ${b.id === l.packageId ? 'selected' : ''}>${esc(b.name)} (${b.pieces})</option>`).join('')}
+        </select>` : esc(unitLabel(l.unit))}</td>
+      <td><input class="input ord-in ord-qty" type="number" min="0" step="${l.unit === 'kg' && !box ? '0.001' : '1'}" value="${l.quantity}" ${dis}
+          oninput="orderDraft.lines[${i}].quantity = parseFloat(this.value) || 0; renderOrderTotal()" />
+        ${box ? `<div class="wh-sub">= ${fmtQty(l.quantity * box.pieces, 'pcs')} ${esc(unitLabel('pcs'))}</div>` : ''}</td>
+      <td><input class="input ord-in ord-price" type="number" min="0" step="0.01" value="${l.price.toFixed(2)}" ${dis}
+          oninput="orderDraft.lines[${i}].price = parseFloat(this.value) || 0; renderOrderTotal()" /></td>
+      <td class="td-p" id="ord-line-total-${i}">${fmtLek(l.quantity * l.price)}</td>
+      <td>${editable ? `<button class="btn btn-ghost btn-sm" onclick="orderDraft.lines.splice(${i}, 1); renderOrderLines()">x</button>` : ''}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="7" class="no-data">${t('Search a product above to add it.')}</td></tr>`;
+  renderOrderTotal();
+  renderOrderActions();
+}
+
+function renderOrderTotal() {
+  orderDraft.lines.forEach((l, i) => { const cell = $('ord-line-total-' + i); if (cell) cell.textContent = fmtLek(l.quantity * l.price); });
+  const total = orderDraft.lines.reduce((s, l) => s + l.quantity * l.price, 0);
+  $('ord-total').innerHTML = `${linesText(orderDraft.lines.length)} · ${t('Estimated total')} <strong>${fmtLek(total)}</strong>`;
+}
+
+function setOrderBox(index, value) {
+  const l = orderDraft.lines[index];
+  const box = l.boxes.find(b => String(b.id) === value);
+  if (box) {
+    if (!l.packageId) l.quantity = Math.max(1, Math.ceil(l.quantity / box.pieces));
+    l.packageId = box.id;
+    l.price = Math.round(l.piecePrice * box.pieces * 100) / 100;
+  } else {
+    const pieces = l.boxes.find(b => b.id === l.packageId)?.pieces || 1;
+    l.quantity = l.quantity * pieces;
+    l.packageId = null;
+    l.price = l.piecePrice;
+  }
+  renderOrderLines();
+}
+
+function renderOrderActions() {
+  const d = orderDraft;
+  const editable = d.status === 'OPEN' || d.status === 'SENT';
+  const b = (cls, onclick, text) => `<button class="btn ${cls}" onclick="${onclick}">${text}</button>`;
+  $('ord-actions').innerHTML = editable
+    ? `<div class="ord-foot-left">${d.id ? b('btn-ghost kr-danger-text', 'cancelOrderFromModal()', t('Cancel order')) : ''}</div>
+       ${b('btn-secondary', "sendOrder('copy')", t('Copy text'))}
+       ${b('btn-secondary', "sendOrder('print')", t('Print'))}
+       ${b('btn-secondary', "sendOrder('viber')", 'Viber')}
+       ${b('btn-secondary', "sendOrder('whatsapp')", 'WhatsApp')}
+       ${b('btn-primary', 'saveOrder()', t('Save'))}
+       ${d.id ? b('btn-primary', 'receiveOrderFromModal()', t('Mark received')) : ''}`
+    : `${b('btn-secondary', "sendOrder('print')", t('Print'))}${b('btn-secondary', "closeModal('modal-order')", t('Close'))}`;
+}
+
+/* Product search inside the order window. */
+let _ordSearchTmr;
+let orderResults = [];
+let orderResultIndex = -1;
+
+function onOrderSearch(value) {
+  clearTimeout(_ordSearchTmr);
+  const text = value.trim();
+  if (!text) { hideOrderResults(); return; }
+  _ordSearchTmr = setTimeout(async () => {
+    try {
+      const res = /^\d{6,}$/.test(text)
+        ? { data: [await req('GET', `/products/scan/${encodeURIComponent(text)}`).then(r => r.data.product).catch(() => null)].filter(Boolean) }
+        : await req('GET', `/products/search?query=${encodeURIComponent(text)}`);
+      if ($('ord-search').value.trim() !== text) return;
+      orderResults = (res.data || []).slice(0, 10);
+      orderResultIndex = orderResults.length ? 0 : -1;
+      $('ord-results').innerHTML = orderResults.length ? orderResults.map((p, i) => `
+        <div class="sr-item ${i === orderResultIndex ? 'on' : ''}" onmousedown="event.preventDefault(); addOrderProduct(${i})">
+          <span class="sr-main"><span class="sr-name">${esc(p.name)}</span><span class="sr-code">${esc(p.barcode)}</span></span>
+          <span class="sr-stock">${fmtQty(p.stock, p.unit)} ${esc(unitLabel(p.unit))}</span>
+          <span class="sr-price">${fmtLek(p.purchasePrice)}</span>
+        </div>`).join('') : `<div class="sr-empty">${t('No products found')}</div>`;
+      $('ord-results').classList.remove('hidden');
+    } catch {}
+  }, 250);
+}
+
+function hideOrderResults() {
+  orderResults = [];
+  $('ord-results')?.classList.add('hidden');
+}
+
+function onOrderSearchKey(event) {
+  if (!orderResults.length) return;
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    orderResultIndex = (orderResultIndex + (event.key === 'ArrowDown' ? 1 : -1) + orderResults.length) % orderResults.length;
+    document.querySelectorAll('#ord-results .sr-item').forEach((el, i) => el.classList.toggle('on', i === orderResultIndex));
+  } else if (event.key === 'Enter') {
+    event.preventDefault();
+    addOrderProduct(orderResultIndex);
+  }
+}
+
+async function addOrderProduct(index) {
+  const p = orderResults[index];
+  if (!p) return;
+  hideOrderResults();
+  $('ord-search').value = '';
+  if (orderDraft.lines.some(l => l.productId === p.id)) { toast(t('This product is already on the order.'), 'info'); return; }
+  const line = { productId: p.id, productName: p.name, barcode: p.barcode, unit: p.unit, stock: p.stock, packageId: null, quantity: 1,
+    piecePrice: parseFloat(p.purchasePrice), price: parseFloat(p.purchasePrice), boxes: null };
+  try { await loadLineBoxes(line); } catch { line.boxes = []; }
+  orderDraft.lines.push(line);
+  renderOrderLines();
+  setTimeout(() => document.querySelectorAll('.ord-qty')[orderDraft.lines.length - 1]?.select(), 30);
+}
+
+/* Saving and sending */
+async function saveOrder(quiet = false) {
+  const d = orderDraft;
+  d.supplierId = Number($('ord-supplier').value) || null;
+  d.note = $('ord-note').value.trim();
+  const body = { supplierId: d.supplierId, note: d.note,
+    lines: d.lines.map(l => ({ productId: l.productId, packageId: l.packageId, quantity: l.quantity, price: l.price })) };
+  try {
+    const res = d.id ? await req('PUT', `/purchase-orders/${d.id}`, body) : await req('POST', '/purchase-orders', body);
+    d.id = res.data.id;
+    d.number = res.data.number;
+    d.status = res.data.status;
+    d.saved = res.data;
+    if (!quiet) toast(t('Order saved'), 'success');
+    renderOrderLines();
+    if (currentInventoryTab === 'orders') loadOrders();
+    if (currentInventoryTab === 'reorder') loadReorder();
+    return res.data;
+  } catch (e) { toast(e.message, 'error'); return null; }
+}
+
+/* The message for the supplier, in the language of the screen. */
+function orderMessage(o) {
+  const shop = shopSettings?.name || $('sb-shop-name')?.textContent || '';
+  const lines = o.lines.map((l, i) => {
+    const what = l.packageId ? `${parseFloat(l.quantity)} x ${l.packageName} (${fmtQty(l.pieceQuantity, 'pcs')} ${unitLabel('pcs')})`
+      : `${fmtQty(l.quantity, l.unit)} ${unitLabel(l.unit)}`;
+    return `${i + 1}. ${l.productName} - ${what}`;
+  });
+  return [t('Hello!'), t('Order from {shop} (no. {number}):', { shop, number: o.number }), '', ...lines, '',
+    o.note ? `${t('Note')}: ${o.note}` : null, shopSettings?.phone ? `${t('Phone')}: ${shopSettings.phone}` : null, t('Thank you!')]
+    .filter(x => x !== null).join('\n');
+}
+
+/* Albanian mobile numbers (069...) become 35569... for WhatsApp links. */
+function whatsappNumber(phone) {
+  let digits = (phone || '').replace(/[^\d+]/g, '');
+  if (digits.startsWith('+')) digits = digits.slice(1);
+  else if (digits.startsWith('00')) digits = digits.slice(2);
+  else if (digits.startsWith('0')) digits = '355' + digits.slice(1);
+  return digits.length >= 8 ? digits : '';
+}
+
+async function sendOrder(how) {
+  const editable = orderDraft.status === 'OPEN' || orderDraft.status === 'SENT';
+  const o = editable ? await saveOrder(true) : (await req('GET', `/purchase-orders/${orderDraft.id}`)).data;
+  if (!o) return;
+  await deliverOrder(o, how);
+}
+
+async function sendOrderBy(id, how) {
+  try { await deliverOrder((await req('GET', `/purchase-orders/${id}`)).data, how); } catch (e) { toast(e.message, 'error'); }
+}
+
+async function deliverOrder(o, how) {
+  const text = orderMessage(o);
+  if (how === 'print') { printOrder(o); }
+  else if (how === 'copy') {
+    try { await navigator.clipboard.writeText(text); toast(t('Order copied: paste it in the chat with the supplier.'), 'success'); }
+    catch { window.prompt(t('Copy the order:'), text); }
+  } else if (how === 'whatsapp') {
+    window.open(`https://wa.me/${whatsappNumber(o.supplierPhone)}?text=${encodeURIComponent(text)}`, '_blank');
+  } else if (how === 'viber') {
+    try { await navigator.clipboard.writeText(text); } catch {}
+    window.location.href = `viber://forward?text=${encodeURIComponent(text)}`;
+    toast(t('Viber opens with the order; it is also copied, in case Viber does not fill it in.'), 'info');
+  }
+  if (o.status === 'OPEN') {
+    try {
+      const res = await req('POST', `/purchase-orders/${o.id}/sent`);
+      if (orderDraft && orderDraft.id === o.id) { orderDraft.status = res.data.status; renderOrderLines(); }
+    } catch {}
+  }
+  if (currentInventoryTab === 'orders') loadOrders();
+}
+
+async function closeOrder(id, action) {
+  const o = ordersCache.find(x => x.id === id) || orderDraft;
+  const question = action === 'received' ? t('Did the goods of this order arrive? Enter the supplier\'s invoice in Purchases as usual.')
+    : t('Cancel this order?');
+  if (!confirm(`${question}\n\n${o.number || ''} · ${o.supplierName || ''}`)) return false;
+  try {
+    await req('POST', `/purchase-orders/${id}/${action === 'received' ? 'received' : 'cancel'}`);
+    toast(action === 'received' ? t('Order marked as received') : t('Order cancelled'), 'success');
+    loadOrders();
+    return true;
+  } catch (e) { toast(e.message, 'error'); return false; }
+}
+
+async function receiveOrderFromModal() {
+  if (await closeOrder(orderDraft.id, 'received')) closeModal('modal-order');
+}
+
+async function cancelOrderFromModal() {
+  if (await closeOrder(orderDraft.id, 'cancel')) closeModal('modal-order');
+}
+
+/* A4 order sheet, e.g. to give to the supplier's agent. */
+function printOrder(o) {
+  const shop = shopSettings || {};
+  let sheet = $('order-print');
+  if (!sheet) {
+    sheet = document.createElement('div');
+    sheet.id = 'order-print';
+    document.body.appendChild(sheet);
+  }
+  sheet.innerHTML = `
+    <header class="kp-head"><div><div class="kp-shop">${esc(shop.name || '')}${shop.address ? ' · ' + esc(shop.address) : ''}${shop.phone ? ' · ' + esc(shop.phone) : ''}</div>
+      <h1>${t('Order')} ${esc(o.number)}</h1><div class="kp-meta">${t('Supplier')}: <strong>${esc(o.supplierName)}</strong>${o.supplierPhone ? ' · ' + esc(o.supplierPhone) : ''} · ${fmtDate(o.createdAt)}</div></div></header>
+    <table><thead><tr><th>#</th><th>${t('Product')}</th><th>${t('Barcode')}</th><th>${t('Quantity')}</th><th>${t('Price')}</th><th>${t('Total')}</th></tr></thead>
+      <tbody>${o.lines.map((l, i) => `<tr><td>${i + 1}</td><td>${esc(l.productName)}</td><td>${esc(l.barcode)}</td>
+        <td>${l.packageId ? `${parseFloat(l.quantity)} x ${esc(l.packageName)} (${fmtQty(l.pieceQuantity, 'pcs')})` : `${fmtQty(l.quantity, l.unit)} ${esc(unitLabel(l.unit))}`}</td>
+        <td>${fmtLek(l.price)}</td><td>${fmtLek(l.total)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td colspan="5"><strong>${t('Estimated total')}</strong></td><td><strong>${fmtLek(o.total)}</strong></td></tr></tfoot></table>
+    ${o.note ? `<p class="op-note"><strong>${t('Note')}:</strong> ${esc(o.note)}</p>` : ''}
+    <footer class="kp-foot">${t('Printed')} ${fmtDate(new Date().toISOString())} · ${esc(currentUser?.fullName || '')}</footer>`;
+  document.body.classList.add('print-order');
+  const done = () => { document.body.classList.remove('print-order'); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  window.print();
+}
+
+/*  Kthimet te furnitorët: goods given back to a supplier  */
+const RETURN_KINDS = { CREDIT: 'Credit note', REPLACEMENT: 'Replacement' };
+const RETURN_STATUS = { DONE: ['Taken off the debt', 'good'], PENDING: ['Waiting for replacement', 'warn'], REPLACED: ['Replaced', 'good'] };
+const RETURN_REASONS = { DAMAGED: 'Damaged', EXPIRED: 'Expired', WRONG: 'Wrong goods', OTHER: 'Other' };
+let returnPendingOnly = false;
+let returnsCache = [];
+let returnDraft = null;
+
+function setReturnFilter(pending) {
+  returnPendingOnly = pending;
+  document.querySelectorAll('#ret-filter .btn').forEach(b => b.classList.toggle('on', b.dataset.p === String(pending)));
+  loadReturns();
+}
+
+async function loadReturns() {
+  const box = $('returns-list');
+  box.innerHTML = `<p class="no-data">${t('Loading...')}</p>`;
+  try {
+    returnsCache = (await req('GET', `/supplier-returns?pending=${returnPendingOnly}`)).data || [];
+    box.innerHTML = returnsCache.length ? returnsCache.map(r => {
+      const [label, tone] = RETURN_STATUS[r.status];
+      return `<div class="ord-card">
+        <div class="ord-card-main" onclick="openReturn(${r.id})">
+          <div><strong>${esc(r.supplierName)}</strong> <span class="kr-badge ${tone}">${t(label)}</span></div>
+          <div class="wh-sub">${esc(r.number)} · ${t(RETURN_KINDS[r.kind])} · ${t(RETURN_REASONS[r.reason])} · ${linesText(r.lines.length)} · ${fmtDate(r.createdAt)}${r.replacedAt ? ` · ${t('replaced')} ${fmtDate(r.replacedAt)}` : ''}</div>
+          ${r.note ? `<div class="wh-sub">${esc(r.note)}</div>` : ''}
+        </div>
+        <strong class="ord-card-total">${fmtLek(r.total)}</strong>
+        <div class="ord-card-actions">
+          <button class="btn btn-secondary btn-sm" onclick="openReturn(${r.id})">${t('Details')}</button>
+          ${r.status === 'PENDING' ? `<button class="btn btn-primary btn-sm" onclick="replacementReceived(${r.id})">${t('Replacement received')}</button>` : ''}
+        </div>
+      </div>`;
+    }).join('') : `<p class="no-data">${returnPendingOnly ? t('Nothing is waiting for replacement.') : t('No returns to suppliers yet.')}</p>`;
+  } catch (e) { box.innerHTML = `<p class="no-data" style="color:var(--red)">${esc(e.message)}</p>`; }
+}
+
+async function openReturn(id) {
+  try {
+    if (!allSuppliers.length) allSuppliers = (await req('GET', '/suppliers')).data || [];
+    if (id) {
+      const r = (await req('GET', `/supplier-returns/${id}`)).data;
+      returnDraft = { ...r, saved: true, lines: r.lines.map(l => ({ ...l, quantity: parseFloat(l.quantity), price: parseFloat(l.price) })) };
+    } else {
+      returnDraft = { saved: false, supplierId: null, kind: 'CREDIT', reason: 'DAMAGED', note: '', lines: [] };
+    }
+  } catch (e) { toast(e.message, 'error'); return; }
+  const d = returnDraft;
+  $('ret-supplier').innerHTML = `<option value="">${t('Choose the supplier')}</option>` + allSuppliers
+    .filter(s => s.active || s.id === d.supplierId).map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  $('ret-supplier').value = d.supplierId || '';
+  $('ret-reason').value = d.reason;
+  $('ret-note').value = d.note || '';
+  ['ret-supplier', 'ret-reason', 'ret-note'].forEach(x => $(x).disabled = d.saved);
+  $('ret-search-wrap').classList.toggle('hidden', d.saved);
+  setReturnKind(d.kind);
+  openModal('modal-return');
+  if (!d.saved) setTimeout(() => $('ret-supplier').focus(), 60);
+}
+
+function setReturnKind(kind) {
+  if (!returnDraft.saved) returnDraft.kind = kind;
+  document.querySelectorAll('.ret-kind').forEach(b => {
+    b.classList.toggle('on', b.dataset.k === returnDraft.kind);
+    b.disabled = returnDraft.saved;
+  });
+  renderReturnLines();
+}
+
+function renderReturnLines() {
+  const d = returnDraft;
+  if (d.saved) {
+    const [label, tone] = RETURN_STATUS[d.status];
+    $('ret-title').innerHTML = `${t('Return')} ${esc(d.number)} <span class="kr-badge ${tone}">${t(label)}</span>`;
+  } else {
+    $('ret-title').textContent = t('New return to a supplier');
+  }
+  const dis = d.saved ? 'disabled' : '';
+  $('ret-lines').innerHTML = d.lines.length ? d.lines.map((l, i) => `<tr>
+      <td><strong>${esc(l.productName)}</strong><div class="wh-sub td-m">${esc(l.barcode)}</div></td>
+      <td class="td-m">${l.stock != null ? fmtQty(l.stock, l.unit) : ''}</td>
+      <td><input class="input ord-in ord-qty" type="number" min="0" step="${l.unit === 'kg' ? '0.001' : '1'}" value="${l.quantity}" ${dis}
+          oninput="returnDraft.lines[${i}].quantity = parseFloat(this.value) || 0; renderReturnTotal()" /> ${esc(unitLabel(l.unit))}</td>
+      <td><input class="input ord-in ord-price" type="number" min="0" step="0.01" value="${l.price == null ? '' : l.price}" ${dis}
+          placeholder="${esc(t('last price'))}" oninput="returnDraft.lines[${i}].price = this.value === '' ? null : parseFloat(this.value); renderReturnTotal()" /></td>
+      <td class="td-p" id="ret-line-total-${i}"></td>
+      <td>${d.saved ? '' : `<button class="btn btn-ghost btn-sm" onclick="returnDraft.lines.splice(${i}, 1); renderReturnLines()">x</button>`}</td>
+    </tr>`).join('') : `<tr><td colspan="6" class="no-data">${t('Search a product above to add it.')}</td></tr>`;
+  renderReturnTotal();
+  const b = (cls, onclick, text) => `<button class="btn ${cls}" onclick="${onclick}">${text}</button>`;
+  $('ret-actions').innerHTML = d.saved
+    ? `${d.status === 'PENDING' ? b('btn-primary', `replacementReceived(${d.id}, true)`, t('Replacement received')) : ''}${b('btn-secondary', "closeModal('modal-return')", t('Close'))}`
+    : `${b('btn-secondary', "closeModal('modal-return')", t('Cancel'))}${b('btn-primary', 'saveReturn()', t('Save the return'))}`;
+}
+
+function renderReturnTotal() {
+  let total = 0;
+  returnDraft.lines.forEach((l, i) => {
+    const price = l.price != null ? l.price : (l.defaultPrice || 0);
+    total += price * l.quantity;
+    const cell = $('ret-line-total-' + i);
+    if (cell) cell.textContent = fmtLek(price * l.quantity);
+  });
+  const what = returnDraft.kind === 'CREDIT' ? t('Taken off what you owe') : t('Value of the goods');
+  $('ret-total').innerHTML = `${linesText(returnDraft.lines.length)} · ${what} <strong>${fmtLek(returnDraft.saved ? returnDraft.total : total)}</strong>`;
+}
+
+let _retSearchTmr;
+let returnResults = [];
+let returnResultIndex = -1;
+
+function onReturnSearch(value) {
+  clearTimeout(_retSearchTmr);
+  const text = value.trim();
+  if (!text) { hideReturnResults(); return; }
+  _retSearchTmr = setTimeout(async () => {
+    try {
+      const res = /^\d{6,}$/.test(text)
+        ? { data: [await req('GET', `/products/scan/${encodeURIComponent(text)}`).then(r => r.data.product).catch(() => null)].filter(Boolean) }
+        : await req('GET', `/products/search?query=${encodeURIComponent(text)}`);
+      if ($('ret-search').value.trim() !== text) return;
+      returnResults = (res.data || []).slice(0, 10);
+      returnResultIndex = returnResults.length ? 0 : -1;
+      $('ret-results').innerHTML = returnResults.length ? returnResults.map((p, i) => `
+        <div class="sr-item ${i === returnResultIndex ? 'on' : ''}" onmousedown="event.preventDefault(); addReturnProduct(${i})">
+          <span class="sr-main"><span class="sr-name">${esc(p.name)}</span><span class="sr-code">${esc(p.barcode)}</span></span>
+          <span class="sr-stock">${fmtQty(p.stock, p.unit)} ${esc(unitLabel(p.unit))}</span>
+          <span class="sr-price">${fmtLek(p.purchasePrice)}</span>
+        </div>`).join('') : `<div class="sr-empty">${t('No products found')}</div>`;
+      $('ret-results').classList.remove('hidden');
+    } catch {}
+  }, 250);
+}
+
+function hideReturnResults() {
+  returnResults = [];
+  $('ret-results')?.classList.add('hidden');
+}
+
+function onReturnSearchKey(event) {
+  if (!returnResults.length) return;
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    returnResultIndex = (returnResultIndex + (event.key === 'ArrowDown' ? 1 : -1) + returnResults.length) % returnResults.length;
+    document.querySelectorAll('#ret-results .sr-item').forEach((el, i) => el.classList.toggle('on', i === returnResultIndex));
+  } else if (event.key === 'Enter') {
+    event.preventDefault();
+    addReturnProduct(returnResultIndex);
+  }
+}
+
+function addReturnProduct(index) {
+  const p = returnResults[index];
+  if (!p) return;
+  hideReturnResults();
+  $('ret-search').value = '';
+  if (returnDraft.lines.some(l => l.productId === p.id)) { toast(t('This product is already on the return.'), 'info'); return; }
+  returnDraft.lines.push({ productId: p.id, productName: p.name, barcode: p.barcode, unit: p.unit, stock: p.stock, quantity: 1,
+    price: null, defaultPrice: parseFloat(p.purchasePrice) });
+  renderReturnLines();
+  setTimeout(() => document.querySelectorAll('#ret-lines .ord-qty')[returnDraft.lines.length - 1]?.select(), 30);
+}
+
+async function saveReturn() {
+  const d = returnDraft;
+  const body = { supplierId: Number($('ret-supplier').value) || null, kind: d.kind, reason: $('ret-reason').value,
+    note: $('ret-note').value.trim(), lines: d.lines.map(l => ({ productId: l.productId, quantity: l.quantity, price: l.price })) };
+  const question = d.kind === 'CREDIT'
+    ? t('The goods leave stock now and the amount is taken off what you owe this supplier. Continue?')
+    : t('The goods leave stock now and come back when the replacement arrives. Continue?');
+  if (!confirm(question)) return;
+  try {
+    const res = await req('POST', '/supplier-returns', body);
+    toast(t('Return {number} saved', { number: res.data.number }), 'success');
+    closeModal('modal-return');
+    loadReturns();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function replacementReceived(id, fromModal = false) {
+  const r = returnsCache.find(x => x.id === id) || returnDraft;
+  if (!confirm(`${t('Did the replacement goods arrive? They go back into stock.')}\n\n${r.number} · ${r.supplierName}`)) return;
+  try {
+    await req('POST', `/supplier-returns/${id}/replaced`);
+    toast(t('Replacement received: the goods are back in stock'), 'success');
+    if (fromModal) closeModal('modal-return');
+    loadReturns();
+  } catch (e) { toast(e.message, 'error'); }
 }

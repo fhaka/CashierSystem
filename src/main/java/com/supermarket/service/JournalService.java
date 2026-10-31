@@ -79,6 +79,7 @@ public class JournalService {
             if (types.contains(Type.DEBT_PAYMENT)) debtPayments(range, all);
             if (types.contains(Type.SHIFT_OPEN) || types.contains(Type.SHIFT_CLOSE)) shifts(range, types, all);
             if (types.contains(Type.EXPENSE)) expenses(range, all);
+            if (types.contains(Type.SUPPLIER_RETURN)) supplierReturns(range, all);
         }
         if (types.contains(Type.PRICE_CHANGE)) priceChanges(range, all);
 
@@ -141,6 +142,9 @@ public class JournalService {
                 where a.inventoryCountId is null and a.createdAt >= :from and a.createdAt <= :to""" + r.cashier("c") + r.product("p.id = :productId");
         for (Object[] row : r.run(entityManager.createQuery(jpql, Object[].class))) {
             BigDecimal change = (BigDecimal) row[3];
+            if (row[2] == StockAdjustment.Reason.SUPPLIER_RETURN || row[2] == StockAdjustment.Reason.REPLACEMENT) {
+                continue;   // listed as the return itself (SUPPLIER_RETURN)
+            }
             Type type = row[2] == StockAdjustment.Reason.OPENING_STOCK ? Type.OPENING_STOCK : Type.ADJUSTMENT;
             if (!types.contains(type)) {
                 continue;
@@ -207,6 +211,31 @@ public class JournalService {
         for (Object[] row : r.run(entityManager.createQuery(jpql, Object[].class))) {
             out.add(new Entry(Type.DEBT_PAYMENT, (LocalDateTime) row[1], null, (String) row[2], null, null, null, null, (String) row[4],
                     (String) row[5], negate((BigDecimal) row[3]), null, null, (Long) row[0]));
+        }
+    }
+
+    /**
+     * Returns to suppliers when they were made (number: kind and reason in the note), and the arrival of a replacement.
+     * The amount is the value given back, not money: a credit lowers the debt to the supplier.
+     */
+    private void supplierReturns(Range r, List<Entry> out) {
+        List<Object[]> rows = entityManager.createQuery("""
+                        select sr.id, sr.createdAt, sr.number, s.name, sr.kind, sr.reason, sr.note, c.fullName, sr.totalAmount, size(sr.lines),
+                               sr.replacedAt, rc.fullName, c.id, rc.id
+                        from SupplierReturn sr join sr.supplier s left join sr.createdBy c left join sr.replacedBy rc
+                        where (sr.createdAt >= :from and sr.createdAt <= :to) or (sr.replacedAt >= :from and sr.replacedAt <= :to)""",
+                        Object[].class)
+                .setParameter("from", r.from).setParameter("to", r.to).getResultList();
+        for (Object[] row : rows) {
+            String note = row[4] + " " + row[5] + (row[6] == null ? "" : " - " + row[6]);
+            if (r.covers((LocalDateTime) row[1]) && (r.cashierId == null || r.cashierId.equals(row[12]))) {
+                out.add(new Entry(Type.SUPPLIER_RETURN, (LocalDateTime) row[1], (String) row[2], (String) row[3], null, null, null,
+                        ((Number) row[9]).intValue(), note, (String) row[7], (BigDecimal) row[8], null, null, (Long) row[0]));
+            }
+            if (row[10] != null && r.covers((LocalDateTime) row[10]) && (r.cashierId == null || r.cashierId.equals(row[13]))) {
+                out.add(new Entry(Type.SUPPLIER_RETURN, (LocalDateTime) row[10], (String) row[2], (String) row[3], null, null, null,
+                        ((Number) row[9]).intValue(), "REPLACED", (String) row[11], null, null, null, (Long) row[0]));
+            }
         }
     }
 
@@ -296,7 +325,8 @@ public class JournalService {
         for (Entry e : all) {
             Object[] day = days.computeIfAbsent(e.at().toLocalDate(), d -> new Object[] {0L, BigDecimal.ZERO, BigDecimal.ZERO});
             day[0] = (Long) day[0] + 1;
-            boolean money = e.amount() != null && e.type() != Type.ADJUSTMENT && e.type() != Type.COUNT && e.type() != Type.OPENING_STOCK;
+            boolean money = e.amount() != null && e.type() != Type.ADJUSTMENT && e.type() != Type.COUNT && e.type() != Type.OPENING_STOCK
+                    && e.type() != Type.SUPPLIER_RETURN;
             if (money && e.amount().signum() > 0) {
                 day[1] = ((BigDecimal) day[1]).add(e.amount());
             } else if (money) {

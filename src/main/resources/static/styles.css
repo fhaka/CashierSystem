@@ -1048,3 +1048,50 @@ em.out, .jr-amount.out { color: #B91C1C; }
   body.print-accounting .ac-book, body.print-accounting .kr-table { max-height: none !important; overflow: visible !important; }
 }
 .jt-OPENING_STOCK { --c: #0D9488; }
+
+/* Porositë te furnitorët */
+.reorder-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+.reorder-head h3 { margin: 0; }
+.ord-list { display: flex; flex-direction: column; gap: 8px; }
+.ord-card { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 14px; align-items: center; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: var(--rl); background: var(--bg); }
+.ord-card:hover { border-color: var(--amber); }
+.ord-card-main { cursor: pointer; min-width: 0; }
+.ord-card-total { font-family: var(--mono); white-space: nowrap; }
+.ord-card-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.ord-modal { max-width: 940px; width: 96vw; }
+.ord-search { margin: 6px 0 10px; }
+.ord-search .search-results { z-index: 40; }
+.ord-lines { max-height: 46vh; overflow: auto; }
+.ord-lines td { vertical-align: middle; }
+.ord-in { padding: 6px 8px; font-size: .84rem; }
+.ord-qty { width: 90px; }
+.ord-price { width: 110px; }
+.ord-total { text-align: right; margin-top: 10px; color: var(--muted); }
+.ord-total strong { color: var(--text); font-family: var(--mono); font-size: 1.05rem; }
+.ord-foot { flex-wrap: wrap; }
+.ord-foot-left { margin-right: auto; }
+#order-print { display: none; }
+#order-print, #order-print * { color: #000; }
+#order-print { font-family: var(--sans); font-size: 12px; background: #fff; }
+#order-print h1 { font-family: var(--cond); font-size: 24px; margin: 2px 0 3px; }
+#order-print table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+#order-print th { text-align: left; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #000; padding: 4px; background: none !important; }
+#order-print td { padding: 5px 4px; font-size: 12px; border-top: none; border-bottom: 1px solid #ccc; background: none !important; }
+#order-print tfoot td { border-bottom: none; border-top: 2px solid #000; }
+.op-note { margin-top: 10px; }
+@media print {
+  body.print-order > *:not(#order-print) { display: none !important; }
+  body.print-order { background: #fff !important; min-height: 0 !important; }
+  body.print-order #order-print { display: block; }
+}
+@media (max-width: 760px) { .ord-card { grid-template-columns: 1fr; } .ord-card-actions { justify-content: flex-start; } }
+.jt-SUPPLIER_RETURN { --c: #EA580C; }
+.ret-kinds { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 4px 0 12px; }
+.ret-kind { text-align: left; padding: 12px 14px; border-radius: var(--rl); border: 2px solid var(--border); background: var(--bg); cursor: pointer;
+  font-family: var(--sans); display: flex; flex-direction: column; gap: 4px; color: var(--text); }
+.ret-kind small { color: var(--muted); font-size: .76rem; }
+.ret-kind.on { border-color: var(--amber); background: var(--amber-lo); }
+.ret-kind:disabled { cursor: default; opacity: .8; }
+.sd-returns { margin-top: 16px; }
+@media (max-width: 760px) { .ret-kinds { grid-template-columns: 1fr; } }

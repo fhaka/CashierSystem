@@ -217,7 +217,7 @@ class ApprovalsRefundsAuditTest extends IntegrationTest {
         postJson("/auth/login", null, Map.of("username", "nobody", "password", "x")).andExpect(status().isBadRequest());
         long product = createProduct(admin, "600000000008", "10.00", 5);
         putJson("/products/" + product, manager, Map.of("name", "Produkt 600000000008", "barcode", "600000000008",
-                "price", "12.00", "purchasePrice", "50.00", "taxRate", "20", "stock", 5, "unit", "pcs", "categoryId", 7))
+                "price", "12.00", "purchasePrice", "50.00", "taxRate", "20", "unit", "pcs", "categoryId", 7))
                 .andExpect(status().isOk());
 
         getJson("/audit", manager).andExpect(status().isForbidden());

@@ -68,28 +68,6 @@ public class StockService {
         return apply(product, change, reason, request.note(), null, actor);
     }
 
-    /**
-     * Sets a product's stock to a counted number (from a product file import), recorded as a stock count
-     * correction. Nothing is recorded when the number is already right.
-     */
-    @Transactional
-    public void correctTo(Long productId, BigDecimal counted, String note, Cashier actor) {
-        Product product = lock(productId);
-        BigDecimal target = Quantities.requireStock(counted, product.getUnit());
-        BigDecimal change = target.subtract(product.getStock());
-        if (change.signum() != 0) {
-            apply(product, change, StockAdjustment.Reason.COUNT_CORRECTION, note, null, actor);
-        }
-    }
-
-    /** A new product's stock is recorded as its opening stock, so its history starts at zero. */
-    @Transactional
-    public void openingStock(Product product, BigDecimal stock, Cashier actor) {
-        if (stock != null && stock.signum() > 0) {
-            apply(product, stock, StockAdjustment.Reason.OPENING_STOCK, null, null, actor);
-        }
-    }
-
     /** Changes the stock of a locked product and records why. Used by adjustments and stock counts. */
     StockAdjustment apply(Product product, BigDecimal change, StockAdjustment.Reason reason, String note, Long countId, Cashier actor) {
         BigDecimal newStock = product.getStock().add(change);

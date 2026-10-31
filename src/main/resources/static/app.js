@@ -2277,7 +2277,6 @@ async function submitProd() {
     taxRate:      parseFloat($('pm-tax').value),
     unit:         $('pm-unit').value,
     price:        parseFloat($('pm-price').value),
-    stock:        id ? null : 0,
     categoryName: $('pm-cat').value,
     minStock:     $('pm-min').value === '' ? null : parseQuantity($('pm-min').value),
     reorderQuantity: $('pm-reorder').value === '' ? null : parseQuantity($('pm-reorder').value),

@@ -21,7 +21,8 @@ import java.time.LocalDateTime;
 @Table(name = "stock_adjustments")
 public class StockAdjustment {
 
-    public enum Reason { DAMAGED, EXPIRED, LOST, INTERNAL_USE, COUNT_CORRECTION, OTHER }
+    /** OPENING_STOCK: the stock a product was created with (or, for older products, worked out once). Not a loss. */
+    public enum Reason { DAMAGED, EXPIRED, LOST, INTERNAL_USE, COUNT_CORRECTION, OTHER, OPENING_STOCK }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -55,6 +56,10 @@ public class StockAdjustment {
 
     private Long inventoryCountId;
 
+    /** Cost per unit when the stock changed, so a loss keeps the value of that day. Null for adjustments made before 1.4. */
+    @Column(precision = 10, scale = 2)
+    private BigDecimal unitCost;
+
     protected StockAdjustment() {
     }
 
@@ -68,6 +73,7 @@ public class StockAdjustment {
         this.note = note;
         this.inventoryCountId = inventoryCountId;
         this.createdAt = createdAt;
+        this.unitCost = product.getPurchasePrice();
     }
 
     public Long getId() {
@@ -104,6 +110,10 @@ public class StockAdjustment {
 
     public String getNote() {
         return note;
+    }
+
+    public BigDecimal getUnitCost() {
+        return unitCost;
     }
 
     public Long getInventoryCountId() {

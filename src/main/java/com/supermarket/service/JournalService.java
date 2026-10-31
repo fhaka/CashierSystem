@@ -4,6 +4,8 @@ import com.supermarket.dto.Journal;
 import com.supermarket.dto.Journal.Entry;
 import com.supermarket.dto.Journal.Type;
 import com.supermarket.exception.ValidationException;
+import com.supermarket.model.PurchaseInvoice;
+import com.supermarket.model.StockAdjustment;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.TypedQuery;
 import org.springframework.stereotype.Service;
@@ -69,7 +71,7 @@ public class JournalService {
         if (types.contains(Type.SALE)) sales(range, all);
         if (types.contains(Type.REFUND)) refunds(range, all);
         if (types.contains(Type.PURCHASE) && range.cashierId == null) purchases(range, all);
-        if (types.contains(Type.ADJUSTMENT)) adjustments(range, all);
+        if (types.contains(Type.ADJUSTMENT) || types.contains(Type.OPENING_STOCK)) adjustments(range, types, all);
         if (types.contains(Type.COUNT)) counts(range, all);
         if (range.productId == null) {
             if (types.contains(Type.CASH_IN) || types.contains(Type.CASH_OUT)) cash(range, types, all);
@@ -116,7 +118,7 @@ public class JournalService {
 
     private void purchases(Range r, List<Entry> out) {
         String jpql = """
-                select inv.id, inv.invoiceDate, inv.invoiceNumber, inv.totalAmount, coalesce(sup.name, inv.company), size(inv.items)
+                select inv.id, inv.invoiceDate, inv.invoiceNumber, inv.totalAmount, coalesce(sup.name, inv.company), size(inv.items), inv.createdAt
                 from PurchaseInvoice inv left join inv.supplier sup
                 where inv.invoiceDate >= :fromDay and inv.invoiceDate <= :toDay"""
                 + r.product("exists (select 1 from PurchaseItem x where x.invoice = inv and x.product.id = :productId)");
@@ -126,20 +128,24 @@ public class JournalService {
             query.setParameter("productId", r.productId);
         }
         for (Object[] row : query.getResultList()) {
-            out.add(new Entry(Type.PURCHASE, ((LocalDate) row[1]).atStartOfDay(), (String) row[2], (String) row[4], null, null, null,
+            out.add(new Entry(Type.PURCHASE, PurchaseInvoice.movementTime((LocalDate) row[1], (LocalDateTime) row[6]), (String) row[2], (String) row[4], null, null, null,
                     ((Number) row[5]).intValue(), null, null, negate((BigDecimal) row[3]), null, null, (Long) row[0]));
         }
     }
 
-    /** Adjustments by hand; those made by an inventory count are shown as one count. */
-    private void adjustments(Range r, List<Entry> out) {
+    /** Adjustments by hand and opening stock of new products; those made by an inventory count are shown as one count. */
+    private void adjustments(Range r, Set<Type> types, List<Entry> out) {
         String jpql = """
-                select a.id, a.createdAt, a.reason, a.quantityChange, a.note, c.fullName, p.id, p.name, p.purchasePrice
+                select a.id, a.createdAt, a.reason, a.quantityChange, a.note, c.fullName, p.id, p.name, coalesce(a.unitCost, p.purchasePrice)
                 from StockAdjustment a join a.product p left join a.cashier c
                 where a.inventoryCountId is null and a.createdAt >= :from and a.createdAt <= :to""" + r.cashier("c") + r.product("p.id = :productId");
         for (Object[] row : r.run(entityManager.createQuery(jpql, Object[].class))) {
             BigDecimal change = (BigDecimal) row[3];
-            out.add(new Entry(Type.ADJUSTMENT, (LocalDateTime) row[1], String.valueOf(row[2]), null, (Long) row[6], (String) row[7],
+            Type type = row[2] == StockAdjustment.Reason.OPENING_STOCK ? Type.OPENING_STOCK : Type.ADJUSTMENT;
+            if (!types.contains(type)) {
+                continue;
+            }
+            out.add(new Entry(type, (LocalDateTime) row[1], String.valueOf(row[2]), null, (Long) row[6], (String) row[7],
                     change, null, (String) row[4], (String) row[5], money(change.multiply((BigDecimal) row[8])), null, null, (Long) row[0]));
         }
     }
@@ -148,7 +154,7 @@ public class JournalService {
         String jpql = """
                 select ic.id, ic.finishedAt, ic.note, c.fullName,
                        (select count(a) from StockAdjustment a where a.inventoryCountId = ic.id),
-                       (select coalesce(sum(a.quantityChange * a.product.purchasePrice), 0) from StockAdjustment a where a.inventoryCountId = ic.id)
+                       (select coalesce(sum(a.quantityChange * coalesce(a.unitCost, a.product.purchasePrice)), 0) from StockAdjustment a where a.inventoryCountId = ic.id)
                 from InventoryCount ic left join ic.finishedBy c
                 where ic.status = com.supermarket.model.InventoryCount.Status.APPLIED
                   and ic.finishedAt >= :from and ic.finishedAt <= :to""" + r.cashier("c")
@@ -290,7 +296,7 @@ public class JournalService {
         for (Entry e : all) {
             Object[] day = days.computeIfAbsent(e.at().toLocalDate(), d -> new Object[] {0L, BigDecimal.ZERO, BigDecimal.ZERO});
             day[0] = (Long) day[0] + 1;
-            boolean money = e.amount() != null && e.type() != Type.ADJUSTMENT && e.type() != Type.COUNT;
+            boolean money = e.amount() != null && e.type() != Type.ADJUSTMENT && e.type() != Type.COUNT && e.type() != Type.OPENING_STOCK;
             if (money && e.amount().signum() > 0) {
                 day[1] = ((BigDecimal) day[1]).add(e.amount());
             } else if (money) {

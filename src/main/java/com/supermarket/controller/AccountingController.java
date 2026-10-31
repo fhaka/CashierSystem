@@ -94,6 +94,7 @@ public class AccountingController {
         rows.add(new Object[] {});
         rows.add(new Object[] {text("accounting.stockAtStart"), m.stockAtStart().valueWithoutVat(), null});
         rows.add(new Object[] {text("accounting.purchases"), m.purchases().base(), null});
+        rows.add(new Object[] {text("accounting.openingStock"), m.openingStock(), null});
         rows.add(new Object[] {text("accounting.stockAtEnd"), m.stockAtEnd().valueWithoutVat(), null});
         return new SheetData(text("accounting.sheet.profitAndLoss"),
                 List.of("", c.from().format(DATE) + " - " + c.to().format(DATE), p.from().format(DATE) + " - " + p.to().format(DATE)), rows);

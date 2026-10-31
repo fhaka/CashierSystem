@@ -82,7 +82,23 @@ public class AccountingService {
     @Transactional(readOnly = true)
     public Month month(YearMonth month) {
         return new Month(month.toString(), new ProfitAndLossCompare(profitAndLoss(month), profitAndLoss(month.minusMonths(1))),
-                salesBook(month), purchaseBook(month), stockValue(month.atEndOfMonth()), stockValue(month.atDay(1).minusDays(1)));
+                salesBook(month), purchaseBook(month), stockValue(month.atEndOfMonth()), stockValue(month.atDay(1).minusDays(1)),
+                openingStockEntered(month));
+    }
+
+    /** Opening stock of the products created in the month, at cost without VAT: goods that came in without a purchase invoice. */
+    @Transactional(readOnly = true)
+    public BigDecimal openingStockEntered(YearMonth month) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (Object[] r : entityManager.createQuery("""
+                        select a.quantityChange, coalesce(a.unitCost, p.purchasePrice), p.taxRate
+                        from StockAdjustment a join a.product p where a.createdAt >= :from and a.createdAt <= :to
+                          and a.reason = com.supermarket.model.StockAdjustment.Reason.OPENING_STOCK""", Object[].class)
+                .setParameter("from", month.atDay(1).atStartOfDay()).setParameter("to", month.atEndOfMonth().atTime(LocalTime.MAX))
+                .getResultList()) {
+            total = total.add(((BigDecimal) r[0]).multiply(costWithoutVat((BigDecimal) r[1], (BigDecimal) r[2])));
+        }
+        return money(total);
     }
 
     // --- Profit and loss -----------------------------------------------------------------------------------------
@@ -93,11 +109,13 @@ public class AccountingService {
         LocalDate to = month.atEndOfMonth();
         Analytics.Kpis k = analyticsService.analyze(from, to).kpis();
 
-        // Stock that left the shelf without being sold, and count differences, at today's cost of each product.
+        // Stock that left the shelf without being sold, and count differences, at the cost of that day (today's cost for
+        // adjustments made before 1.4). The opening stock of new products is not a loss.
         Map<String, BigDecimal[]> losses = new LinkedHashMap<>();
         for (Object[] r : entityManager.createQuery("""
-                        select a.reason, a.inventoryCountId, a.quantityChange, p.purchasePrice, p.taxRate
-                        from StockAdjustment a join a.product p where a.createdAt >= :from and a.createdAt <= :to""", Object[].class)
+                        select a.reason, a.inventoryCountId, a.quantityChange, coalesce(a.unitCost, p.purchasePrice), p.taxRate
+                        from StockAdjustment a join a.product p where a.createdAt >= :from and a.createdAt <= :to
+                          and a.reason <> com.supermarket.model.StockAdjustment.Reason.OPENING_STOCK""", Object[].class)
                 .setParameter("from", from.atStartOfDay()).setParameter("to", to.atTime(LocalTime.MAX)).getResultList()) {
             StockAdjustment.Reason reason = (StockAdjustment.Reason) r[0];
             String key = r[1] != null || reason == StockAdjustment.Reason.COUNT_CORRECTION ? "COUNT" : reason.name();

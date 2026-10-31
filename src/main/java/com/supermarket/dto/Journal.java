@@ -14,7 +14,7 @@ public final class Journal {
     /** Kinds of operation. */
     public enum Type {
         SALE, REFUND, PURCHASE, ADJUSTMENT, COUNT, CASH_IN, CASH_OUT, SUPPLIER_PAYMENT, DEBT_PAYMENT, SHIFT_OPEN, SHIFT_CLOSE,
-        PRICE_CHANGE, EXPENSE
+        PRICE_CHANGE, EXPENSE, OPENING_STOCK
     }
 
     /**

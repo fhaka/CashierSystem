@@ -1885,6 +1885,7 @@ const JOURNAL_TYPES = {
   DEBT_PAYMENT: { label: 'Debt payment', icon: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>' },
   SHIFT_OPEN: { label: 'Shift opened', icon: '<polygon points="5 3 19 12 5 21 5 3"/>' },
   SHIFT_CLOSE: { label: 'Shift closed', icon: '<rect x="5" y="5" width="14" height="14" rx="1"/>' },
+  OPENING_STOCK: { label: 'Opening stock', icon: '<path d="M12 2v20"/><path d="M5 9l7-7 7 7"/><rect x="3" y="18" width="18" height="4" rx="1"/>' },
   EXPENSE: { label: 'Expense', icon: '<path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/>' },
   PRICE_CHANGE: { label: 'Price change', icon: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><line x1="7" y1="7" x2="7.01" y2="7"/>' }
 };
@@ -2003,6 +2004,7 @@ function journalText(e) {
     case 'REFUND': return [`${e.number} · ${t('for invoice')} ${e.counterparty || ''}`, e.note];
     case 'PURCHASE': return [`${e.counterparty || ''} · ${e.number}`, t('{count} lines', { count: e.lines })];
     case 'ADJUSTMENT': return [`${e.productName} · ${parseFloat(e.quantity) > 0 ? '+' : ''}${parseFloat(e.quantity)}`, [t(ADJUST_REASONS[e.number] || e.number), e.note].filter(Boolean).join(' · ')];
+    case 'OPENING_STOCK': return [`${e.productName} · +${parseFloat(e.quantity)}`, e.note || ''];
     case 'COUNT': return [`${t('Stock count')} ${e.number}`, [t('{count} products changed', { count: e.lines }), e.note].filter(Boolean).join(' · ')];
     case 'CASH_IN': case 'CASH_OUT': return [e.note, ''];
     case 'SUPPLIER_PAYMENT': return [e.counterparty, e.note];
@@ -3217,7 +3219,7 @@ async function cancelCount() {
 
 /* Stock adjustment from the product list */
 const ADJUST_REASONS = { DAMAGED: 'Damaged', EXPIRED: 'Expired', LOST: 'Lost / stolen', INTERNAL_USE: 'Internal use',
-  COUNT_CORRECTION: 'Stock count', OTHER: 'Other' };
+  COUNT_CORRECTION: 'Stock count', OTHER: 'Other', OPENING_STOCK: 'Opening stock' };
 
 async function openAdjust(productId) {
   const p = allProdTable.find(x => x.id === productId) || (productCard?.product.id === productId ? productCard.product : null);
@@ -4485,8 +4487,9 @@ function renderProfitAndLoss() {
         <dl class="kr-dl">
           <dt>${t('Stock at the start')} (${formatDay(stock.stockAtStart.at)})</dt><dd>${fmtLek(stock.stockAtStart.valueWithoutVat)}</dd>
           <dt>+ ${t('Purchases')}</dt><dd>${fmtLek(stock.purchases.base)}</dd>
+          <dt>+ ${t('Opening stock of new products')}</dt><dd>${fmtLek(stock.openingStock)}</dd>
           <dt>− ${t('Stock at the end')} (${formatDay(stock.stockAtEnd.at)})</dt><dd>${fmtLek(stock.stockAtEnd.valueWithoutVat)}</dd>
-          <dt><strong>= ${t('Goods used')}</strong></dt><dd><strong>${fmtLek(parseFloat(stock.stockAtStart.valueWithoutVat) + parseFloat(stock.purchases.base) - parseFloat(stock.stockAtEnd.valueWithoutVat))}</strong></dd>
+          <dt><strong>= ${t('Goods used')}</strong></dt><dd><strong>${fmtLek(parseFloat(stock.stockAtStart.valueWithoutVat) + parseFloat(stock.purchases.base) + parseFloat(stock.openingStock) - parseFloat(stock.stockAtEnd.valueWithoutVat))}</strong></dd>
           <dt class="t-muted">${t('Cost of goods sold + stock losses')}</dt><dd class="t-muted">${fmtLek(parseFloat(c.costOfGoods) + parseFloat(c.stockLossTotal))}</dd>
         </dl>
         <p class="input-hint">${t('The two numbers are close when every delivery is entered as a purchase invoice. A big difference means goods came in or went out without being recorded.')}</p>

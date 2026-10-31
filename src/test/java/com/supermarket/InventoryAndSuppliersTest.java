@@ -113,7 +113,11 @@ class InventoryAndSuppliersTest extends IntegrationTest {
                 .andExpect(status().isBadRequest());
 
         assertThat(stock(p)).isEqualByComparingTo("8");
-        assertThat(data(getJson("/inventory/adjustments?productId=" + p, admin))).hasSize(1);
+        // The opening stock of the new product, then the damaged bottles.
+        assertThat(data(getJson("/inventory/adjustments?productId=" + p, admin)).findValuesAsText("reason"))
+                .containsExactlyInAnyOrder("OPENING_STOCK", "DAMAGED");
+        postJson("/inventory/adjustments", admin, Map.of("productId", p, "quantityChange", "1", "reason", "OPENING_STOCK"))
+                .andExpect(jsonPath("$.code").value("stock.countReasonReserved"));
         assertThat(jdbc.queryForObject("SELECT details FROM audit_events WHERE action = 'STOCK_ADJUSTED'", String.class))
                 .contains("-2 DAMAGED - Shishe e thyer");
     }
@@ -291,6 +295,7 @@ class InventoryAndSuppliersTest extends IntegrationTest {
         mvc.perform(post("/products/import").header("X-Auth-Token", admin)
                 .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8)).content(upload.getBytes(StandardCharsets.UTF_8)))
                 .andExpect(status().isOk());
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM stock_adjustments WHERE product_id = ?", Integer.class, p)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM stock_adjustments WHERE product_id = ? AND reason <> 'OPENING_STOCK'",
+                Integer.class, p)).isEqualTo(1);
     }
 }

@@ -2254,11 +2254,13 @@ function openProdModal(prod, barcodePrefill, forPurchase = false) {
   $('pm-tax').value    = prod?.taxRate ?? '20';
   $('pm-unit').value   = prod?.unit || 'pcs';
   $('pm-price').value  = prod?.price || '';
-  $('pm-stock').value  = prodModalForPurchase ? '0' : (prod?.stock ?? '');
-  $('pm-stock').disabled = editing || prodModalForPurchase;
-  $('pm-stock-hint').textContent = editing ? t('Change the stock with the "Stock" button (a reason is recorded).')
-    : prodModalForPurchase ? t('The stock comes from this purchase invoice.') : '';
-  $('pm-stock-hint').classList.toggle('hidden', !editing && !prodModalForPurchase);
+  // A new product starts with no stock: its goods come in with the supplier's invoice in Purchases (or the Stock
+  // button), so a quantity typed here would be counted twice. When editing, the stock is only shown.
+  $('pm-stock-group').classList.toggle('hidden', !editing);
+  $('pm-stock').value  = editing ? prod.stock : '';
+  $('pm-stock').disabled = true;
+  $('pm-stock-hint').textContent = t('Change the stock with the "Stock" button (a reason is recorded).');
+  $('pm-stock-hint').classList.toggle('hidden', !editing);
   $('pm-min').value    = prod?.minStock ?? '';
   $('pm-reorder').value = prod?.reorderQuantity ?? '';
   $('pm-content').value = prod?.contentAmount ?? '';
@@ -2275,14 +2277,14 @@ async function submitProd() {
     taxRate:      parseFloat($('pm-tax').value),
     unit:         $('pm-unit').value,
     price:        parseFloat($('pm-price').value),
-    stock:        id ? null : parseQuantity($('pm-stock').value || '0'),
+    stock:        id ? null : 0,
     categoryName: $('pm-cat').value,
     minStock:     $('pm-min').value === '' ? null : parseQuantity($('pm-min').value),
     reorderQuantity: $('pm-reorder').value === '' ? null : parseQuantity($('pm-reorder').value),
     contentAmount: $('pm-content').value === '' ? null : parseFloat($('pm-content').value),
     contentUnit: $('pm-content-unit').value || null,
   };
-  if (!body.name || !body.barcode || isNaN(body.purchasePrice) || isNaN(body.taxRate) || isNaN(body.price) || (!id && isNaN(body.stock))) {
+  if (!body.name || !body.barcode || isNaN(body.purchasePrice) || isNaN(body.taxRate) || isNaN(body.price)) {
     toast(t('Please fill in all required fields'), 'error'); return;
   }
   try {

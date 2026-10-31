@@ -48,7 +48,7 @@ public class StockService {
     @Transactional
     public StockAdjustment adjust(AdjustmentRequest request, Cashier actor) {
         StockAdjustment.Reason reason = parseReason(request.reason());
-        if (reason == StockAdjustment.Reason.COUNT_CORRECTION) {
+        if (reason == StockAdjustment.Reason.COUNT_CORRECTION || reason == StockAdjustment.Reason.OPENING_STOCK) {
             throw new ValidationException("stock.countReasonReserved");
         }
         if (request.quantityChange() == null || request.quantityChange().signum() == 0) {
@@ -79,6 +79,14 @@ public class StockService {
         }
     }
 
+    /** A new product's stock is recorded as its opening stock, so its history starts at zero. */
+    @Transactional
+    public void openingStock(Product product, BigDecimal stock, Cashier actor) {
+        if (stock != null && stock.signum() > 0) {
+            apply(product, stock, StockAdjustment.Reason.OPENING_STOCK, null, null, actor);
+        }
+    }
+
     /** Changes the stock of a locked product and records why. Used by adjustments and stock counts. */
     StockAdjustment apply(Product product, BigDecimal change, StockAdjustment.Reason reason, String note, Long countId, Cashier actor) {
         BigDecimal newStock = product.getStock().add(change);
@@ -88,7 +96,7 @@ public class StockService {
         product.setStock(newStock);
         StockAdjustment adjustment = adjustmentRepository.save(new StockAdjustment(product, actor, change, reason,
                 note == null || note.isBlank() ? null : note.trim(), countId, LocalDateTime.now()));
-        if (countId == null) {
+        if (countId == null && reason != StockAdjustment.Reason.OPENING_STOCK) {
             auditService.record(actor, "STOCK_ADJUSTED", "PRODUCT", product.getId(), product.getName() + ": "
                     + (change.signum() > 0 ? "+" : "") + change.stripTrailingZeros().toPlainString() + " " + reason
                     + (adjustment.getNote() == null ? "" : " - " + adjustment.getNote()));

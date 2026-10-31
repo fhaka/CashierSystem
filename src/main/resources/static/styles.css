@@ -1047,3 +1047,4 @@ em.out, .jr-amount.out { color: #B91C1C; }
   body.print-accounting .kr-card, body.print-accounting .jr-card { break-inside: avoid; margin-bottom: 10px; }
   body.print-accounting .ac-book, body.print-accounting .kr-table { max-height: none !important; overflow: visible !important; }
 }
+.jt-OPENING_STOCK { --c: #0D9488; }

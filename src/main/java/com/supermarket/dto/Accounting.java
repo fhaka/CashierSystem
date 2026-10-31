@@ -70,8 +70,8 @@ public final class Accounting {
                              BigDecimal valueWithoutVat) {
     }
 
-    /** Everything for one month in one answer. */
+    /** Everything for one month in one answer. openingStock: stock new products were created with, at cost without VAT. */
     public record Month(String month, ProfitAndLossCompare profitAndLoss, SalesBook sales, PurchaseBook purchases,
-                        StockValue stockAtEnd, StockValue stockAtStart) {
+                        StockValue stockAtEnd, StockValue stockAtStart, BigDecimal openingStock) {
     }
 }

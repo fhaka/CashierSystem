@@ -1027,40 +1027,117 @@ function initPurchasePage() {
     $('purchase-date').value = new Date().toISOString().slice(0, 10);
   }
   renderPurchaseRows();
+  focusPurchaseScan();
+}
+
+function focusPurchaseScan() {
+  if ($('view-purchases').classList.contains('on')) $('purchase-scan')?.focus();
+}
+
+/* The scan bar works like the till's: a barcode (or "12*barcode" for 12 pieces) and Enter adds it; a name shows
+   the matching products, the arrows choose one and Enter adds it. */
+let purchaseResults = [];
+let purchaseResultIndex = -1;
+let purchaseSearchTimer;
+
+function onPurchaseSearch(value) {
+  clearTimeout(purchaseSearchTimer);
+  const text = value.trim();
+  if (!text || /^(\d+([.,]\d+)?\*)?\d*$/.test(text)) { hidePurchaseResults(); return; }
+  const name = text.replace(/^\d+([.,]\d+)?\*/, '').trim();
+  if (!name) { hidePurchaseResults(); return; }
+  purchaseSearchTimer = setTimeout(async () => {
+    try {
+      const res = await req('GET', `/products/search?query=${encodeURIComponent(name)}`);
+      if ($('purchase-scan').value.trim() !== text) return;
+      purchaseResults = (Array.isArray(res.data) ? res.data : []).filter(p => p.active !== false).slice(0, 12);
+      purchaseResultIndex = purchaseResults.length ? 0 : -1;
+      renderPurchaseResults();
+    } catch (e) { toast(e.message, 'error'); }
+  }, 250);
+}
+
+function renderPurchaseResults() {
+  const box = $('purchase-results');
+  box.innerHTML = purchaseResults.length ? purchaseResults.map((p, i) => `
+    <div class="sr-item ${i === purchaseResultIndex ? 'on' : ''}" onmousedown="event.preventDefault(); pickPurchaseResult(${i})">
+      <span class="sr-main"><span class="sr-name">${esc(p.name)}</span><span class="sr-code">${esc(p.barcode || '')}</span></span>
+      <span class="sr-stock">${fmtQty(p.stock, p.unit)} ${esc(unitLabel(p.unit))}</span>
+      <span class="sr-price">${fmt(p.purchasePrice)}</span>
+    </div>`).join('') : `<div class="sr-empty">${t('No products found')}</div>`;
+  box.classList.remove('hidden');
+}
+
+function hidePurchaseResults() {
+  purchaseResults = [];
+  purchaseResultIndex = -1;
+  $('purchase-results')?.classList.add('hidden');
+}
+
+/* "12*" typed before a barcode or a name adds that many. */
+function purchaseQuantityPrefix(text) {
+  const m = text.match(/^(\d+(?:[.,]\d+)?)\*/);
+  return m ? parseQuantity(m[1]) : 1;
+}
+
+function pickPurchaseResult(index) {
+  const product = purchaseResults[index];
+  if (!product) return;
+  const quantity = purchaseQuantityPrefix($('purchase-scan').value.trim());
+  hidePurchaseResults();
+  $('purchase-scan').value = '';
+  addPurchaseProduct(product, null, quantity);
+  focusPurchaseScan();
 }
 
 function handlePurchaseScanKey(event) {
-  if (event.key !== 'Enter') return;
-  event.preventDefault();
-  scanPurchaseField();
-}
-
-function scanPurchaseField() {
-  const query = $('purchase-scan')?.value.trim();
-  if (!query) {
-    toast(t('Enter or scan a barcode first'), 'error');
+  const open = !$('purchase-results').classList.contains('hidden') && purchaseResults.length;
+  if (open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    event.preventDefault();
+    purchaseResultIndex = (purchaseResultIndex + (event.key === 'ArrowDown' ? 1 : -1) + purchaseResults.length) % purchaseResults.length;
+    renderPurchaseResults();
     return;
   }
-  addPurchaseByBarcode(query);
-  $('purchase-scan').value = '';
+  if (event.key === 'Escape' && open) {
+    event.stopPropagation();
+    hidePurchaseResults();
+    return;
+  }
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  clearTimeout(purchaseSearchTimer);
+  const text = event.target.value.trim();
+  if (!text) return;
+  const code = text.match(/^(?:(\d+(?:[.,]\d+)?)\*)?(\d{3,})$/);
+  if (code) {
+    hidePurchaseResults();
+    event.target.value = '';
+    addPurchaseByBarcode(code[2], code[1] ? parseQuantity(code[1]) : 1);
+  } else if (open && purchaseResultIndex >= 0) {
+    pickPurchaseResult(purchaseResultIndex);
+  }
 }
 
-async function addPurchaseByBarcode(barcode) {
+async function addPurchaseByBarcode(barcode, quantity = 1) {
+  let found;
   try {
-    const res = await req('GET', `/products/scan/${encodeURIComponent(barcode)}`);
-    addPurchaseProduct(res.data.product, res.data.packageInfo);
-    toast(t('Product added to purchase invoice'), 'success');
+    found = (await req('GET', `/products/scan/${encodeURIComponent(barcode)}`)).data;
   } catch (e) {
+    // Not in the shop yet: register it (Enter saves), then it is added to this invoice.
     toast(t('New product: register it, then it is added to this invoice.'), 'info');
     openProdModal(null, barcode, true);
+    return;
   }
+  addPurchaseProduct(found.product, found.packageInfo, quantity);
+  toast(t('Product added to purchase invoice'), 'success');
+  focusPurchaseScan();
 }
 
 /* A line of single pieces, or of boxes (box given): then quantity counts boxes and the purchase price is per box. */
-function addPurchaseProduct(product, box = null) {
+function addPurchaseProduct(product, box = null, quantity = 1) {
   const existing = purchaseItems.find(item => item.productId === product.id && (item.packageId || null) === (box?.id || null));
   if (existing) {
-    existing.quantity += 1;
+    existing.quantity += quantity;
   } else {
     purchaseItems.push({
       productId: product.id,
@@ -1071,7 +1148,7 @@ function addPurchaseProduct(product, box = null) {
       name: product.name,
       category: product.category?.name || 'General',
       unit: product.unit || 'pcs',
-      quantity: 1,
+      quantity,
       purchasePrice: parseFloat(product.purchasePrice || 0) * (box?.pieces || 1),
       taxRate: parseFloat(product.taxRate || 20),
       sellingPrice: parseFloat(product.price || 0),
@@ -1101,8 +1178,8 @@ function renderPurchaseRows() {
           <option value="kg" ${item.unit === 'kg' ? 'selected' : ''}>kg</option>
         </select>`}
       </td>
-      <td><input class="input purchase-cell" type="number" min="0" step="${item.unit === 'kg' ? '0.001' : '1'}" value="${item.quantity}" onchange="updatePurchaseItem(${index}, 'quantity', this.value)" /></td>
-      <td><input class="input purchase-cell" type="number" min="0" step="0.01" value="${item.purchasePrice}" onchange="updatePurchaseItem(${index}, 'purchasePrice', this.value)" /></td>
+      <td><input class="input purchase-cell" type="number" min="0" step="${item.unit === 'kg' ? '0.001' : '1'}" value="${item.quantity}" data-pi="${index}" data-pf="quantity" onchange="updatePurchaseItem(${index}, 'quantity', this.value)" onkeydown="purchaseCellKey(event, ${index}, 'quantity')" /></td>
+      <td><input class="input purchase-cell" type="number" min="0" step="0.01" value="${item.purchasePrice}" data-pi="${index}" data-pf="purchasePrice" onchange="updatePurchaseItem(${index}, 'purchasePrice', this.value)" onkeydown="purchaseCellKey(event, ${index}, 'purchasePrice')" /></td>
       <td>
         <select class="input purchase-cell" onchange="updatePurchaseItem(${index}, 'taxRate', this.value)">
           <option value="20" ${Number(item.taxRate) === 20 ? 'selected' : ''}>20%</option>
@@ -1130,6 +1207,15 @@ function updatePurchaseItem(index, field, value) {
     item[field] = value;
   }
   renderPurchaseRows();
+}
+
+/* Enter in a line: from the quantity to the purchase price, then back to the scan bar for the next product. */
+function purchaseCellKey(event, index, field) {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  updatePurchaseItem(index, field, event.target.value);
+  const next = field === 'quantity' ? document.querySelector(`[data-pi="${index}"][data-pf="purchasePrice"]`) : null;
+  if (next) { next.focus(); next.select(); } else focusPurchaseScan();
 }
 
 function removePurchaseItem(index) {
@@ -1441,6 +1527,7 @@ let kartelaId = null;
 let kartelaPeriod = 90;
 let kartelaAnalysis = null;
 let kartelaMoves = [];
+let kartelaTab = 'kr-sales';
 
 /* Magazina rows, boxes and labels open the Kartela. */
 function openProductCard(productId) {
@@ -1602,8 +1689,11 @@ function setKartelaPeriod(days) {
   loadKartela(kartelaId, true);
 }
 
-function scrollKartela(id) {
-  $(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+/* One part of the Kartela at a time, like a page of its own; the tab stays when another product is opened. */
+function showKartelaTab(id) {
+  kartelaTab = id;
+  document.querySelectorAll('#kr-page .tab-nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === id));
+  document.querySelectorAll('#kr-page .kr-grid > section').forEach(sec => sec.classList.toggle('hidden', (sec.dataset.kr || sec.id) !== id));
 }
 
 function cardBoxPrice(box) {
@@ -1659,8 +1749,6 @@ function renderKartela() {
       </div>
     </section>
 
-    <nav class="kr-nav">${KARTELA_SECTIONS.map(([id, label]) => `<button onclick="scrollKartela('${id}')">${t(label)}</button>`).join('')}</nav>
-
     <section class="kr-kpis">
       ${kpi(t('Stock'), `${fmtQty(p.stock, p.unit)} ${esc(unitLabel(p.unit))}`,
         biggest && stock >= biggest.pieces ? esc('= ' + t('{count} x {box}', { count: Math.floor(stock / biggest.pieces), box: biggest.name })) : '',
@@ -1681,6 +1769,8 @@ function renderKartela() {
       <div class="seg">${[30, 90, 365].map(d => `<button class="btn btn-secondary btn-sm ${d === a.days ? 'on' : ''}" onclick="setKartelaPeriod(${d})">${t('{days} days', { days: d })}</button>`).join('')}</div>
     </div>
 
+    <nav class="tab-nav">${KARTELA_SECTIONS.map(([id, label]) => `<button data-tab="${id}" onclick="showKartelaTab('${id}')">${t(label)}</button>`).join('')}</nav>
+
     <div class="kr-grid">
       <section class="kr-card kr-wide" id="kr-sales">
         <header><h2>${t('Sales')}</h2><p>${t('Quantity sold per day')} · ${period}</p></header>
@@ -1694,13 +1784,13 @@ function renderKartela() {
         ${axisDays(a.stock.map(s => s.day))}
       </section>
 
-      <section class="kr-card">
+      <section class="kr-card" data-kr="kr-sales">
         <header><h2>${t('Sales by weekday')}</h2><p>${period}</p></header>
         ${svgBars(a.byWeekday.map((v, i) => ({ value: parseFloat(v), title: `${t(WEEKDAYS_SHORT[i])}: ${fmtQty(v, p.unit)}` })), 120, true)}
         <div class="kr-axis even">${WEEKDAYS_SHORT.map(d => `<span>${t(d)}</span>`).join('')}</div>
       </section>
 
-      <section class="kr-card">
+      <section class="kr-card" data-kr="kr-sales">
         <header><h2>${t('Sales by hour')}</h2><p>${t('Busiest hours are darker')}</p></header>
         ${heatHours(a.byHour, p.unit)}
       </section>
@@ -1790,6 +1880,7 @@ function renderKartela() {
           </li>`).join('')}</ol>` : `<p class="no-data">-</p>`}
       </section>
     </div>`;
+  showKartelaTab(kartelaTab);
   filterKartelaMoves();
 }
 
@@ -2266,6 +2357,7 @@ function openProdModal(prod, barcodePrefill, forPurchase = false) {
   $('pm-content').value = prod?.contentAmount ?? '';
   $('pm-content-unit').value = prod?.contentUnit || '';
   openModal('modal-prod');
+  setTimeout(() => $('pm-name').focus(), 50);
 }
 
 async function submitProd() {
@@ -2302,6 +2394,7 @@ async function submitProd() {
     closeModal('modal-prod');
     prodModalForPurchase = false;
     loadProdsTable();
+    focusPurchaseScan();
   } catch (e) { toast(e.message || t('Save failed'), 'error'); }
 }
 
@@ -2534,6 +2627,7 @@ function exportSalesExcel() {
 
 /*  Reports: calculated on the server for the chosen period  */
 let analytics = null;
+let reportTab = 'overview';
 let reportProductMode = 'top';
 
 function reportRange() {
@@ -2610,6 +2704,14 @@ function revenueSeries() {
     months.set(key, (months.get(key) || 0) + parseFloat(d.revenue));
   });
   return Array.from(months.entries()).map(([key, value]) => ({ label: formatMonthYear(new Date(key + '-01T00:00:00')), value }));
+}
+
+/* One part of the reports at a time. Charts are drawn again when shown, since a hidden chart has no size. */
+function showReportTab(tab) {
+  reportTab = tab;
+  document.querySelectorAll('#report-tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  document.querySelectorAll('#view-reports [data-rp]').forEach(sec => sec.classList.toggle('hidden', sec.dataset.rp !== tab));
+  if (analytics) renderReportCharts();
 }
 
 function renderReportCharts() {
@@ -4030,6 +4132,20 @@ document.addEventListener('keydown', e => {
   }
   if (overlay?.id === 'modal-receipt') {
     if (e.key === 'Enter') { e.preventDefault(); printReceipt(); }
+    return;
+  }
+  if (overlay?.id === 'modal-prod') {
+    // Enter goes to the next empty required field (a scanner ends the barcode with Enter), and saves when all are filled.
+    if (e.key === 'Enter' && !['TEXTAREA', 'BUTTON'].includes(e.target.tagName)) {
+      e.preventDefault();
+      const empty = ['pm-name', 'pm-barcode', 'pm-purchase', 'pm-price'].map(id => $(id)).find(el => !el.value.trim());
+      if (empty) empty.focus(); else submitProd();
+    }
+    return;
+  }
+  if (!overlay && currentUser && $('view-purchases').classList.contains('on')) {
+    const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName);
+    if (!typing && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) $('purchase-scan').focus();
     return;
   }
   if (overlay || !currentUser || !$('view-pos').classList.contains('on')) return;
